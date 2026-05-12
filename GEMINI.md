@@ -114,11 +114,13 @@
 
 ## Git & Commit Standards
 - **Conventional Commits:** Follow the `type(scope): description` format.
+- **Workflow:**
+  - Commit directly to `main` for single-task, direct updates.
+  - For complex tasks or phases requiring multiple reviews, use a feature branch (e.g., `feat/phase-2-auth`).
+  - **Squash on Completion:** When a multi-step task is finished and verified, perform a squash commit into `main` to maintain a clean, high-signal history.
 - **Examples:**
   - `feat(sync): implement offline outbox queue`
   - `fix(pwa): resolve offline cache invalidation`
-  - `refactor(db): simplify tariff snapshot handling`
-- **Logical Boundaries:** Propose logical commit points after significant sub-tasks.
 
 ## Review Mode Requirements
 After each phase, the agent must:
