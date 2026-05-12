@@ -1,0 +1,48 @@
+# Node dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build output (Vite / PWA)
+dist/
+dist-ssr/
+build/
+.pnp
+.pnp.js
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Environment Variables (CRITICAL for Supabase)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+# (Optional: allow committing an example file)
+!.env.example
+
+# Testing & Coverage
+coverage/
+
+# Editor & OS files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+Thumbs.db
+
+# Supabase Local Dev (if utilized later)
+supabase/.temp/
+supabase/dump/
+
+# AI / Security Agent Artifacts
+.gemini_security/
