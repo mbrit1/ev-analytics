@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { EVAnalyticsDB, ChargingSession } from './db'
+import { EVAnalyticsDB, type ChargingSession } from './db'
 import 'fake-indexeddb/auto'
 
 describe('EVAnalyticsDB', () => {

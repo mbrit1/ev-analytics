@@ -1,4 +1,4 @@
-import { db, SyncOutbox } from '../../../lib/db';
+import { db, type SyncOutbox, type Provider, type Tariff, type ChargingSession } from '../../../lib/db';
 import { supabase } from '../../../lib/supabase';
 
 /**
@@ -25,9 +25,18 @@ export async function processOutbox(): Promise<void> {
  */
 async function syncItem(item: SyncOutbox): Promise<boolean> {
   try {
-    const { error } = await supabase
-      .from(item.table_name)
-      .upsert(item.payload);
+    let error;
+
+    if (item.table_name === 'providers') {
+      const result = await supabase.from('providers').upsert(item.payload as Provider);
+      error = result.error;
+    } else if (item.table_name === 'tariffs') {
+      const result = await supabase.from('tariffs').upsert(item.payload as Tariff);
+      error = result.error;
+    } else if (item.table_name === 'sessions') {
+      const result = await supabase.from('sessions').upsert(item.payload as ChargingSession);
+      error = result.error;
+    }
 
     if (error) {
       console.error(`Sync error for table ${item.table_name}:`, error.message);
@@ -59,7 +68,9 @@ export async function initialSync(): Promise<void> {
       }
 
       if (data && data.length > 0) {
-        await (table as any).bulkPut(data);
+        if (tableName === 'providers') await db.providers.bulkPut(data);
+        if (tableName === 'tariffs') await db.tariffs.bulkPut(data);
+        if (tableName === 'sessions') await db.sessions.bulkPut(data);
       }
     }
   }

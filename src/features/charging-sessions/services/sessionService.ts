@@ -1,4 +1,4 @@
-import { db, ChargingSession } from '../../../lib/db';
+import { db, type ChargingSession } from '../../../lib/db';
 
 /**
  * Saves a charging session to the local database and creates a sync outbox entry.

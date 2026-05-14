@@ -79,7 +79,7 @@ describe('sessionService', () => {
         await db.sessions.put(sessionData);
         throw new Error('Simulated Failure');
       });
-    } catch (e) {
+    } catch {
       // Expected
     }
 

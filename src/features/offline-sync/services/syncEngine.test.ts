@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { db } from '../../../lib/db'
+import { db, type SyncPayload } from '../../../lib/db'
 import { processOutbox, initialSync } from './syncEngine'
 import { supabase } from '../../../lib/supabase'
 import 'fake-indexeddb/auto'
@@ -22,7 +22,7 @@ describe('syncEngine', () => {
 
   it('should process outbox items and upload to Supabase', async () => {
     // 1. Add item to outbox
-    const session = { id: 's1', user_id: 'u1', total_cost: 100 }
+    const session = { id: 's1', user_id: 'u1', total_cost: 100 } as SyncPayload
     await db.sync_outbox.add({
       table_name: 'sessions',
       action: 'INSERT',
@@ -44,13 +44,13 @@ describe('syncEngine', () => {
   it('should not delete outbox item if Supabase returns an error', async () => {
     // 1. Mock Supabase failure
     const mockUpsert = vi.fn(() => Promise.resolve({ error: { message: 'Network Error' } }))
-    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as any)
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
 
     // 2. Add item to outbox
     await db.sync_outbox.add({
       table_name: 'sessions',
       action: 'INSERT',
-      payload: { id: 's2' },
+      payload: { id: 's2' } as SyncPayload,
       timestamp: new Date()
     })
 
@@ -69,7 +69,7 @@ describe('syncEngine', () => {
     ]
 
     const mockSelect = vi.fn(() => Promise.resolve({ data: mockProviders, error: null }))
-    vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as any)
+    vi.mocked(supabase.from).mockReturnValue({ select: mockSelect } as unknown as ReturnType<typeof supabase.from>)
 
     await initialSync()
 

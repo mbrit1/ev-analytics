@@ -1,4 +1,4 @@
-import Dexie, { Table } from 'dexie';
+import Dexie, { type Table } from 'dexie';
 
 // Interfaces for the Domain-Optimized Schema
 export interface Provider {
@@ -52,11 +52,13 @@ export interface ChargingSession {
   deleted_at?: Date;
 }
 
+export type SyncPayload = Provider | Tariff | ChargingSession;
+
 export interface SyncOutbox {
   id?: number;
   table_name: 'providers' | 'tariffs' | 'sessions';
   action: 'INSERT' | 'UPDATE' | 'DELETE';
-  payload: any;
+  payload: SyncPayload;
   timestamp: Date;
 }
 
