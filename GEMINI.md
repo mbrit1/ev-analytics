@@ -115,9 +115,12 @@
 ## Git & Commit Standards
 - **Conventional Commits:** Follow the `type(scope): description` format.
 - **Workflow:**
-  - Commit directly to `main` for single-task, direct updates.
-  - For complex tasks or phases requiring multiple reviews, use a feature branch (e.g., `feat/phase-2-auth`).
-  - **Squash on Completion:** When a multi-step task is finished and verified, perform a squash commit into `main` to maintain a clean, high-signal history.
+  - **Feature Branches Required:** ALWAYS create a new feature branch for any code modification or new feature (e.g., `feat/phase-2-auth`).
+  - **Human Review Gate:** NEVER merge back to `main` without explicit human approval after a code review.
+  - **Merge Strategy:** 
+    - **Fast-Forward Preferred:** If the feature branch has a clean, logical commit history, prefer a fast-forward merge to `main`.
+    - **Squash with Purpose:** Squash ONLY if the individual commits do not represent distinct, valuable logical steps (e.g., "fix typo", "re-run test").
+    - **Conflict Resolution:** If a fast-forward is not possible, consult the user to decide between a standard merge commit or a rebase.
 - **Examples:**
   - `feat(sync): implement offline outbox queue`
   - `fix(pwa): resolve offline cache invalidation`

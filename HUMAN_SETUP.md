@@ -21,12 +21,12 @@ This document lists the manual steps required to set up the EV Analytics infrast
 3. **Database Setup:**
    * The SQL schema will be generated during Phase 2. You will need to copy it and run it in the Supabase SQL Editor.
 4. **Environment Variables:**
-   * Copy `Project URL` and `anon public` key.
+   * Copy `Project URL` and the **Publishable key** (starts with `sb_publishable_`).
    * Create a `.env.local` file in the root of this project and add them:
 
      ```env
      VITE_SUPABASE_URL=your_url
-     VITE_SUPABASE_ANON_KEY=your_key
+     VITE_SUPABASE_ANON_KEY=your_publishable_key
      ```
 
 ### 2. Initial User Creation

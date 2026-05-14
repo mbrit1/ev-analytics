@@ -22,7 +22,29 @@ This application replaces traditional spreadsheet workflows with a mobile-optimi
 
 ## 🏃 Quick Start (Development)
 
-*Detailed instructions will be added in Phase 1.*
+1. **Clone and Install:**
+   ```bash
+   git clone <repo-url>
+   cd ev-analytics
+   npm install
+   ```
+
+2. **Environment Setup:**
+   Create a `.env.local` file with your Supabase credentials:
+   ```env
+   VITE_SUPABASE_URL=your_supabase_url
+   VITE_SUPABASE_ANON_KEY=your_publishable_key
+   ```
+
+3. **Run Locally:**
+   ```bash
+   npm run dev
+   ```
+
+4. **Production Build:**
+   ```bash
+   npm run build
+   ```
 
 ## Restart AI Coding
 

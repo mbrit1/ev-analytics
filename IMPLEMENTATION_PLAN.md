@@ -18,15 +18,15 @@
 
 ## Phase 2: Core Infrastructure (Auth & Database)
 
-- [ ] Install `@supabase/supabase-js`
-- [ ] Supabase SQL Schema
+- [x] Install `@supabase/supabase-js`
+- [x] Supabase SQL Schema
   - **Table `providers`:** `id`, `name`, `created_at`
   - **Table `tariffs`:** `id`, `provider_id`, `tariff_name`, `ac_price_per_kwh`, `dc_price_per_kwh`, `session_fee`, `valid_from`, `valid_to`
   - **Table `charging_sessions`:** `id`, `session_timestamp`, `provider_id`, `tariff_id`, `charging_type` (AC/DC), `kwh_billed`, `total_cost`, `odometer_km` (nullable), `start_soc_percentage`, `end_soc_percentage`, `notes`
   - **Snapshots on `charging_sessions`:** `applied_ac_price_per_kwh`, `applied_dc_price_per_kwh`, `applied_session_fee`
-- [ ] Create ADR: `004-supabase-auth-and-rls.md`
-- [ ] Supabase Client & Auth Hook
-- [ ] Login Page (Single-user, sign-in only)
+- [x] Create ADR: `004-supabase-auth-and-rls.md`
+- [x] Supabase Client & Auth Hook
+- [x] Login Page (Single-user, sign-in only)
 - [ ] Seed Data script (Ionity, Elli, EnBW, Tesla; include AC/DC and legacy sessions)
 
 ## Phase 3: Offline Sync Engine & Storage
