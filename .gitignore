@@ -47,3 +47,8 @@ supabase/dump/
 # AI / Gemini Plugins
 .gemini_security/
 .superpowers/
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
