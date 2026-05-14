@@ -44,5 +44,6 @@ Thumbs.db
 supabase/.temp/
 supabase/dump/
 
-# AI / Security Agent Artifacts
+# AI / Gemini Plugins
 .gemini_security/
+.superpowers/
