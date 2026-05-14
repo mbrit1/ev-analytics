@@ -33,9 +33,9 @@
 
 - [x] Install `dexie`, `dexie-react-hooks`, and `@tanstack/react-query`
 - [x] Dexie.js Schema & Store initialization (TDD)
-- [ ] Outbox Sync Engine implementation (Background sync triggers)
-- [ ] Offline-aware API wrapper for Supabase
-- [x] Create ADR: `005-outbox-sync-strategy.md` (Already covered by Refined Design Spec)
+- [x] Outbox Sync Engine implementation (Background sync triggers)
+- [x] Offline-aware API wrapper for Supabase (via sessionService and syncEngine)
+- [x] Create ADR: `005-outbox-sync-strategy.md`
 
 ## Phase 4: Tariff & Session Management
 
