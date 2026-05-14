@@ -23,7 +23,7 @@ Phase 2 focuses on establishing the secure foundation of the application: Supaba
 *Objective: Connect the React frontend to the Supabase backend.*
 - **Action:** Ensure `@supabase/supabase-js` is installed (Already completed).
 - **Action:** Create `src/lib/supabase.ts` to export the initialized Supabase client.
-- **Action:** Define expected environment variables (`VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`) in a `.env.example` file.
+- **Action:** Define expected environment variables (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`) in a `.env.example` file.
 - **Verification:** Ensure the app compiles and the client instantiates without runtime errors.
 
 ### Chunk 2.3: Auth Provider & Hook

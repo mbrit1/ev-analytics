@@ -33,7 +33,7 @@ This application replaces traditional spreadsheet workflows with a mobile-optimi
    Create a `.env.local` file with your Supabase credentials:
    ```env
    VITE_SUPABASE_URL=your_supabase_url
-   VITE_SUPABASE_ANON_KEY=your_publishable_key
+   VITE_SUPABASE_PUBLISHABLE_KEY=your_publishable_key
    ```
 
 3. **Run Locally:**

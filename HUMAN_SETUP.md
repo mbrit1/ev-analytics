@@ -26,7 +26,7 @@ This document lists the manual steps required to set up the EV Analytics infrast
 
      ```env
      VITE_SUPABASE_URL=your_url
-     VITE_SUPABASE_ANON_KEY=your_publishable_key
+     VITE_SUPABASE_PUBLISHABLE_KEY=your_publishable_key
      ```
 
 ### 2. Initial User Creation
@@ -43,4 +43,4 @@ This document lists the manual steps required to set up the EV Analytics infrast
    * Build command: `npm run build`
    * Build output directory: `dist`
 3. Environment Variables:
-   * Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to the Cloudflare dashboard.
+   * Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` to the Cloudflare dashboard.

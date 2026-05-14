@@ -69,7 +69,7 @@ Records individual charging events.
 
 ## 4. Frontend Infrastructure
 - **Supabase Client:** Singleton exported from `src/lib/supabase.ts`.
-- **Environment:** Requires `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
+- **Environment:** Requires `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`.
 - **Auth Provider:** Wraps the application to provide `user` and `session` state.
 - **Login UI:** A dedicated feature component (`src/features/auth/components/LoginForm.tsx`) using Tailwind CSS.
 
