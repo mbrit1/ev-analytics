@@ -3,13 +3,16 @@ import Dexie, { Table } from 'dexie';
 // Interfaces for the Domain-Optimized Schema
 export interface Provider {
   id: string; // UUID from Supabase
+  user_id: string; // Required for RLS
   name: string;
   created_at: Date;
+  updated_at: Date;
   deleted_at?: Date;
 }
 
 export interface Tariff {
   id: string;
+  user_id: string; // Required for RLS
   provider_id: string;
   tariff_name: string;
   ac_price_per_kwh: number;
@@ -17,11 +20,13 @@ export interface Tariff {
   session_fee: number;
   valid_from: Date;
   valid_to?: Date;
+  updated_at: Date;
   deleted_at?: Date;
 }
 
 export interface ChargingSession {
   id: string;
+  user_id: string; // Required for RLS
   session_timestamp: Date;
   provider_id: string;
   provider_name: string; // Denormalized for UI
@@ -33,8 +38,8 @@ export interface ChargingSession {
   kwh_added?: number;
   total_cost: number;
   odometer_km?: number;
-  start_soc: number;
-  end_soc: number;
+  start_soc_percentage: number;
+  end_soc_percentage: number;
   notes?: string;
   
   // Snapshots
@@ -42,6 +47,7 @@ export interface ChargingSession {
   applied_dc_price: number;
   applied_session_fee: number;
   
+  created_at: Date;
   updated_at: Date;
   deleted_at?: Date;
 }

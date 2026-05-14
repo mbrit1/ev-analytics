@@ -4,6 +4,8 @@ CREATE TABLE providers (
     user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ,
     UNIQUE(user_id, name)
 );
 
@@ -25,7 +27,9 @@ CREATE TABLE tariffs (
     session_fee INTEGER NOT NULL DEFAULT 0, -- Stored in cents
     valid_from TIMESTAMPTZ NOT NULL,
     valid_to TIMESTAMPTZ,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ
 );
 
 ALTER TABLE tariffs ENABLE ROW LEVEL SECURITY;
@@ -48,8 +52,8 @@ CREATE TABLE charging_sessions (
     kwh_added NUMERIC(6, 2), -- Optional efficiency tracking
     total_cost INTEGER NOT NULL, -- Stored in cents
     odometer_km INTEGER,
-    start_soc INTEGER CHECK (start_soc >= 0 AND start_soc <= 100),
-    end_soc INTEGER CHECK (end_soc >= 0 AND end_soc <= 100),
+    start_soc_percentage INTEGER CHECK (start_soc_percentage >= 0 AND start_soc_percentage <= 100),
+    end_soc_percentage INTEGER CHECK (end_soc_percentage >= 0 AND end_soc_percentage <= 100),
     notes TEXT,
     
     -- Snapshots of the tariff at the time of the session
@@ -57,7 +61,9 @@ CREATE TABLE charging_sessions (
     applied_dc_price INTEGER NOT NULL,
     applied_session_fee INTEGER NOT NULL,
     
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at TIMESTAMPTZ
 );
 
 ALTER TABLE charging_sessions ENABLE ROW LEVEL SECURITY;
