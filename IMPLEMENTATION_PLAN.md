@@ -27,15 +27,15 @@
 - [x] Create ADR: `004-supabase-auth-and-rls.md`
 - [x] Supabase Client & Auth Hook
 - [x] Login Page (Single-user, sign-in only)
-- [ ] Seed Data script (Ionity, Elli, EnBW, Tesla; include AC/DC and legacy sessions)
+- [x] Seed Data script (Ionity, Elli, EnBW, Tesla; include AC/DC and legacy sessions)
 
 ## Phase 3: Offline Sync Engine & Storage
 
-- [ ] Install `dexie`, `dexie-react-hooks`, and `@tanstack/react-query`
-- [ ] Dexie.js Schema & Store initialization
+- [x] Install `dexie`, `dexie-react-hooks`, and `@tanstack/react-query`
+- [x] Dexie.js Schema & Store initialization (TDD)
 - [ ] Outbox Sync Engine implementation (Background sync triggers)
 - [ ] Offline-aware API wrapper for Supabase
-- [ ] Create ADR: `005-outbox-sync-strategy.md`
+- [x] Create ADR: `005-outbox-sync-strategy.md` (Already covered by Refined Design Spec)
 
 ## Phase 4: Tariff & Session Management
 
