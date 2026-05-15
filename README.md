@@ -18,6 +18,7 @@ This application replaces traditional spreadsheet workflows with a mobile-optimi
 
 ## 🛠 Tech Stack
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS
+- **Forms & Validation:** react-hook-form, zod
 - **Storage:** Dexie.js (IndexedDB) + Supabase (PostgreSQL)
 - **State Management:** TanStack Query v5
 - **Icons/Charts:** Lucide-React, Tremor, ECharts
@@ -49,15 +50,9 @@ This application replaces traditional spreadsheet workflows with a mobile-optimi
    npm run build
    ```
 
-## Restart AI Coding
-
-Use following prompt:
-```
-Read GEMINI.md to understand the project architecture and rules. Then, read IMPLEMENTATION_PLAN.md and the recent Git commit history to figure out where we left off. Tell me what phase/task we are on, what the next logical step is, and wait for my approval to begin coding.
-```
-
 ## 📖 Documentation
 - [GEMINI.md](./GEMINI.md) - Architectural rules and constraints.
-- [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) - Project roadmap.
+- [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) - Project roadmap and current progress.
 - [HUMAN_SETUP.md](./HUMAN_SETUP.md) - Manual configuration steps.
-- [ARCHITECTURE.md](./ARCHITECTURE.md) - Deep dive into sync and data strategy (Phase 1+).
+- [Architecture Decisions (ADRs)](./docs/adr/) - Detailed history of architectural choices.
+- [Design Specs](./docs/specs/) - Feature-specific design documents.
