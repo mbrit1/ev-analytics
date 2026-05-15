@@ -114,6 +114,7 @@
 
 ## Git & Commit Standards
 - **Conventional Commits:** Follow the `type(scope): description` format.
+  - **Commit Bodies Required:** Leave a blank line after the headline. The body MUST explain the *why* (business/technical context) and any trade-offs. Do not simply repeat the `git diff`.
 - **Workflow:**
   - **Feature Branches Required:** ALWAYS create a new feature branch for any code modification or new feature (e.g., `feat/phase-2-auth`).
   - **Remote Operations (Human-in-the-Loop):** AI agents are authorized to commit changes locally. However, agents MUST NOT push to remote branches or create Pull Requests autonomously. 
