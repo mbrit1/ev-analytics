@@ -34,7 +34,7 @@ async function syncItem(item: SyncOutbox): Promise<boolean> {
       const result = await supabase.from('tariffs').upsert(item.payload as Tariff);
       error = result.error;
     } else if (item.table_name === 'sessions') {
-      const result = await supabase.from('sessions').upsert(item.payload as ChargingSession);
+      const result = await supabase.from('charging_sessions').upsert(item.payload as ChargingSession);
       error = result.error;
     }
 
@@ -60,7 +60,8 @@ export async function initialSync(): Promise<void> {
   for (const tableName of tables) {
     const table = db[tableName];
     if (typeof table === 'object' && 'bulkPut' in table) {
-      const { data, error } = await supabase.from(tableName as string).select('*');
+      const supabaseTable = tableName === 'sessions' ? 'charging_sessions' : tableName;
+      const { data, error } = await supabase.from(supabaseTable as string).select('*');
       
       if (error) {
         console.error(`Error pulling data for ${tableName}:`, error.message);

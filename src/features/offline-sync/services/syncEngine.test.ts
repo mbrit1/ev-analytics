@@ -34,7 +34,7 @@ describe('syncEngine', () => {
     await processOutbox()
 
     // 3. Verify Supabase was called
-    expect(supabase.from).toHaveBeenCalledWith('sessions')
+    expect(supabase.from).toHaveBeenCalledWith('charging_sessions')
     
     // 4. Verify outbox is empty on success
     const outboxItems = await db.sync_outbox.toArray()
