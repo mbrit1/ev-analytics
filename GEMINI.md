@@ -116,6 +116,16 @@
 - **Conventional Commits:** Follow the `type(scope): description` format.
 - **Workflow:**
   - **Feature Branches Required:** ALWAYS create a new feature branch for any code modification or new feature (e.g., `feat/phase-2-auth`).
+  - **Remote Operations (Human-in-the-Loop):** AI agents are authorized to commit changes locally. However, agents MUST NOT push to remote branches or create Pull Requests autonomously. 
+  - **Post-Task Handoff:** Upon completing a task locally, the agent must:
+    1. Summarize the local commits.
+    2. Propose the exact `git push` and `gh pr create` commands (or offer to run them) and wait for explicit authorization.
+    3. Look at `IMPLEMENTATION_PLAN.md` for the next high-level feature, or check `docs/superpowers/plans/` for the next immediate task, to maintain momentum.
+- **Documentation Standards:**
+  - **High-Level Roadmap:** `IMPLEMENTATION_PLAN.md` tracks overall project phases.
+  - **Design Specs:** Saved to `docs/superpowers/specs/` (Plugin default).
+  - **Task Plans:** Saved to `docs/superpowers/plans/` (Plugin default).
+  - **ADRs:** Saved to `docs/adr/`.
   - **Human Review Gate:** NEVER merge back to `main` without explicit human approval after a code review.
   - **Merge Strategy:** 
     - **Fast-Forward Preferred:** If the feature branch has a clean, logical commit history, prefer a fast-forward merge to `main`.
