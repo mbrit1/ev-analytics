@@ -117,6 +117,7 @@
 - **Workflow:**
   - **Feature Branches Required:** ALWAYS create a new feature branch for any code modification or new feature (e.g., `feat/phase-2-auth`).
   - **Remote Operations (Human-in-the-Loop):** AI agents are authorized to commit changes locally. However, agents MUST NOT push to remote branches or create Pull Requests autonomously. 
+  - **Pre-Push Mandate:** Before recommending a push or PR, the agent MUST run the full project verification suite locally: `npm run lint && npm run test -- --run && npm run build`. The agent must confirm all checks passed in their recommendation message.
   - **Post-Task Handoff:** Upon completing a task locally, the agent must:
     1. Summarize the local commits.
     2. Propose the exact `git push` and `gh pr create` commands (or offer to run them) and wait for explicit authorization.
