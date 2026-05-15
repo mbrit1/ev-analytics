@@ -1,5 +1,8 @@
 # EV Charging Analytics PWA
 
+[![CI](https://github.com/mbrit1/ev-analytics/actions/workflows/ci.yml/badge.svg)](https://github.com/mbrit1/ev-analytics/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/mbrit1/ev-analytics/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/mbrit1/ev-analytics/actions/workflows/codeql-analysis.yml)
+
 A production-quality, private, offline-first mobile application for tracking EV charging sessions, specifically optimized for the Skoda Enyaq 80x.
 
 ## 🚀 Overview
