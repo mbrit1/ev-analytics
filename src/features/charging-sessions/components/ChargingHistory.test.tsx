@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ChargingHistory } from './ChargingHistory';
 import { useSessions } from '../hooks/useSessions';
+import { type ChargingSession } from '../../../lib/db';
 
 // Mock the hook
 vi.mock('../hooks/useSessions');
@@ -23,7 +24,7 @@ describe('ChargingHistory', () => {
           kwh_billed: 45.5,
           total_cost: 2275, // 22.75 EUR
           location_type: 'Fast Charger'
-        } as unknown as any
+        } as unknown as ChargingSession
       ],
       isLoading: false,
       pendingSyncIds: new Set(['s1']),
