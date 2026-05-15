@@ -39,12 +39,12 @@
 
 ## Phase 4: Tariff & Session Management
 
-- [ ] Install `react-hook-form`, `@hookform/resolvers`, and `zod`
-- [ ] Tariff CRUD (Local-first)
-- [ ] Charging Session Entry Form (Mobile optimized, numpads, 44pt hit areas)
-- [ ] Charging History list with sync status indicators
-- [ ] Tariff snapshot logic on session creation
-- [ ] Create ADR: `006-tariff-snapshots.md`
+- [x] Install `react-hook-form`, `@hookform/resolvers`, and `zod`
+- [x] Tariff CRUD (Local-first)
+- [x] Charging Session Entry Form (Mobile optimized, numpads, 44pt hit areas)
+- [x] Charging History list with sync status indicators
+- [x] Tariff snapshot logic on session creation
+- [x] Create ADR: `006-tariff-snapshots.md`
 
 ## Phase 5: Dashboard & Analytics
 
