@@ -120,7 +120,12 @@
   - **Post-Task Handoff:** Upon completing a task locally, the agent must:
     1. Summarize the local commits.
     2. Propose the exact `git push` and `gh pr create` commands (or offer to run them) and wait for explicit authorization.
-    3. Look at `IMPLEMENTATION_PLAN.md` and propose the next logical task to maintain momentum.
+    3. Look at `IMPLEMENTATION_PLAN.md` for the next high-level feature, or check `docs/superpowers/plans/` for the next immediate task, to maintain momentum.
+- **Documentation Standards:**
+  - **High-Level Roadmap:** `IMPLEMENTATION_PLAN.md` tracks overall project phases.
+  - **Design Specs:** Saved to `docs/superpowers/specs/` (Plugin default).
+  - **Task Plans:** Saved to `docs/superpowers/plans/` (Plugin default).
+  - **ADRs:** Saved to `docs/adr/`.
   - **Human Review Gate:** NEVER merge back to `main` without explicit human approval after a code review.
   - **Merge Strategy:** 
     - **Fast-Forward Preferred:** If the feature branch has a clean, logical commit history, prefer a fast-forward merge to `main`.
