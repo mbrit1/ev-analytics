@@ -20,6 +20,7 @@ export interface Tariff {
   session_fee: number;
   valid_from: Date;
   valid_to?: Date;
+  created_at: Date;
   updated_at: Date;
   deleted_at?: Date;
 }
