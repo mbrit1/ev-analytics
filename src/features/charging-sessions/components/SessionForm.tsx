@@ -1,13 +1,16 @@
 import React from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Save, X, Zap, Calendar, MapPin, Gauge, Percent, FileText } from 'lucide-react';
+import { Save, X, Calendar, FileText } from 'lucide-react';
 import { useTariffs } from '../../tariffs/hooks/useTariffs';
 import { useProviders } from '../../tariffs/hooks/useProviders';
 import { useAuth } from '../../auth/hooks/useAuth';
 import { type ChargingSession } from '../../../lib/db';
 import { prepareSession } from '../services/sessionService';
+import { Slab } from '../../../components/ui/Slab';
+import { ThinInput } from '../../../components/ui/ThinInput';
+import { TactileMatrix } from '../../../components/ui/TactileMatrix';
 
 const sessionSchema = z.object({
   session_timestamp: z.string().min(1, 'Date is required'),
@@ -16,7 +19,7 @@ const sessionSchema = z.object({
   location_type: z.enum(['Home', 'Work', 'Public', 'Fast Charger']),
   charging_type: z.enum(['AC', 'DC']),
   kwh_billed: z.string().regex(/^\d+([,.]\d{1,4})?$/, 'Invalid kWh format'),
-  kwh_added: z.string().regex(/^\d+([,.]\d{1,4})?$/, 'Invalid kWh format').optional(),
+  kwh_added: z.string().regex(/^\d+([,.]\d{1,4})?$/, 'Invalid kWh format').optional().or(z.literal('')),
   start_soc_percentage: z.string().regex(/^\d{1,3}$/, '0-100').refine(v => {
     const n = parseInt(v);
     return !isNaN(n) && n >= 0 && n <= 100;
@@ -46,6 +49,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     register,
     handleSubmit,
     watch,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<SessionFormValues>({
     resolver: zodResolver(sessionSchema),
@@ -53,8 +57,8 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       session_timestamp: initialValues?.session_timestamp 
         ? initialValues.session_timestamp.toISOString().split('T')[0] 
         : new Date().toISOString().split('T')[0],
-      location_type: initialValues?.location_type || 'Public',
-      charging_type: initialValues?.charging_type || 'AC',
+      location_type: (initialValues?.location_type as any) || 'Public',
+      charging_type: (initialValues?.charging_type as any) || 'AC',
       start_soc_percentage: initialValues?.start_soc_percentage?.toString() || '20',
       end_soc_percentage: initialValues?.end_soc_percentage?.toString() || '80',
       provider_id: initialValues?.provider_id || '',
@@ -96,72 +100,71 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   };
 
   return (
-    <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm space-y-6 max-w-2xl mx-auto">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-bold text-slate-900">
+    <Slab className="max-w-2xl mx-auto">
+      <div className="flex items-center justify-between mb-8">
+        <h2 className="text-2xl font-bold text-primary">
           {initialValues?.id ? 'Edit Session' : 'New Session'}
         </h2>
         <button
           onClick={onCancel}
-          className="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+          className="p-2 text-secondary/40 hover:text-secondary rounded-full hover:bg-secondary/10 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
           aria-label="Cancel"
         >
           <X className="w-6 h-6" />
         </button>
       </div>
 
-      <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-4" noValidate>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-8" noValidate>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Date */}
-          <div className="space-y-1">
-            <label htmlFor="session_timestamp" className="flex items-center text-sm font-medium text-slate-700">
-              <Calendar className="w-4 h-4 mr-1 text-slate-400" />
+          <div className="flex flex-col">
+            <label htmlFor="session_timestamp" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
               Date
             </label>
-            <input
-              id="session_timestamp"
-              type="date"
-              {...register('session_timestamp')}
-              aria-invalid={!!errors.session_timestamp}
-              aria-describedby={errors.session_timestamp ? 'session_timestamp_error' : undefined}
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none min-h-[44px]"
-            />
+            <div className="flex items-baseline border-b border-secondary/20 focus-within:border-accent transition-colors duration-300 py-1">
+              <Calendar className="w-5 h-5 mr-2 text-secondary/40" />
+              <input
+                id="session_timestamp"
+                type="date"
+                {...register('session_timestamp')}
+                className="flex-1 bg-transparent text-xl font-medium outline-none"
+              />
+            </div>
             {errors.session_timestamp && (
-              <p id="session_timestamp_error" className="text-sm text-red-600">{errors.session_timestamp.message}</p>
+              <p className="text-sm text-red-500 font-medium mt-1.5">{errors.session_timestamp.message}</p>
             )}
           </div>
 
           {/* Location Type */}
-          <div className="space-y-1">
-            <label htmlFor="location_type" className="flex items-center text-sm font-medium text-slate-700">
-              <MapPin className="w-4 h-4 mr-1 text-slate-400" />
-              Location Type
-            </label>
-            <select
-              id="location_type"
-              {...register('location_type')}
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white min-h-[44px]"
-            >
-              <option value="Public">Public</option>
-              <option value="Fast Charger">Fast Charger</option>
-              <option value="Home">Home</option>
-              <option value="Work">Work</option>
-            </select>
-          </div>
+          <Controller
+            name="location_type"
+            control={control}
+            render={({ field }) => (
+              <TactileMatrix
+                label="Location Type"
+                value={field.value}
+                onChange={field.onChange}
+                options={[
+                  { label: 'Public', value: 'Public' },
+                  { label: 'Fast Charger', value: 'Fast Charger' },
+                  { label: 'Home', value: 'Home' },
+                  { label: 'Work', value: 'Work' },
+                ]}
+              />
+            )}
+          />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Provider */}
-          <div className="space-y-1">
-            <label htmlFor="provider_id" className="block text-sm font-medium text-slate-700">
+          <div className="flex flex-col">
+            <label htmlFor="provider_id" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
               Provider
             </label>
             <select
               id="provider_id"
               {...register('provider_id')}
-              aria-invalid={!!errors.provider_id}
-              aria-describedby={errors.provider_id ? 'provider_id_error' : undefined}
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white min-h-[44px]"
+              className="w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors"
             >
               <option value="">Select Provider</option>
               {providers.map(p => (
@@ -169,21 +172,19 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
               ))}
             </select>
             {errors.provider_id && (
-              <p id="provider_id_error" className="text-sm text-red-600">{errors.provider_id.message}</p>
+              <p className="text-sm text-red-500 font-medium mt-1.5">{errors.provider_id.message}</p>
             )}
           </div>
 
           {/* Tariff */}
-          <div className="space-y-1">
-            <label htmlFor="tariff_id" className="block text-sm font-medium text-slate-700">
+          <div className="flex flex-col">
+            <label htmlFor="tariff_id" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
               Tariff
             </label>
             <select
               id="tariff_id"
               {...register('tariff_id')}
-              aria-invalid={!!errors.tariff_id}
-              aria-describedby={errors.tariff_id ? 'tariff_id_error' : undefined}
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white min-h-[44px]"
+              className="w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors"
             >
               <option value="">Select Tariff</option>
               {tariffs
@@ -193,149 +194,112 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                 ))}
             </select>
             {errors.tariff_id && (
-              <p id="tariff_id_error" className="text-sm text-red-600">{errors.tariff_id.message}</p>
+              <p className="text-sm text-red-500 font-medium mt-1.5">{errors.tariff_id.message}</p>
             )}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Charging Type */}
-          <div className="space-y-1">
-            <span id="charging-type-label" className="flex items-center text-sm font-medium text-slate-700">
-              <Zap className="w-4 h-4 mr-1 text-slate-400" />
-              Charging Type
-            </span>
-            <div className="flex gap-2" role="radiogroup" aria-labelledby="charging-type-label">
-              <label className="flex-1">
-                <input
-                  type="radio"
-                  value="AC"
-                  {...register('charging_type')}
-                  className="sr-only peer"
-                />
-                <div className="flex items-center justify-center px-4 py-3 border rounded-lg cursor-pointer peer-checked:bg-blue-50 peer-checked:border-blue-500 peer-checked:text-blue-600 hover:bg-slate-50 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500 transition-colors min-h-[44px]">
-                  AC
-                </div>
-              </label>
-              <label className="flex-1">
-                <input
-                  type="radio"
-                  value="DC"
-                  {...register('charging_type')}
-                  className="sr-only peer"
-                />
-                <div className="flex items-center justify-center px-4 py-3 border rounded-lg cursor-pointer peer-checked:bg-blue-50 peer-checked:border-blue-500 peer-checked:text-blue-600 hover:bg-slate-50 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-500 transition-colors min-h-[44px]">
-                  DC
-                </div>
-              </label>
-            </div>
-          </div>
+          <Controller
+            name="charging_type"
+            control={control}
+            render={({ field }) => (
+              <TactileMatrix
+                label="Charging Type"
+                value={field.value}
+                onChange={field.onChange}
+                options={[
+                  { label: 'AC', value: 'AC' },
+                  { label: 'DC', value: 'DC' },
+                ]}
+              />
+            )}
+          />
 
           {/* kWh Billed */}
-          <div className="space-y-1">
-            <label htmlFor="kwh_billed" className="flex items-center text-sm font-medium text-slate-700">
-              <Percent className="w-4 h-4 mr-1 text-slate-400" />
-              kWh Billed
-            </label>
-            <input
-              id="kwh_billed"
-              type="text"
-              inputMode="decimal"
-              {...register('kwh_billed')}
-              aria-invalid={!!errors.kwh_billed}
-              aria-describedby={errors.kwh_billed ? 'kwh_billed_error' : undefined}
-              placeholder="e.g. 45,5"
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none min-h-[44px]"
-            />
-            {errors.kwh_billed && (
-              <p id="kwh_billed_error" className="text-sm text-red-600">{errors.kwh_billed.message}</p>
-            )}
-          </div>
+          <ThinInput
+            label="kWh Billed"
+            unit="kWh"
+            type="text"
+            inputMode="decimal"
+            placeholder="0,00"
+            {...register('kwh_billed')}
+            error={errors.kwh_billed?.message}
+          />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Start SoC */}
-          <div className="space-y-1">
-            <label htmlFor="start_soc_percentage" className="block text-sm font-medium text-slate-700">
-              Start SoC (%)
-            </label>
-            <input
-              id="start_soc_percentage"
-              type="text"
-              inputMode="numeric"
-              {...register('start_soc_percentage')}
-              aria-invalid={!!errors.start_soc_percentage}
-              aria-describedby={errors.start_soc_percentage ? 'start_soc_error' : undefined}
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none min-h-[44px]"
-            />
-            {errors.start_soc_percentage && (
-              <p id="start_soc_error" className="text-sm text-red-600">{errors.start_soc_percentage.message}</p>
-            )}
-          </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* kWh Added */}
+          <ThinInput
+            label="kWh Added"
+            unit="kWh"
+            type="text"
+            inputMode="decimal"
+            placeholder="0,00"
+            {...register('kwh_added')}
+            error={errors.kwh_added?.message}
+          />
 
-          {/* End SoC */}
-          <div className="space-y-1">
-            <label htmlFor="end_soc_percentage" className="block text-sm font-medium text-slate-700">
-              End SoC (%)
-            </label>
-            <input
-              id="end_soc_percentage"
-              type="text"
-              inputMode="numeric"
-              {...register('end_soc_percentage')}
-              aria-invalid={!!errors.end_soc_percentage}
-              aria-describedby={errors.end_soc_percentage ? 'end_soc_error' : undefined}
-              className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none min-h-[44px]"
-            />
-            {errors.end_soc_percentage && (
-              <p id="end_soc_error" className="text-sm text-red-600">{errors.end_soc_percentage.message}</p>
-            )}
-          </div>
-        </div>
-
-        {/* Odometer */}
-        <div className="space-y-1">
-          <label htmlFor="odometer_km" className="flex items-center text-sm font-medium text-slate-700">
-            <Gauge className="w-4 h-4 mr-1 text-slate-400" />
-            Odometer (km)
-          </label>
-          <input
-            id="odometer_km"
+          {/* Odometer */}
+          <ThinInput
+            label="Odometer"
+            unit="km"
             type="text"
             inputMode="numeric"
+            placeholder="0"
             {...register('odometer_km')}
-            aria-invalid={!!errors.odometer_km}
-            aria-describedby={errors.odometer_km ? 'odometer_km_error' : undefined}
-            placeholder="e.g. 12450"
-            className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none min-h-[44px]"
+            error={errors.odometer_km?.message}
           />
-          {errors.odometer_km && (
-            <p id="odometer_km_error" className="text-sm text-red-600">{errors.odometer_km.message}</p>
-          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* Start SoC */}
+          <ThinInput
+            label="Start SoC"
+            unit="%"
+            type="text"
+            inputMode="numeric"
+            placeholder="20"
+            {...register('start_soc_percentage')}
+            error={errors.start_soc_percentage?.message}
+          />
+
+          {/* End SoC */}
+          <ThinInput
+            label="End SoC"
+            unit="%"
+            type="text"
+            inputMode="numeric"
+            placeholder="80"
+            {...register('end_soc_percentage')}
+            error={errors.end_soc_percentage?.message}
+          />
         </div>
 
         {/* Notes */}
-        <div className="space-y-1">
-          <label htmlFor="notes" className="flex items-center text-sm font-medium text-slate-700">
-            <FileText className="w-4 h-4 mr-1 text-slate-400" />
+        <div className="flex flex-col">
+          <label htmlFor="notes" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1 flex items-center">
+            <FileText className="w-4 h-4 mr-1 text-secondary/40" />
             Notes
           </label>
           <textarea
             id="notes"
             {...register('notes')}
-            rows={3}
-            className="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none min-h-[88px]"
+            rows={2}
+            className="w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-lg transition-colors resize-none"
+            placeholder="Optional notes..."
           />
         </div>
 
-        <div className="pt-4 flex flex-col md:flex-row gap-3">
+        <div className="pt-6 flex flex-col sm:flex-row gap-4">
           <button
             type="submit"
             disabled={isSubmitting}
-            className="flex-1 flex items-center justify-center py-3 px-4 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 min-h-[44px]"
+            className="flex-1 flex items-center justify-center py-4 px-6 bg-primary text-surface font-bold rounded-xl hover:opacity-90 transition-all disabled:opacity-50 min-h-[56px] shadow-lg shadow-primary/20"
           >
             {isSubmitting ? (
-              <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
+              <div className="w-5 h-5 border-2 border-surface/30 border-t-surface rounded-full animate-spin mr-2" />
             ) : (
               <Save className="w-5 h-5 mr-2" />
             )}
@@ -344,12 +308,12 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
           <button
             type="button"
             onClick={onCancel}
-            className="flex-1 py-3 px-4 bg-slate-100 text-slate-700 font-bold rounded-lg hover:bg-slate-200 transition-colors min-h-[44px]"
+            className="flex-1 py-4 px-6 bg-secondary/10 text-primary font-bold rounded-xl hover:bg-secondary/20 transition-all min-h-[56px]"
           >
             Cancel
           </button>
         </div>
       </form>
-    </div>
+    </Slab>
   );
 };
