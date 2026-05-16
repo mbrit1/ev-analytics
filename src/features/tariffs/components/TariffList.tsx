@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Plus, Trash2, Edit2, Zap, Info } from 'lucide-react';
+import { Plus, Trash2, Edit2, Info } from 'lucide-react';
 import { useTariffs } from '../hooks/useTariffs';
 import { TariffForm } from './TariffForm';
 import { formatCurrency } from '../../../lib/utils';
 import { useProviders } from '../hooks/useProviders';
 import { type Tariff } from '../../../lib/db';
 import { formatCentsToDecimal } from '../../../lib/utils';
+import { Slab } from '../../../components/ui/Slab';
 
 export const TariffList: React.FC = () => {
   const { tariffs, addTariff, removeTariff, isLoading } = useTariffs();
@@ -56,12 +57,12 @@ export const TariffList: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-slate-900">Tariffs</h1>
+      <div className="flex items-center justify-between px-2">
+        <h1 className="text-2xl font-bold text-primary">Tariffs</h1>
         {!isFormOpen && (
           <button
             onClick={() => setIsFormOpen(true)}
-            className="flex items-center px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors min-h-[44px]"
+            className="flex items-center px-6 py-2 bg-accent text-white font-bold rounded-xl hover:opacity-90 transition-all shadow-sm active:scale-95 min-h-[44px]"
           >
             <Plus className="w-5 h-5 mr-2" />
             Add Tariff
@@ -81,40 +82,40 @@ export const TariffList: React.FC = () => {
       )}
 
       {tariffs.length === 0 ? (
-        <div className="text-center p-12 bg-slate-50 rounded-xl border border-dashed border-slate-300">
-          <Info className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-          <p className="text-slate-500 font-medium">No tariffs added yet.</p>
-          <p className="text-slate-400 text-sm">Add your first charging tariff to get started.</p>
-        </div>
+        <Slab className="text-center p-12 border-dashed">
+          <Info className="w-12 h-12 text-secondary/30 mx-auto mb-4" />
+          <p className="text-secondary font-medium">No tariffs added yet.</p>
+          <p className="text-secondary/60 text-sm">Add your first charging tariff to get started.</p>
+        </Slab>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {tariffs.map((tariff) => {
             const provider = providers.find(p => p.id === tariff.provider_id);
             return (
-              <div
+              <Slab
                 key={tariff.id}
-                className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow relative group"
+                className="p-6 relative group transition-all hover:border-accent/20"
               >
-                <div className="flex justify-between items-start mb-4">
+                <div className="flex justify-between items-start mb-6">
                   <div>
-                    <h3 className="font-bold text-slate-900 text-lg leading-tight">
+                    <h3 className="font-bold text-primary text-lg leading-tight">
                       {tariff.tariff_name}
                     </h3>
-                    <p className="text-slate-500 text-sm font-medium">
+                    <p className="text-secondary text-sm font-medium">
                       {provider?.name || 'Unknown Provider'}
                     </p>
                   </div>
                   <div className="flex gap-1">
                     <button
                       onClick={() => handleEdit(tariff)}
-                      className="flex items-center justify-center min-w-[44px] min-h-[44px] text-slate-400 hover:text-blue-600 rounded-lg hover:bg-blue-50 transition-colors"
+                      className="flex items-center justify-center min-w-[44px] min-h-[44px] text-secondary hover:text-accent rounded-xl hover:bg-accent/5 transition-colors"
                       aria-label="Edit"
                     >
                       <Edit2 className="w-5 h-5" />
                     </button>
                     <button
                       onClick={() => handleDelete(tariff)}
-                      className="flex items-center justify-center min-w-[44px] min-h-[44px] text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors"
+                      className="flex items-center justify-center min-w-[44px] min-h-[44px] text-secondary hover:text-red-500 rounded-xl hover:bg-red-500/5 transition-colors"
                       aria-label="Delete"
                     >
                       <Trash2 className="w-5 h-5" />
@@ -122,36 +123,34 @@ export const TariffList: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 pt-2">
+                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-secondary/5">
                   <div className="space-y-1">
-                    <div className="flex items-center text-xs font-bold text-slate-500 uppercase tracking-wider">
-                      <Zap className="w-3 h-3 mr-1 text-yellow-500" />
+                    <div className="text-[10px] font-bold text-secondary uppercase tracking-widest">
                       AC Price
                     </div>
-                    <p className="text-lg font-bold text-slate-800">
+                    <p className="text-3xl font-semibold text-primary tabular-nums">
                       {formatCurrency(tariff.ac_price_per_kwh)}
                     </p>
                   </div>
                   <div className="space-y-1">
-                    <div className="flex items-center text-xs font-bold text-slate-500 uppercase tracking-wider">
-                      <Zap className="w-3 h-3 mr-1 text-blue-500" />
+                    <div className="text-[10px] font-bold text-secondary uppercase tracking-widest">
                       DC Price
                     </div>
-                    <p className="text-lg font-bold text-slate-800">
+                    <p className="text-3xl font-semibold text-primary tabular-nums">
                       {formatCurrency(tariff.dc_price_per_kwh)}
                     </p>
                   </div>
                 </div>
 
                 {tariff.session_fee > 0 && (
-                  <div className="mt-4 pt-4 border-t border-slate-100 flex justify-between items-center">
-                    <span className="text-sm text-slate-500">Session Fee</span>
-                    <span className="text-sm font-bold text-slate-700">
+                  <div className="mt-6 pt-4 border-t border-secondary/5 flex justify-between items-center">
+                    <span className="text-xs font-bold text-secondary uppercase tracking-widest">Session Fee</span>
+                    <span className="text-lg font-semibold text-primary tabular-nums">
                       {formatCurrency(tariff.session_fee)}
                     </span>
                   </div>
                 )}
-              </div>
+              </Slab>
             );
           })}
         </div>
