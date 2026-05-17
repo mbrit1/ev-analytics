@@ -64,4 +64,54 @@ describe('TactileMatrix', () => {
     expect(idleOption).toHaveClass('text-primary');
     expect(idleOption).not.toHaveClass('bg-primary');
   });
+
+  it('supports arrow key navigation', () => {
+    const onChange = vi.fn();
+    render(
+      <TactileMatrix 
+        label="Test Matrix" 
+        options={options} 
+        value="opt1" 
+        onChange={onChange} 
+      />
+    );
+
+    const firstOption = screen.getByText('Option 1');
+    firstOption.focus();
+
+    // Right Arrow moves to Option 2
+    fireEvent.keyDown(firstOption, { key: 'ArrowRight' });
+    expect(onChange).toHaveBeenCalledWith('opt2');
+
+    // Down Arrow moves to Option 2
+    fireEvent.keyDown(firstOption, { key: 'ArrowDown' });
+    expect(onChange).toHaveBeenCalledWith('opt2');
+
+    // Left Arrow wraps to Option 3
+    fireEvent.keyDown(firstOption, { key: 'ArrowLeft' });
+    expect(onChange).toHaveBeenCalledWith('opt3');
+
+    // Up Arrow wraps to Option 3
+    fireEvent.keyDown(firstOption, { key: 'ArrowUp' });
+    expect(onChange).toHaveBeenCalledWith('opt3');
+  });
+
+  it('manages tabIndex correctly for radio group items', () => {
+    render(
+      <TactileMatrix 
+        label="Test Matrix" 
+        options={options} 
+        value="opt2" 
+        onChange={() => {}} 
+      />
+    );
+
+    const option1 = screen.getByText('Option 1');
+    const option2 = screen.getByText('Option 2');
+    const option3 = screen.getByText('Option 3');
+
+    expect(option1).toHaveAttribute('tabindex', '-1');
+    expect(option2).toHaveAttribute('tabindex', '0');
+    expect(option3).toHaveAttribute('tabindex', '-1');
+  });
 });
