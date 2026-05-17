@@ -57,8 +57,8 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       session_timestamp: initialValues?.session_timestamp 
         ? initialValues.session_timestamp.toISOString().split('T')[0] 
         : new Date().toISOString().split('T')[0],
-      location_type: (initialValues?.location_type as any) || 'Public',
-      charging_type: (initialValues?.charging_type as any) || 'AC',
+      location_type: (initialValues?.location_type as SessionFormValues['location_type']) || 'Public',
+      charging_type: (initialValues?.charging_type as SessionFormValues['charging_type']) || 'AC',
       start_soc_percentage: initialValues?.start_soc_percentage?.toString() || '20',
       end_soc_percentage: initialValues?.end_soc_percentage?.toString() || '80',
       provider_id: initialValues?.provider_id || '',

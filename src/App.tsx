@@ -32,8 +32,8 @@ function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50">
-        <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
+      <div className="min-h-screen flex items-center justify-center bg-environment">
+        <Loader2 className="w-8 h-8 text-accent animate-spin" />
       </div>
     )
   }
@@ -43,19 +43,17 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
+    <div className="min-h-screen bg-environment flex flex-col">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
-        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+      <header className="bg-surface/80 backdrop-blur-md border-b border-secondary/10 sticky top-0 z-10">
+        <div className="max-w-[1024px] mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="bg-blue-600 p-1.5 rounded-lg">
-              <BatteryCharging className="w-5 h-5 text-white" />
-            </div>
-            <span className="font-bold text-slate-900">EV Analytics</span>
+            <BatteryCharging className="w-6 h-6 text-accent" />
+            <span className="font-bold tracking-tight text-primary">EV Analytics</span>
           </div>
           <button
             onClick={handleLogout}
-            className="p-2 text-slate-400 hover:text-slate-600 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+            className="p-2 text-secondary hover:text-primary transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
             aria-label="Sign Out"
           >
             <LogOut className="w-5 h-5" />
@@ -64,17 +62,17 @@ function App() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 max-w-5xl w-full mx-auto p-4 pb-24">
+      <main className="flex-1 max-w-[1024px] w-full mx-auto p-4 pb-32">
         {activeTab === 'tariffs' ? (
           <TariffList />
         ) : (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-bold text-slate-900">Sessions</h1>
+              <h1 className="text-2xl font-bold tracking-tight text-primary">Sessions</h1>
               {!isSessionFormOpen && (
                 <button
                   onClick={() => setIsSessionFormOpen(true)}
-                  className="flex items-center px-4 py-2 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition-colors min-h-[44px]"
+                  className="flex items-center px-4 py-2 bg-accent text-white font-bold rounded-xl hover:opacity-90 transition-all shadow-md shadow-accent/20 min-h-[44px]"
                 >
                   <Plus className="w-5 h-5 mr-2" />
                   Add Session
@@ -95,11 +93,11 @@ function App() {
       </main>
 
       {/* Bottom Navigation (Mobile-first) */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 px-6 py-3 pb-8 md:pb-3 flex justify-around items-center z-10">
+      <nav className="fixed bottom-0 left-0 right-0 bg-surface/90 backdrop-blur-lg border-t border-secondary/10 px-6 py-3 pb-[env(safe-area-inset-bottom,24px)] md:pb-6 flex justify-around items-center z-10">
         <button
           onClick={() => setActiveTab('sessions')}
-          className={`flex flex-col items-center gap-1 transition-colors ${
-            activeTab === 'sessions' ? 'text-blue-600' : 'text-slate-500 hover:text-slate-700'
+          className={`flex flex-col items-center gap-1 transition-colors min-h-[44px] min-w-[44px] justify-center ${
+            activeTab === 'sessions' ? 'text-accent' : 'text-secondary hover:text-primary'
           }`}
         >
           <History className="w-6 h-6" />
@@ -107,8 +105,8 @@ function App() {
         </button>
         <button
           onClick={() => setActiveTab('tariffs')}
-          className={`flex flex-col items-center gap-1 transition-colors ${
-            activeTab === 'tariffs' ? 'text-blue-600' : 'text-slate-500 hover:text-slate-700'
+          className={`flex flex-col items-center gap-1 transition-colors min-h-[44px] min-w-[44px] justify-center ${
+            activeTab === 'tariffs' ? 'text-accent' : 'text-secondary hover:text-primary'
           }`}
         >
           <Receipt className="w-6 h-6" />
