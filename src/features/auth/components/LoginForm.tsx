@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { supabase } from '../../../lib/supabase';
 import { LogIn, Loader2 } from 'lucide-react';
+import { Slab } from '../../../components/ui/Slab';
 
 const loginSchema = z.object({
   email: z.string().email('Invalid email address'),
@@ -44,16 +45,16 @@ export const LoginForm: React.FC = () => {
   };
 
   return (
-    <main className="flex flex-col items-center justify-center min-h-screen p-4 bg-gray-50">
-      <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-xl shadow-lg">
+    <main className="flex flex-col items-center justify-center min-h-screen p-4 bg-environment">
+      <Slab className="w-full max-w-md space-y-6">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900">EV Charging Analytics</h1>
-          <p className="mt-2 text-sm text-gray-600">Private single-user access</p>
+          <h1 className="text-2xl font-bold tracking-tight text-primary">EV Analytics</h1>
+          <p className="mt-2 text-sm text-secondary">Private single-user access</p>
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
           <div>
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="email" className="block text-sm font-bold uppercase tracking-wider text-secondary">
               Email Address
             </label>
             <input
@@ -63,18 +64,18 @@ export const LoginForm: React.FC = () => {
               {...register('email')}
               aria-invalid={errors.email ? 'true' : 'false'}
               aria-describedby={errors.email ? 'email-error' : undefined}
-              className="w-full px-4 py-3 mt-1 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full px-4 py-3 mt-1 bg-transparent border-b border-secondary/20 focus:border-accent outline-none text-primary transition-colors"
               placeholder="you@example.com"
             />
             {errors.email && (
-              <p className="mt-1 text-sm text-red-600" id="email-error">
+              <p className="mt-1 text-sm text-red-500" id="email-error">
                 {errors.email.message}
               </p>
             )}
           </div>
 
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="password" className="block text-sm font-bold uppercase tracking-wider text-secondary">
               Password
             </label>
             <input
@@ -84,18 +85,18 @@ export const LoginForm: React.FC = () => {
               {...register('password')}
               aria-invalid={errors.password ? 'true' : 'false'}
               aria-describedby={errors.password ? 'password-error' : undefined}
-              className="w-full px-4 py-3 mt-1 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+              className="w-full px-4 py-3 mt-1 bg-transparent border-b border-secondary/20 focus:border-accent outline-none text-primary transition-colors"
               placeholder="••••••••"
             />
             {errors.password && (
-              <p className="mt-1 text-sm text-red-600" id="password-error">
+              <p className="mt-1 text-sm text-red-500" id="password-error">
                 {errors.password.message}
               </p>
             )}
           </div>
 
           {authError && (
-            <div role="alert" className="p-3 text-sm text-red-600 bg-red-50 rounded-lg">
+            <div role="alert" className="p-3 text-sm text-red-500 bg-red-500/10 rounded-lg">
               {authError}
             </div>
           )}
@@ -103,7 +104,7 @@ export const LoginForm: React.FC = () => {
           <button
             type="submit"
             disabled={loading}
-            className="flex items-center justify-center w-full py-3 px-4 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center justify-center w-full py-4 px-4 text-white bg-accent rounded-xl font-bold hover:opacity-90 transition-all shadow-md shadow-accent/20 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] mt-4"
           >
             {loading ? (
               <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" />
@@ -116,7 +117,7 @@ export const LoginForm: React.FC = () => {
             {loading && <span className="sr-only">Signing in...</span>}
           </button>
         </form>
-      </div>
+      </Slab>
     </main>
   );
 };
