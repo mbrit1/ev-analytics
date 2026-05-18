@@ -1,13 +1,31 @@
 import React, { forwardRef } from 'react';
 
+/**
+ * Properties for the ThinInput component.
+ */
 interface ThinInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  /** The label text displayed above or next to the input. */
   label: string;
+  /** Optional unit suffix (e.g., 'kWh', '€') displayed inside the input. */
   unit?: string;
+  /** Error message to display below the input. */
   error?: string;
+  /** Text alignment for the input value. Defaults to 'right' if horizontal or unit present, else 'left'. */
   align?: 'left' | 'right';
+  /** Layout direction: 'vertical' (stacked) or 'horizontal' (row). */
   layout?: 'vertical' | 'horizontal';
 }
 
+/**
+ * A high-impact numeric/text input component with a minimalist bottom border design.
+ * 
+ * Supports vertical and horizontal layouts, custom units, and error states.
+ * It forwards refs to the underlying HTML input element for use with form libraries.
+ * 
+ * @param props - Component properties ({@link ThinInputProps})
+ * @param ref - Forwarded ref for the input element
+ * @returns The rendered input component.
+ */
 export const ThinInput = forwardRef<HTMLInputElement, ThinInputProps>(
   ({ label, unit, error, align, layout = 'vertical', className, id, ...props }, ref) => {
     const inputId = id || label.toLowerCase().replace(/\s+/g, '-');
