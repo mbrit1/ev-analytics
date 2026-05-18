@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Enyaq Suite">
+
+  <title>Enyaq Suite Design System - Enterprise Sandbox</title>
+  
+  <style>
+    /* ----------------------------------------------------
+       1. DESIGN SYSTEM TOKENS (ADAPTIVE TOKENS)
+       ---------------------------------------------------- */
+    :root {
+      /* Light Mode Tokens */
+      --bg-environment: #F5F5F7;
+      --surface-slab: #FFFFFF;
+      --primary-typography: #1D1D1F;
+      --secondary-typography: #86868B;
+      --slab-drop-shadow: 0 10px 30px rgba(0, 0, 0, 0.04);
+      --edge-border: 1px solid rgba(0, 0, 0, 0.08);
+      
+      /* Shared Tokens */
+      --universal-accent: #007AFF;
+      --matrix-node-bg: #F5F5F7;
+      --matrix-node-active-bg: #1D1D1F;
+      --matrix-node-active-text: #FFFFFF;
+      --border-color: rgba(0, 0, 0, 0.08); /* Fallback for inputs */
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        /* Dark Mode Tokens */
+        --bg-environment: #000000;
+        --surface-slab: #1C1C1E;
+        --primary-typography: #F5F5F7;
+        --secondary-typography: #8E8E93;
+        --slab-drop-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        --edge-border: 1px solid rgba(255, 255, 255, 0.1);
+        --border-color: rgba(255, 255, 255, 0.1);
+        
+        /* Shared Overrides for Dark Mode Symmetry */
+        --matrix-node-bg: #2C2C2E;
+        --matrix-node-active-bg: #FFFFFF;
+        --matrix-node-active-text: #1D1D1F;
+      }
+    }
+
+    /* ----------------------------------------------------
+       2. BASE RESET, FONTS & iOS SAFE AREAS
+       ---------------------------------------------------- */
+    body {
+      background-color: var(--bg-environment);
+      color: var(--primary-typography);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Rounded", sans-serif;
+      margin: 0;
+      /* Integrate Apple Safe Area Insets for modern iPhones */
+      padding: env(safe-area-inset-top, 40px) 20px env(safe-area-inset-bottom, 40px) 20px;
+      display: flex;
+      justify-content: center;
+      transition: background-color 0.3s ease, color 0.3s ease;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .sandbox-wrapper {
+      width: 100%;
+      max-width: 1024px; /* Desktop Constraint */
+      display: flex;
+      flex-direction: column;
+      gap: 48px;
+    }
+
+    @media (min-width: 768px) {
+      .sandbox-wrapper { padding: 40px 0; }
+    }
+
+    .sandbox-section {
+      border-bottom: var(--edge-border);
+      padding-bottom: 32px;
+    }
+
+    .sandbox-section:last-child { border-bottom: none; }
+
+    .sandbox-title {
+      font-size: 14px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--secondary-typography);
+      margin-bottom: 24px;
+      display: block;
+    }
+
+    /* ----------------------------------------------------
+       3. TYPOGRAPHY ARCHITECTURE
+       ---------------------------------------------------- */
+    .typo-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    
+    .display-large { font-size: 54px; font-weight: 600; margin: 0; }
+    .display-medium { font-size: 36px; font-weight: 500; margin: 0; }
+    .body-headline { font-size: 17px; font-weight: 600; margin: 0; }
+    .body-text { font-size: 15px; font-weight: 400; margin: 0; color: var(--secondary-typography); }
+    .meta-label { 
+      font-size: 12px; 
+      font-weight: 600; 
+      text-transform: uppercase; 
+      letter-spacing: 0.05em; 
+      margin: 0 0 8px 0; 
+      color: var(--secondary-typography); 
+      display: block;
+    }
+    
+    .tabular { font-variant-numeric: tabular-nums; }
+
+    /* ----------------------------------------------------
+       4. INTERACTIVE SWATCHES & BUTTON MATRIX
+       ---------------------------------------------------- */
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 16px;
+    }
+
+    .color-swatch {
+      height: 80px;
+      border-radius: 12px;
+      border: var(--edge-border);
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    /* Zero-Typing Tactile Button Matrix */
+    .button-matrix {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      max-width: 400px;
+    }
+
+    .matrix-node {
+      background: var(--matrix-node-bg);
+      border: none;
+      color: var(--primary-typography);
+      font-size: 14px;
+      font-weight: 600;
+      padding: 14px 0;
+      border-radius: 12px;
+      cursor: pointer;
+      font-variant-numeric: tabular-nums;
+      min-height: 44px; /* Apple HIG: Minimum Touch Target */
+      transition: background 0.2s cubic-bezier(0.25, 1, 0.5, 1), color 0.2s ease;
+    }
+
+    .matrix-node.active {
+      background: var(--matrix-node-active-bg);
+      color: var(--matrix-node-active-text);
+    }
+
+    /* Interaction States (Mobile Tap vs Desktop Hover/Focus) */
+    .matrix-node:active { transform: scale(0.96); }
+    
+    .matrix-node:focus-visible {
+      outline: 2px solid var(--universal-accent);
+      outline-offset: 2px;
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      .matrix-node:hover:not(.active) { background: var(--edge-border); }
+    }
+
+    /* ----------------------------------------------------
+       5. FORM INPUTS (THIN UNDERLINE PARADIGM)
+       ---------------------------------------------------- */
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: baseline;
+      max-width: 400px;
+    }
+
+    .main-input {
+      width: 100%;
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid var(--border-color);
+      font-size: 36px; /* Prevents iOS Auto-Zoom */
+      font-weight: 500;
+      color: var(--primary-typography);
+      padding: 8px 0;
+      outline: none;
+      font-variant-numeric: tabular-nums;
+      transition: border-color 0.2s ease;
+      opacity: 0.8;
+      font-family: inherit;
+    }
+
+    .main-input:focus {
+      border-bottom-color: var(--universal-accent);
+      opacity: 1;
+    }
+
+    .unit-tag {
+      font-size: 18px;
+      color: var(--secondary-typography);
+      margin-left: 8px;
+      font-weight: 500;
+    }
+
+    /* ----------------------------------------------------
+       6. THE COMPONENT VAULT (FLOATING SLABS)
+       ---------------------------------------------------- */
+    .component-grid {
+      display: grid;
+      grid-template-columns: 1fr; /* Mobile Default Stack */
+      gap: 24px;
+    }
+
+    @media (min-width: 768px) {
+      .component-grid { grid-template-columns: repeat(2, 1fr); } /* Desktop Reflow */
+    }
+
+    .floating-slab {
+      background: var(--surface-slab);
+      border: var(--edge-border);
+      box-shadow: var(--slab-drop-shadow);
+      border-radius: 28px;
+      padding: 32px;
+      box-sizing: border-box;
+      transition: background 0.3s ease, border 0.3s ease, box-shadow 0.3s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .btn-submit {
+      width: 100%;
+      background: var(--universal-accent);
+      color: #FFFFFF;
+      border: none;
+      padding: 16px;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 24px;
+      min-height: 44px; /* Apple HIG */
+      box-shadow: 0 4px 15px rgba(0, 122, 255, 0.2);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    @media (hover: hover) and (pointer: fine) {
+      .btn-submit:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px rgba(0, 122, 255, 0.3);
+      }
+    }
+  </style>
+</head>
+<body>
+
+<main class="sandbox-wrapper">
+
+  <section class="sandbox-section">
+    <h2 class="sandbox-title">1. Color Palette Tokens</h2>
+    <div class="color-grid">
+      <div class="color-swatch" style="background: var(--bg-environment); color: var(--primary-typography);">Bg Env</div>
+      <div class="color-swatch" style="background: var(--surface-slab); color: var(--primary-typography);">Surface Slab</div>
+      <div class="color-swatch" style="background: var(--universal-accent); color: white;">Universal Accent</div>
+      <div class="color-swatch" style="background: var(--primary-typography); color: var(--surface-slab);">Primary Typo</div>
+      <div class="color-swatch" style="background: var(--secondary-typography); color: var(--surface-slab);">Secondary Typo</div>
+    </div>
+  </section>
+
+  <section class="sandbox-section">
+    <h2 class="sandbox-title">2. Typography Scale</h2>
+    <div class="typo-row">
+      <span class="meta-label" style="margin:0;">Display Large (Metric)</span>
+      <h1 class="display-large tabular">88%</h1>
+    </div>
+    <div class="typo-row">
+      <span class="meta-label" style="margin:0;">Display Medium (Input)</span>
+      <h2 class="display-medium tabular">142.5</h2>
+    </div>
+    <div class="typo-row">
+      <span class="meta-label" style="margin:0;">Body Headline</span>
+      <p class="body-headline">Ionity Charging Station</p>
+    </div>
+    <div class="typo-row">
+      <span class="meta-label" style="margin:0;">Body Text</span>
+      <p class="body-text">Enyaq 80x Suite Connected</p>
+    </div>
+  </section>
+
+  <section class="sandbox-section">
+    <h2 class="sandbox-title">3. Input Fields & Zero-Typing Tactile Rows</h2>
+    
+    <div style="margin-bottom: 32px;">
+      <label for="demo-input" class="meta-label">Thin Underline Field</label>
+      <div class="input-wrapper">
+        <input type="text" id="demo-input" class="main-input" placeholder="0.00" aria-label="Amount in Euros">
+        <span class="unit-tag" aria-hidden="true">€</span>
+      </div>
+    </div>
+
+    <div>
+      <span class="meta-label" id="matrix-label">Tactile Button Grid (Zero Typing)</span>
+      <div class="button-matrix" role="group" aria-labelledby="matrix-label">
+        <button class="matrix-node" aria-pressed="false">AC</button>
+        <button class="matrix-node active" aria-pressed="true">DC</button>
+        <button class="matrix-node" aria-pressed="false">Ionity</button>
+        <button class="matrix-node" aria-pressed="false">Home</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="sandbox-section">
+    <h2 class="sandbox-title">4. Live Architecture Components</h2>
+    <div class="component-grid">
+      
+      <article class="floating-slab">
+        <div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 24px;">
+            <span class="meta-label">Battery Engine</span>
+            <span class="meta-label" style="color: var(--universal-accent);">● Live</span>
+          </div>
+          <h3 class="display-large tabular" style="margin-bottom: 8px;">74%</h3>
+          <p class="body-text">Connected to Wallbox • 11 kW</p>
+        </div>
+      </article>
+
+      <article class="floating-slab">
+        <div>
+          <label for="log-input" class="meta-label">Session Log</label>
+          <div class="input-wrapper">
+            <input type="number" id="log-input" class="main-input" placeholder="45.2">
+            <span class="unit-tag" aria-hidden="true">kWh</span>
+          </div>
+        </div>
+        <button class="btn-submit">Save to Suite</button>
+      </article>
+
+    </div>
+  </section>
+
+</main>
+
+<script>
+  // Robust interaction handler for the tactile matrix
+  document.querySelectorAll('.matrix-node').forEach(button => {
+    
+    // Handle Touch / Mouse Click
+    button.addEventListener('click', activateNode);
+    
+    // Handle Keyboard Accessibility (Space or Enter)
+    button.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault(); // Prevent page scroll on Space
+        activateNode(e);
+      }
+    });
+
+    function activateNode(e) {
+      const target = e.currentTarget;
+      const group = target.parentNode;
+      
+      // Reset all buttons in this specific group
+      group.querySelectorAll('.matrix-node').forEach(b => {
+        b.classList.remove('active');
+        b.setAttribute('aria-pressed', 'false');
+      });
+      
+      // Activate the selected button
+      target.classList.add('active');
+      target.setAttribute('aria-pressed', 'true');
+    }
+  });
+</script>
+</body>
+</html>
