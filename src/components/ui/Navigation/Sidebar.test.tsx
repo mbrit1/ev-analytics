@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { Sidebar } from './Sidebar'
 
+/**
+ * Test suite for the Sidebar component.
+ * Focuses on rendering, rail mode toggling, state persistence, and user interactions.
+ */
 describe('Sidebar', () => {
   beforeEach(() => {
     // Mock localStorage
@@ -25,22 +29,23 @@ describe('Sidebar', () => {
   })
 
   it('renders navigation items and toggles rail mode', () => {
+    // Arrange: Setup the component with a mocked callback function
     const onTabChange = vi.fn()
     render(<Sidebar activeTab="sessions" onTabChange={onTabChange} />)
     
-    // Check initial render (should show text labels)
+    // Assert: Check initial render (should show text labels)
     expect(screen.getByText('Sessions')).toBeInTheDocument()
     
-    // Toggle to rail mode
+    // Act: Toggle to rail mode
     const toggleBtn = screen.getByLabelText('Toggle Sidebar')
     fireEvent.click(toggleBtn)
     
-    // In rail mode, 'EV Analytics' text should have collapsed classes
+    // Assert: In rail mode, 'EV Analytics' text should have collapsed classes
     const brandText = screen.getByText('EV Analytics')
     expect(brandText).toHaveClass('w-0')
     expect(brandText).toHaveClass('opacity-0')
     
-    // Interaction check
+    // Act & Assert: Interaction check
     fireEvent.click(screen.getByLabelText('Navigate to Tariffs'))
     expect(onTabChange).toHaveBeenCalledWith('tariffs')
   })

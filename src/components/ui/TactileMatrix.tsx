@@ -1,18 +1,40 @@
 import React from 'react';
 
+/**
+ * Defines a selectable option within the matrix.
+ */
 interface TactileOption {
+  /** Display text for the option. */
   label: string;
+  /** Internal value representing the option. */
   value: string;
 }
 
+/**
+ * Properties for the TactileMatrix component.
+ */
 interface TactileMatrixProps {
+  /** Title or label for the entire option group. */
   label: string;
+  /** List of options to display in the grid. */
   options: TactileOption[];
+  /** The currently selected value. */
   value: string;
+  /** Callback fired when an option is selected. */
   onChange: (value: string) => void;
+  /** Optional CSS class name for the wrapper element. */
   className?: string;
 }
 
+/**
+ * A zero-typing radio-based selection grid for rapid data entry.
+ * 
+ * Implements a `radiogroup` accessibility pattern with full keyboard navigation
+ * (arrow keys) and active/idle tactile states for options.
+ *
+ * @param props - Component properties ({@link TactileMatrixProps})
+ * @returns The rendered matrix grid.
+ */
 export const TactileMatrix: React.FC<TactileMatrixProps> = ({
   label,
   options,

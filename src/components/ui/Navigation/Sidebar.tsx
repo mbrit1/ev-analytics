@@ -7,8 +7,13 @@ import {
   ChevronRight 
 } from 'lucide-react'
 
+/**
+ * Properties for the Sidebar component.
+ */
 interface SidebarProps {
+  /** The identifier of the currently active tab. */
   activeTab: 'sessions' | 'tariffs'
+  /** Callback fired when the user selects a different tab. */
   onTabChange: (tab: 'sessions' | 'tariffs') => void
 }
 
@@ -27,6 +32,16 @@ const NAV_ITEMS = [
   },
 ] as const
 
+/**
+ * Desktop-first sidebar navigation menu.
+ * 
+ * This component is fixed to the left of the viewport and is only visible 
+ * on medium screens and larger (`md:flex`). It supports a collapsible "rail" 
+ * mode to save screen space, persisting the user's preference in localStorage.
+ *
+ * @param props - Component properties ({@link SidebarProps})
+ * @returns The rendered sidebar element.
+ */
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
   const [isCollapsed, setIsCollapsed] = useState(() => {
     try {
