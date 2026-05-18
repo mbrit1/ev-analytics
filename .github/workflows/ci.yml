@@ -29,7 +29,11 @@ jobs:
           node-version: 20
           cache: 'npm'
       - run: npm ci
-      - run: npm run test -- --run
+      - name: Run Tests
+        run: npm run test -- --run
+        env:
+          VITE_SUPABASE_URL: "https://placeholder.supabase.co"
+          VITE_SUPABASE_PUBLISHABLE_KEY: "placeholder-key"
 
   build:
     runs-on: ubuntu-latest
