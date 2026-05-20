@@ -5,15 +5,28 @@ import { supabase } from '../../../lib/supabase';
 import { isMockMode } from '../../../lib/mock-utils';
 
 interface AuthContextType {
+  /** The current Supabase user, or the local mock user when mock mode is active. */
   user: User | null;
+  /** The current Supabase session, including tokens needed by Supabase clients. */
   session: Session | null;
+  /** True while the initial Supabase session lookup is still unresolved. */
   loading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/**
+ * Provides authenticated user and session state to the application.
+ *
+ * In mock mode, the provider seeds a deterministic local user/session so the
+ * app can render authenticated flows without contacting Supabase. Otherwise it
+ * hydrates the current Supabase session and keeps context in sync with future
+ * auth events.
+ */
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(() => {
+    // Mock mode represents a signed-in user from the first render, avoiding a
+    // loading flash in local/offline development.
     if (isMockMode()) {
       return {
         id: 'mock-user-id',
@@ -28,6 +41,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [session, setSession] = useState<Session | null>(() => {
+    // Supabase's Session shape is preserved here so downstream code can rely on
+    // the same fields in mock and live modes.
     if (isMockMode()) {
       return {
         access_token: 'mock-token',
@@ -52,14 +67,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     if (isMockMode()) return;
 
-    // Check active sessions and set the user
+    // Hydrate persisted auth state before rendering protected application
+    // content. Supabase may restore this from browser storage.
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       setLoading(false);
     });
 
-    // Listen for changes on auth state (logged in, signed out, etc.)
+    // Keep React context aligned with Supabase events such as sign-in, sign-out,
+    // token refresh, and password recovery.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setUser(session?.user ?? null);
@@ -76,6 +93,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   );
 };
 
+/**
+ * Reads authentication state from {@link AuthProvider}.
+ *
+ * @throws When used outside an AuthProvider tree.
+ */
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {

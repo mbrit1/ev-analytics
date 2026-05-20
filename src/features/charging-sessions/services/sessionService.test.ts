@@ -7,6 +7,8 @@ describe('sessionService', () => {
   let db: EVAnalyticsDB
 
   beforeEach(async () => {
+    // Each test starts with a clean fake IndexedDB so outbox/session assertions
+    // are isolated from earlier writes.
     db = new EVAnalyticsDB()
     await db.sessions.clear()
     await db.sync_outbox.clear()
@@ -34,6 +36,8 @@ describe('sessionService', () => {
   };
 
   it('should correctly prepare a session with snapshots and calculated cost (AC)', () => {
+    // AC sessions should use the tariff's AC price while still snapshotting both
+    // AC and DC rates for historical reference.
     const input = {
       user_id: 'u1',
       session_timestamp: new Date(),
@@ -60,6 +64,7 @@ describe('sessionService', () => {
   });
 
   it('should correctly prepare a session with snapshots and calculated cost (DC with fee)', () => {
+    // DC pricing uses the DC kWh rate and still adds fixed session fees in cents.
     const tariffWithFee: Tariff = {
       ...mockTariff,
       session_fee: 150 // 1.50 EUR
@@ -86,6 +91,8 @@ describe('sessionService', () => {
   });
 
   it('should atomically save a session and create an outbox entry', async () => {
+    // saveSession must update both tables because offline sync depends on the
+    // local session and its matching outbox entry being created together.
     const sessionData = {
       id: 'session-123',
       user_id: 'user-456',
@@ -121,10 +128,8 @@ describe('sessionService', () => {
   })
 
   it('should rollback session save if outbox entry fails', async () => {
-    // We can't easily force db.sync_outbox.add to fail without mocking or breaking the schema,
-    // but we can test that an error inside the transaction rolls it back.
-    // Let's create a specialized function for testing or just mock the add method once.
-    
+    // This exercises Dexie's transaction rollback behavior directly, matching
+    // the atomicity guarantee saveSession relies on.
     const sessionData = {
       id: 'session-rollback',
       user_id: 'user-456',
@@ -164,6 +169,8 @@ describe('sessionService', () => {
     const s1 = { ...mockTariff, id: 's1', session_timestamp: new Date('2024-01-01'), provider_name: 'P1', tariff_name: 'T1', total_cost: 100, charging_type: 'AC' as const, location_type: 'Home' as const, kwh_billed: 10, start_soc_percentage: 10, end_soc_percentage: 50, applied_ac_price: 10, applied_dc_price: 10, applied_session_fee: 0, created_at: new Date(), updated_at: new Date() };
     const s2 = { ...s1, id: 's2', session_timestamp: new Date('2024-01-02') };
 
+    // The test data is intentionally minimal; fields irrelevant to ordering are
+    // borrowed from mockTariff to keep the fixture compact.
     // @ts-expect-error - simplified for testing
     await db.sessions.bulkAdd([s1, s2]);
 

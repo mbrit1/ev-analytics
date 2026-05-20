@@ -7,12 +7,21 @@ import { LogIn, Loader2 } from 'lucide-react';
 import { Slab } from '../../../components/ui/Slab';
 
 const loginSchema = z.object({
+  /** Supabase password auth requires a valid email address. */
   email: z.string().email('Invalid email address'),
+  /** Mirrors the minimum password length enforced by the form before submit. */
   password: z.string().min(6, 'Password must be at least 6 characters'),
 });
 
 type LoginFormValues = z.infer<typeof loginSchema>;
 
+/**
+ * Renders the single-user sign-in screen and submits credentials to Supabase.
+ *
+ * Validation is handled locally with react-hook-form and Zod so malformed input
+ * is blocked before the network request. Supabase auth errors are shown inline
+ * without clearing the user's entered credentials.
+ */
 export const LoginForm: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -30,6 +39,8 @@ export const LoginForm: React.FC = () => {
   });
 
   const onSubmit = async (data: LoginFormValues) => {
+    // Keep credentials in the form after failed sign-in attempts, but clear any
+    // previous server-side auth error before submitting the latest values.
     setLoading(true);
     setAuthError(null);
 

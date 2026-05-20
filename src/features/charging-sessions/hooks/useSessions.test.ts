@@ -4,7 +4,7 @@ import { useSessions } from './useSessions';
 import { getSessions } from '../services/sessionService';
 import { type ChargingSession } from '../../../lib/db';
 
-// Mock the service
+// Mock the service so the hook test can focus on live-query state transitions.
 vi.mock('../services/sessionService');
 
 describe('useSessions', () => {
@@ -13,6 +13,8 @@ describe('useSessions', () => {
   });
 
   it('fetches sessions and handles loading state', async () => {
+    // useLiveQuery reports undefined until the async query resolves, then
+    // exposes the normalized empty-or-populated collection to consumers.
     vi.mocked(getSessions).mockResolvedValue([
       { id: 's1', session_timestamp: new Date() }
     ] as unknown as ChargingSession[]);

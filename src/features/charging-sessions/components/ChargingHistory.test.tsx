@@ -4,7 +4,7 @@ import { ChargingHistory } from './ChargingHistory';
 import { useSessions } from '../hooks/useSessions';
 import { type ChargingSession } from '../../../lib/db';
 
-// Mock the hook
+// Mock the hook to cover rendering states without depending on IndexedDB.
 vi.mock('../hooks/useSessions');
 
 describe('ChargingHistory', () => {
@@ -13,6 +13,7 @@ describe('ChargingHistory', () => {
   });
 
   it('renders a list of sessions', () => {
+    // A pending outbox id should surface as a visible sync badge on that row.
     vi.mocked(useSessions).mockReturnValue({
       sessions: [
         { 

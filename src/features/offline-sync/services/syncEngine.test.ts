@@ -4,7 +4,7 @@ import { processOutbox, initialSync } from './syncEngine'
 import { supabase } from '../../../lib/supabase'
 import 'fake-indexeddb/auto'
 
-// Mock Supabase
+// Mock Supabase so tests can assert sync behavior without network access.
 vi.mock('../../../lib/supabase', () => ({
   supabase: {
     from: vi.fn(() => ({
@@ -15,13 +15,15 @@ vi.mock('../../../lib/supabase', () => ({
 
 describe('syncEngine', () => {
   beforeEach(async () => {
+    // Keep each test's outbox/cache state independent inside fake IndexedDB.
     await db.sync_outbox.clear()
     await db.sessions.clear()
     vi.clearAllMocks()
   })
 
   it('should process outbox items and upload to Supabase', async () => {
-    // 1. Add item to outbox
+    // Sessions use the local `sessions` store but sync to Supabase's
+    // `charging_sessions` table.
     const session = { id: 's1', user_id: 'u1', total_cost: 100 } as SyncPayload
     await db.sync_outbox.add({
       table_name: 'sessions',
@@ -30,23 +32,21 @@ describe('syncEngine', () => {
       timestamp: new Date()
     })
 
-    // 2. Process outbox
     await processOutbox()
 
-    // 3. Verify Supabase was called
     expect(supabase.from).toHaveBeenCalledWith('charging_sessions')
     
-    // 4. Verify outbox is empty on success
+    // Successful uploads are removed so they are not replayed on the next sync.
     const outboxItems = await db.sync_outbox.toArray()
     expect(outboxItems).toHaveLength(0)
   })
 
   it('should not delete outbox item if Supabase returns an error', async () => {
-    // 1. Mock Supabase failure
+    // Failed uploads remain queued, which turns transient Supabase/network
+    // errors into retryable work instead of data loss.
     const mockUpsert = vi.fn(() => Promise.resolve({ error: { message: 'Network Error' } }))
     vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
 
-    // 2. Add item to outbox
     await db.sync_outbox.add({
       table_name: 'sessions',
       action: 'INSERT',
@@ -54,15 +54,15 @@ describe('syncEngine', () => {
       timestamp: new Date()
     })
 
-    // 3. Process outbox
     await processOutbox()
 
-    // 4. Verify item still in outbox
     const outboxItems = await db.sync_outbox.toArray()
     expect(outboxItems).toHaveLength(1)
   })
 
   it('should pull data from Supabase into Dexie during initialSync', async () => {
+    // initialSync hydrates local IndexedDB from remote rows using bulkPut so the
+    // app can render cached data after startup/login.
     const mockProviders = [
       { id: 'p1', name: 'Ionity', user_id: 'u1', created_at: new Date(), updated_at: new Date() },
       { id: 'p2', name: 'Elli', user_id: 'u1', created_at: new Date(), updated_at: new Date() }
