@@ -12,34 +12,58 @@ import { Slab } from '../../../components/ui/Slab';
 import { ThinInput } from '../../../components/ui/ThinInput';
 import { TactileMatrix } from '../../../components/ui/TactileMatrix';
 
+/**
+ * Browser form values are kept as strings so react-hook-form can preserve
+ * partially typed decimal input before validation converts it to domain data.
+ */
 const sessionSchema = z.object({
+  /** Date-only input; converted to a Date when the session is prepared. */
   session_timestamp: z.string().min(1, 'Date is required'),
+  /** Selected provider determines the available tariff options. */
   provider_id: z.string().min(1, 'Provider is required'),
+  /** Selected tariff supplies the price snapshots used for cost calculation. */
   tariff_id: z.string().min(1, 'Tariff is required'),
   location_type: z.enum(['Home', 'Work', 'Public', 'Fast Charger']),
   charging_type: z.enum(['AC', 'DC']),
+  /** Required billed energy; accepts comma or period decimal separators. */
   kwh_billed: z.string().regex(/^\d+([,.]\d{1,4})?$/, 'Invalid kWh format'),
+  /** Optional battery-added energy, useful when it differs from billed energy. */
   kwh_added: z.string().regex(/^\d+([,.]\d{1,4})?$/, 'Invalid kWh format').optional().or(z.literal('')),
+  /** Starting state of charge as a whole-number percentage. */
   start_soc_percentage: z.string().regex(/^\d{1,3}$/, '0-100').refine(v => {
     const n = parseInt(v);
     return !isNaN(n) && n >= 0 && n <= 100;
   }, 'Must be 0-100'),
+  /** Ending state of charge as a whole-number percentage. */
   end_soc_percentage: z.string().regex(/^\d{1,3}$/, '0-100').refine(v => {
     const n = parseInt(v);
     return !isNaN(n) && n >= 0 && n <= 100;
   }, 'Must be 0-100'),
+  /** Optional odometer reading captured at the session date. */
   odometer_km: z.string().regex(/^\d*$/, 'Invalid number').optional(),
+  /** Free-form notes for receipt details, charger notes, or trip context. */
   notes: z.string().optional(),
 });
 
 type SessionFormValues = z.infer<typeof sessionSchema>;
 
 interface SessionFormProps {
+  /** Persists the fully prepared charging session. */
   onSubmit: (session: ChargingSession) => Promise<void>;
+  /** Closes the form without saving changes. */
   onCancel: () => void;
+  /** Existing values used when editing a previously saved session. */
   initialValues?: Partial<ChargingSession>;
 }
 
+/**
+ * Captures charging-session details and converts validated form strings into a
+ * complete domain session.
+ *
+ * The form looks up the chosen provider and tariff before calling
+ * {@link prepareSession}, ensuring saved sessions include price/name snapshots
+ * as well as calculated total cost.
+ */
 export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, initialValues }) => {
   const { user } = useAuth();
   const { tariffs } = useTariffs();
@@ -73,13 +97,19 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   const selectedProviderId = watch('provider_id');
 
   const handleFormSubmit = async (values: SessionFormValues) => {
+    // A session must belong to the active user; unauthenticated renders should
+    // not be able to create orphaned local records.
     if (!user) return;
 
     const tariff = tariffs.find(t => t.id === values.tariff_id);
     const provider = providers.find(p => p.id === values.provider_id);
 
+    // The selected ids should resolve after validation, but guard against stale
+    // form state if tariffs/providers changed while the form was open.
     if (!tariff || !provider) return;
 
+    // Convert browser-friendly strings into the numeric domain fields expected
+    // by prepareSession. Decimal fields accept both German and English input.
     const sessionInput: Parameters<typeof prepareSession>[0] = {
       user_id: user.id,
       session_timestamp: new Date(values.session_timestamp),
@@ -188,6 +218,8 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
             >
               <option value="">Select Tariff</option>
               {tariffs
+                // Keep tariff choices scoped to the selected provider while the
+                // provider field is set; show all tariffs before that choice.
                 .filter(t => !selectedProviderId || t.provider_id === selectedProviderId)
                 .map(t => (
                   <option key={t.id} value={t.id}>{t.tariff_name}</option>

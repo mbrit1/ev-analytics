@@ -4,6 +4,13 @@ import { formatCurrency, formatCentsToDecimal } from '../../../lib/utils';
 import { Calendar, Zap, Info, Clock, CheckCircle2 } from 'lucide-react';
 import { Slab } from '../../../components/ui/Slab';
 
+/**
+ * Displays locally saved charging sessions with their calculated cost and sync state.
+ *
+ * The history view reads from IndexedDB through {@link useSessions}, so newly
+ * saved sessions appear immediately while the pending badge reflects whether an
+ * outbox entry still needs remote sync.
+ */
 export const ChargingHistory: React.FC = () => {
   const { sessions, pendingSyncIds, isLoading } = useSessions();
 
@@ -57,6 +64,8 @@ export const ChargingHistory: React.FC = () => {
                     {session.tariff_name} • {session.charging_type}
                   </p>
                   {pendingSyncIds.has(session.id) ? (
+                    // Pending means the session exists locally but has not yet
+                    // been confirmed by the remote sync flow.
                     <span className="flex items-center text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 uppercase tracking-tighter">
                       <Clock className="w-3 h-3 mr-1" />
                       Pending Sync

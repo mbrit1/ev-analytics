@@ -4,7 +4,8 @@ import { TariffForm } from './TariffForm';
 import { useProviders } from '../hooks/useProviders';
 import { useAuth } from '../../auth/hooks/useAuth';
 
-// Mock the hooks
+// Mock hooks and provider persistence so form tests stay focused on rendered
+// inputs instead of IndexedDB state.
 vi.mock('../hooks/useProviders');
 vi.mock('../../auth/hooks/useAuth');
 vi.mock('../services/providerService');
@@ -28,21 +29,20 @@ describe('TariffForm', () => {
   });
 
   it('renders numeric fields with horizontal layout', () => {
+    // Price fields should use the compact horizontal ThinInput treatment used
+    // for values with units.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     
-    // Check for AC Price
     const acPriceInput = screen.getByLabelText(/ac price/i);
     const acPriceWrapper = acPriceInput.closest('.md\\:flex-row');
     expect(acPriceWrapper).toBeDefined();
     expect(acPriceWrapper).toHaveClass('md:items-center');
 
-    // Check for DC Price
     const dcPriceInput = screen.getByLabelText(/dc price/i);
     const dcPriceWrapper = dcPriceInput.closest('.md\\:flex-row');
     expect(dcPriceWrapper).toBeDefined();
     expect(dcPriceWrapper).toHaveClass('md:items-center');
 
-    // Check for Session Fee
     const sessionFeeInput = screen.getByLabelText(/session fee/i);
     const sessionFeeWrapper = sessionFeeInput.closest('.md\\:flex-row');
     expect(sessionFeeWrapper).toBeDefined();
@@ -50,6 +50,8 @@ describe('TariffForm', () => {
   });
 
   it('uses numeric/decimal input modes for mobile optimization', () => {
+    // Values remain strings until submit, so inputMode supplies the right mobile
+    // keyboard without changing form parsing behavior.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     
     expect(screen.getByLabelText(/ac price/i)).toHaveAttribute('inputMode', 'decimal');

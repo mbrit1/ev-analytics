@@ -5,7 +5,8 @@ import { useTariffs } from '../../tariffs/hooks/useTariffs';
 import { useProviders } from '../../tariffs/hooks/useProviders';
 import { type Tariff, type Provider } from '../../../lib/db';
 
-// Mock the hooks
+// Mock dependent hooks so form tests can exercise validation and submission UI
+// without requiring tariff/provider IndexedDB state.
 vi.mock('../../tariffs/hooks/useTariffs');
 vi.mock('../../tariffs/hooks/useProviders');
 vi.mock('../../auth/hooks/useAuth', () => ({
@@ -43,6 +44,8 @@ describe('SessionForm', () => {
   });
 
   it('uses numeric/decimal input modes for mobile optimization', () => {
+    // Mobile keyboards depend on inputMode because the fields remain strings
+    // until react-hook-form submits validated values.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     
     const kwhInput = screen.getByLabelText(/kwh billed/i);
@@ -53,6 +56,8 @@ describe('SessionForm', () => {
   });
 
   it.skip('submits correctly with initial values', async () => {
+    // Skipped while the richer controlled matrix inputs need an interaction
+    // helper that mirrors keyboard/mouse selection more closely.
     const initialValues = {
       session_timestamp: new Date('2024-05-15'),
       provider_id: 'p1',

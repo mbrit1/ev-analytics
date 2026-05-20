@@ -8,6 +8,12 @@ import { type Tariff } from '../../../lib/db';
 import { formatCentsToDecimal } from '../../../lib/utils';
 import { Slab } from '../../../components/ui/Slab';
 
+/**
+ * Displays active tariffs and coordinates create, edit, and soft-delete flows.
+ *
+ * The list reads from the local Dexie cache through hooks, so changes appear
+ * immediately while service functions queue remote sync work in the background.
+ */
 export const TariffList: React.FC = () => {
   const { tariffs, addTariff, removeTariff, isLoading } = useTariffs();
   const { providers } = useProviders();
@@ -20,7 +26,7 @@ export const TariffList: React.FC = () => {
   }) | null>(null);
 
   const handleEdit = (tariff: Tariff) => {
-    // Convert cents back to decimal strings for the form
+    // Convert persisted cents and Date values back to form strings for editing.
     const initialValues = {
       ...tariff,
       ac_price: formatCentsToDecimal(tariff.ac_price_per_kwh),
@@ -33,12 +39,16 @@ export const TariffList: React.FC = () => {
   };
 
   const handleDelete = (tariff: Tariff) => {
+    // Confirmation protects against accidental soft deletes, which also queue a
+    // remote DELETE sync entry.
     if (window.confirm(`Are you sure you want to delete the tariff "${tariff.tariff_name}"?`)) {
       removeTariff(tariff.id);
     }
   };
 
   const handleSubmit = async (tariff: Tariff) => {
+    // addTariff handles both create and update; close the form after the local
+    // transaction succeeds.
     await addTariff(tariff);
     setIsFormOpen(false);
     setEditingTariff(null);

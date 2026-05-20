@@ -5,11 +5,14 @@ import 'fake-indexeddb/auto'
 
 describe('tariffService', () => {
   beforeEach(async () => {
+    // Keep local tariff and outbox state isolated between fake IndexedDB tests.
     await db.tariffs.clear()
     await db.sync_outbox.clear()
   })
 
   it('should save a tariff and create an outbox entry', async () => {
+    // Saving locally must also queue a sync item so offline changes can replay
+    // when connectivity is available.
     const tariffData: Tariff = {
       id: 'tariff-1',
       user_id: 'user-1',
@@ -35,6 +38,8 @@ describe('tariffService', () => {
   })
 
   it('should list all non-deleted tariffs', async () => {
+    // Soft-deleted tariffs remain in IndexedDB for sync/history purposes but
+    // should not appear in active tariff selectors or lists.
     const t1: Tariff = {
       id: 't1', user_id: 'u1', provider_id: 'p1', tariff_name: 'T1',
       ac_price_per_kwh: 50, dc_price_per_kwh: 50, session_fee: 0,
@@ -55,6 +60,8 @@ describe('tariffService', () => {
   })
 
   it('should soft delete a tariff and create a DELETE outbox entry', async () => {
+    // Deletion marks the record rather than removing it, preserving enough data
+    // for the sync engine to send the remote DELETE.
     const tariff: Tariff = {
       id: 't-delete', user_id: 'u1', provider_id: 'p1', tariff_name: 'To Delete',
       ac_price_per_kwh: 50, dc_price_per_kwh: 50, session_fee: 0,

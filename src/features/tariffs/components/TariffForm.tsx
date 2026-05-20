@@ -11,20 +11,33 @@ import { type Tariff } from '../../../lib/db';
 import { Slab } from '../../../components/ui/Slab';
 import { ThinInput } from '../../../components/ui/ThinInput';
 
+/**
+ * Form values stay as strings so users can type localized decimal prices before
+ * submit converts them into integer cents for storage.
+ */
 const tariffSchema = z.object({
+  /** Display name shown when selecting a tariff for a charging session. */
   tariff_name: z.string().min(1, 'Tariff name is required'),
+  /** Provider that owns this tariff and filters charging-session choices. */
   provider_id: z.string().min(1, 'Provider is required'),
+  /** AC charging price in euros per kWh, entered with comma or period decimals. */
   ac_price: z.string().regex(/^\d+([,.]\d{1,2})?$/, 'Invalid price format (max 2 decimals)'),
+  /** DC charging price in euros per kWh, entered with comma or period decimals. */
   dc_price: z.string().regex(/^\d+([,.]\d{1,2})?$/, 'Invalid price format (max 2 decimals)'),
+  /** Optional fixed fee charged once per session. */
   session_fee: z.string().regex(/^\d+([,.]\d{1,2})?$/, 'Invalid fee format (max 2 decimals)'),
+  /** Date from which this tariff should be considered valid. */
   valid_from: z.string().min(1, 'Start date is required'),
 });
 
 type TariffFormValues = z.infer<typeof tariffSchema>;
 
 interface TariffFormProps {
+  /** Persists the fully converted tariff record. */
   onSubmit: (data: Tariff) => Promise<void>;
+  /** Closes the form without saving. */
   onCancel: () => void;
+  /** Existing tariff values, converted to form-friendly strings for editing. */
   initialValues?: Omit<Partial<Tariff>, 'ac_price_per_kwh' | 'dc_price_per_kwh' | 'session_fee' | 'valid_from'> & { 
     ac_price?: string; 
     dc_price?: string; 
@@ -33,6 +46,12 @@ interface TariffFormProps {
   };
 }
 
+/**
+ * Captures tariff pricing and provider selection for offline-first persistence.
+ *
+ * Users can create a missing provider inline; after saving that provider, the
+ * form selects it automatically so the tariff can be saved in one flow.
+ */
 export const TariffForm: React.FC<TariffFormProps> = ({ onSubmit, onCancel, initialValues }) => {
   const { providers } = useProviders();
   const { user } = useAuth();
@@ -57,6 +76,8 @@ export const TariffForm: React.FC<TariffFormProps> = ({ onSubmit, onCancel, init
   });
 
   const handleAddProvider = async () => {
+    // Inline provider creation is intentionally small: the provider is saved
+    // locally, queued for sync, and selected for the tariff being edited.
     if (!user || !newProviderName.trim()) return;
 
     const provider = {
@@ -74,8 +95,11 @@ export const TariffForm: React.FC<TariffFormProps> = ({ onSubmit, onCancel, init
   };
 
   const handleFormSubmit = async (values: TariffFormValues) => {
+    // Tariffs are user-owned; do not create local records without an auth owner.
     if (!user) return;
 
+    // Convert localized euro strings into integer cents before persistence so
+    // downstream cost calculations can avoid floating point currency math.
     const tariff: Tariff = {
       id: initialValues?.id || crypto.randomUUID(),
       user_id: user.id,
