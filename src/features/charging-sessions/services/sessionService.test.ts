@@ -3,6 +3,12 @@ import { EVAnalyticsDB, type Tariff, type Provider } from '../../../lib/db'
 import { saveSession, prepareSession } from './sessionService'
 import 'fake-indexeddb/auto'
 
+/**
+ * Test suite for charging-session domain persistence.
+ *
+ * Verifies price snapshot generation, cents-based cost calculations, atomic
+ * outbox writes, rollback behavior, and newest-first session retrieval.
+ */
 describe('sessionService', () => {
   let db: EVAnalyticsDB
 
@@ -36,8 +42,7 @@ describe('sessionService', () => {
   };
 
   it('should correctly prepare a session with snapshots and calculated cost (AC)', () => {
-    // AC sessions should use the tariff's AC price while still snapshotting both
-    // AC and DC rates for historical reference.
+    // Arrange: Use an AC charging session with decimal kWh input.
     const input = {
       user_id: 'u1',
       session_timestamp: new Date(),
@@ -51,8 +56,10 @@ describe('sessionService', () => {
       odometer_km: 12000
     };
 
+    // Act: Prepare the complete session from input, tariff, and provider data.
     const session = prepareSession(input, mockTariff, mockProvider);
 
+    // Assert: AC pricing and tariff/provider snapshots are preserved.
     expect(session.applied_ac_price).toBe(49);
     expect(session.applied_dc_price).toBe(79);
     expect(session.applied_session_fee).toBe(0);
@@ -64,7 +71,7 @@ describe('sessionService', () => {
   });
 
   it('should correctly prepare a session with snapshots and calculated cost (DC with fee)', () => {
-    // DC pricing uses the DC kWh rate and still adds fixed session fees in cents.
+    // Arrange: Use a DC tariff with a fixed session fee.
     const tariffWithFee: Tariff = {
       ...mockTariff,
       session_fee: 150 // 1.50 EUR
@@ -82,8 +89,10 @@ describe('sessionService', () => {
       end_soc_percentage: 80
     };
 
+    // Act: Prepare the session with DC charging selected.
     const session = prepareSession(input, tariffWithFee, mockProvider);
 
+    // Assert: DC pricing includes both energy cost and fixed session fee.
     expect(session.applied_dc_price).toBe(79);
     expect(session.applied_session_fee).toBe(150);
     // Cost calculation: 40.0 * 0.79 + 1.50 = 31.60 + 1.50 = 33.10 -> 3310 cents
@@ -91,8 +100,7 @@ describe('sessionService', () => {
   });
 
   it('should atomically save a session and create an outbox entry', async () => {
-    // saveSession must update both tables because offline sync depends on the
-    // local session and its matching outbox entry being created together.
+    // Arrange: Create a complete session ready for local persistence.
     const sessionData = {
       id: 'session-123',
       user_id: 'user-456',
@@ -114,8 +122,10 @@ describe('sessionService', () => {
       updated_at: new Date()
     }
 
+    // Act: Save the session through the service transaction.
     await saveSession(sessionData)
 
+    // Assert: The local session and matching outbox item are both committed.
     const session = await db.sessions.get('session-123')
     expect(session).toBeDefined()
     expect(session?.provider_name).toBe('Tesla')
@@ -128,8 +138,7 @@ describe('sessionService', () => {
   })
 
   it('should rollback session save if outbox entry fails', async () => {
-    // This exercises Dexie's transaction rollback behavior directly, matching
-    // the atomicity guarantee saveSession relies on.
+    // Arrange: Create a session and a transaction body that fails after put.
     const sessionData = {
       id: 'session-rollback',
       user_id: 'user-456',
@@ -151,7 +160,7 @@ describe('sessionService', () => {
       updated_at: new Date()
     }
 
-    // Force a failure by throwing inside the transaction
+    // Act: Force a failure by throwing inside the transaction.
     try {
       await db.transaction('rw', db.sessions, db.sync_outbox, async () => {
         await db.sessions.put(sessionData);
@@ -161,11 +170,13 @@ describe('sessionService', () => {
       // Expected
     }
 
+    // Assert: Dexie should roll back the session write.
     const session = await db.sessions.get('session-rollback');
     expect(session).toBeUndefined();
   })
 
   it('should fetch sessions ordered by timestamp desc', async () => {
+    // Arrange: Seed two sessions with different timestamps.
     const s1 = { ...mockTariff, id: 's1', session_timestamp: new Date('2024-01-01'), provider_name: 'P1', tariff_name: 'T1', total_cost: 100, charging_type: 'AC' as const, location_type: 'Home' as const, kwh_billed: 10, start_soc_percentage: 10, end_soc_percentage: 50, applied_ac_price: 10, applied_dc_price: 10, applied_session_fee: 0, created_at: new Date(), updated_at: new Date() };
     const s2 = { ...s1, id: 's2', session_timestamp: new Date('2024-01-02') };
 
@@ -174,7 +185,9 @@ describe('sessionService', () => {
     // @ts-expect-error - simplified for testing
     await db.sessions.bulkAdd([s1, s2]);
 
+    // Act: Fetch active sessions through the service.
     const sessions = await (await import('./sessionService')).getSessions();
+    // Assert: Newer sessions should appear first.
     expect(sessions).toHaveLength(2);
     expect(sessions[0].id).toBe('s2');
     expect(sessions[1].id).toBe('s1');

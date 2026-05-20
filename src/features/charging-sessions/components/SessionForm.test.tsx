@@ -13,6 +13,12 @@ vi.mock('../../auth/hooks/useAuth', () => ({
   useAuth: () => ({ user: { id: 'user-1' } })
 }));
 
+/**
+ * Test suite for the charging-session form.
+ *
+ * Verifies required field rendering and mobile-friendly numeric input modes
+ * while provider, tariff, and auth hooks are mocked.
+ */
 describe('SessionForm', () => {
   const mockOnSubmit = vi.fn();
   const mockOnCancel = vi.fn();
@@ -34,8 +40,10 @@ describe('SessionForm', () => {
   });
 
   it('renders correctly with required fields', () => {
+    // Arrange: Render the form with mocked providers, tariffs, and auth state.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     
+    // Assert: Core data-entry controls are present.
     expect(screen.getByLabelText(/date/i)).toBeDefined();
     expect(screen.getByLabelText(/provider/i)).toBeDefined();
     expect(screen.getByLabelText(/tariff/i)).toBeDefined();
@@ -44,10 +52,10 @@ describe('SessionForm', () => {
   });
 
   it('uses numeric/decimal input modes for mobile optimization', () => {
-    // Mobile keyboards depend on inputMode because the fields remain strings
-    // until react-hook-form submits validated values.
+    // Arrange: Render the form with default values.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     
+    // Assert: Decimal and numeric fields request the correct mobile keyboards.
     const kwhInput = screen.getByLabelText(/kwh billed/i);
     expect(kwhInput).toHaveAttribute('inputMode', 'decimal');
     
@@ -56,8 +64,7 @@ describe('SessionForm', () => {
   });
 
   it.skip('submits correctly with initial values', async () => {
-    // Skipped while the richer controlled matrix inputs need an interaction
-    // helper that mirrors keyboard/mouse selection more closely.
+    // Arrange: Seed edit-mode initial values for a complete session.
     const initialValues = {
       session_timestamp: new Date('2024-05-15'),
       provider_id: 'p1',
@@ -71,8 +78,10 @@ describe('SessionForm', () => {
     
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
     
+    // Act: Submit the form without changing initial values.
     fireEvent.click(screen.getByRole('button', { name: /save session/i }));
     
+    // Assert: The prepared session should be passed to the submit callback.
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalled();
     });

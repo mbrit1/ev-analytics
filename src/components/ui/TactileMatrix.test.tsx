@@ -14,7 +14,8 @@ describe('TactileMatrix', () => {
   ];
 
   it('renders label and all options', () => {
-    // Arrange & Act: Render the matrix with predefined options
+    // Arrange: Define a selected value and predefined options.
+    // Act: Render the matrix.
     render(
       <TactileMatrix 
         label="Test Matrix" 
@@ -51,7 +52,8 @@ describe('TactileMatrix', () => {
   });
 
   it('applies active classes only to the selected option', () => {
-    // Arrange & Act: Render the matrix with Option 2 selected
+    // Arrange: Select Option 2 as the active value.
+    // Act: Render the matrix.
     render(
       <TactileMatrix 
         label="Test Matrix" 
@@ -91,25 +93,30 @@ describe('TactileMatrix', () => {
     const firstOption = screen.getByText('Option 1');
     firstOption.focus();
 
-    // Act & Assert: Right Arrow moves to Option 2
+    // Act: Press Right Arrow.
     fireEvent.keyDown(firstOption, { key: 'ArrowRight' });
+    // Assert: Right Arrow moves to Option 2.
     expect(onChange).toHaveBeenCalledWith('opt2');
 
-    // Act & Assert: Down Arrow moves to Option 2
+    // Act: Press Down Arrow.
     fireEvent.keyDown(firstOption, { key: 'ArrowDown' });
+    // Assert: Down Arrow moves to Option 2.
     expect(onChange).toHaveBeenCalledWith('opt2');
 
-    // Act & Assert: Left Arrow wraps to Option 3
+    // Act: Press Left Arrow.
     fireEvent.keyDown(firstOption, { key: 'ArrowLeft' });
+    // Assert: Left Arrow wraps to Option 3.
     expect(onChange).toHaveBeenCalledWith('opt3');
 
-    // Act & Assert: Up Arrow wraps to Option 3
+    // Act: Press Up Arrow.
     fireEvent.keyDown(firstOption, { key: 'ArrowUp' });
+    // Assert: Up Arrow wraps to Option 3.
     expect(onChange).toHaveBeenCalledWith('opt3');
   });
 
   it('manages tabIndex correctly for radio group items', () => {
-    // Arrange & Act: Render the matrix with Option 2 selected
+    // Arrange: Select Option 2 as the active value.
+    // Act: Render the matrix.
     render(
       <TactileMatrix 
         label="Test Matrix" 

@@ -45,8 +45,9 @@ describe('Sidebar', () => {
     expect(brandText).toHaveClass('w-0')
     expect(brandText).toHaveClass('opacity-0')
     
-    // Act & Assert: Interaction check
+    // Act: Select the tariffs navigation item.
     fireEvent.click(screen.getByLabelText('Navigate to Tariffs'))
+    // Assert: The selected tab is reported to the parent.
     expect(onTabChange).toHaveBeenCalledWith('tariffs')
   })
 })

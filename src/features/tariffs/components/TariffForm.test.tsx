@@ -10,6 +10,12 @@ vi.mock('../hooks/useProviders');
 vi.mock('../../auth/hooks/useAuth');
 vi.mock('../services/providerService');
 
+/**
+ * Test suite for the tariff form.
+ *
+ * Verifies unit-bearing price fields render with the intended horizontal layout
+ * and mobile decimal keyboard hints while dependencies are mocked.
+ */
 describe('TariffForm', () => {
   const mockOnSubmit = vi.fn();
   const mockOnCancel = vi.fn();
@@ -29,10 +35,10 @@ describe('TariffForm', () => {
   });
 
   it('renders numeric fields with horizontal layout', () => {
-    // Price fields should use the compact horizontal ThinInput treatment used
-    // for values with units.
+    // Arrange: Render the tariff form with mocked provider/auth hooks.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     
+    // Assert: Price fields use the compact horizontal ThinInput treatment.
     const acPriceInput = screen.getByLabelText(/ac price/i);
     const acPriceWrapper = acPriceInput.closest('.md\\:flex-row');
     expect(acPriceWrapper).toBeDefined();
@@ -50,10 +56,10 @@ describe('TariffForm', () => {
   });
 
   it('uses numeric/decimal input modes for mobile optimization', () => {
-    // Values remain strings until submit, so inputMode supplies the right mobile
-    // keyboard without changing form parsing behavior.
+    // Arrange: Render the tariff form with default values.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     
+    // Assert: Price fields request decimal keyboards on mobile.
     expect(screen.getByLabelText(/ac price/i)).toHaveAttribute('inputMode', 'decimal');
     expect(screen.getByLabelText(/dc price/i)).toHaveAttribute('inputMode', 'decimal');
     expect(screen.getByLabelText(/session fee/i)).toHaveAttribute('inputMode', 'decimal');

@@ -11,6 +11,13 @@ import { initialSync } from './features/offline-sync/services/syncEngine'
 import { type ChargingSession } from './lib/db'
 import { Navigation } from './components/ui/Navigation/Navigation'
 
+/**
+ * Root application shell for the authenticated EV Analytics experience.
+ *
+ * Coordinates auth gating, initial remote-to-local sync after login, top-level
+ * navigation, and create-session flow while keeping data entry available from
+ * the local Dexie-backed feature services.
+ */
 function App() {
   const { user, loading } = useAuth()
   const [activeTab, setActiveTab] = useState<'sessions' | 'tariffs'>('sessions')
@@ -18,6 +25,8 @@ function App() {
 
   useEffect(() => {
     if (user) {
+      // Hydrate local IndexedDB from Supabase after auth is available; failures
+      // are logged without blocking offline-first local interaction.
       initialSync().catch(console.error);
     }
   }, [user]);
@@ -27,6 +36,8 @@ function App() {
   }
 
   const handleSessionSubmit = async (session: ChargingSession) => {
+    // saveSession persists locally and queues remote sync, so the form can close
+    // immediately after the local transaction succeeds.
     await saveSession(session);
     setIsSessionFormOpen(false);
   }
