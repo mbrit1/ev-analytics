@@ -8,7 +8,8 @@ import { Slab } from './Slab';
  */
 describe('Slab', () => {
   it('renders children correctly', () => {
-    // Arrange & Act: Render the Slab component with a nested test child
+    // Arrange: Provide nested child content.
+    // Act: Render the Slab component.
     render(
       <Slab>
         <div data-testid="child">Hello World</div>
@@ -21,7 +22,8 @@ describe('Slab', () => {
   });
 
   it('applies default sandbox classes', () => {
-    // Arrange & Act: Render the Slab component
+    // Arrange: Use the default Slab props.
+    // Act: Render the Slab component.
     const { container } = render(<Slab>Content</Slab>);
     const slabElement = container.firstChild as HTMLElement;
     
@@ -43,7 +45,8 @@ describe('Slab', () => {
   });
 
   it('merges custom className with default classes', () => {
-    // Arrange & Act: Render the Slab component with an extra class
+    // Arrange: Provide an extra class name.
+    // Act: Render the Slab component.
     const { container } = render(<Slab className="custom-class">Content</Slab>);
     const slabElement = container.firstChild as HTMLElement;
     

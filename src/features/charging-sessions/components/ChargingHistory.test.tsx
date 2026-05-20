@@ -7,13 +7,19 @@ import { type ChargingSession } from '../../../lib/db';
 // Mock the hook to cover rendering states without depending on IndexedDB.
 vi.mock('../hooks/useSessions');
 
+/**
+ * Test suite for charging history rendering.
+ *
+ * Verifies session row content, localized values, sync status badges, and the
+ * empty state while the data hook is mocked.
+ */
 describe('ChargingHistory', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it('renders a list of sessions', () => {
-    // A pending outbox id should surface as a visible sync badge on that row.
+    // Arrange: Return one pending-sync session from the mocked hook.
     vi.mocked(useSessions).mockReturnValue({
       sessions: [
         { 
@@ -31,8 +37,10 @@ describe('ChargingHistory', () => {
       pendingSyncIds: new Set(['s1']),
     });
 
+    // Act: Render the history view.
     render(<ChargingHistory />);
     
+    // Assert: Session details and pending sync status are visible.
     expect(screen.getByText(/tesla/i)).toBeDefined();
     expect(screen.getByText(/supercharger/i)).toBeDefined();
     expect(screen.getByText(/45,5/)).toBeDefined();
@@ -41,14 +49,17 @@ describe('ChargingHistory', () => {
   });
 
   it('renders empty state when no sessions', () => {
+    // Arrange: Return an empty session collection from the mocked hook.
     vi.mocked(useSessions).mockReturnValue({
       sessions: [],
       isLoading: false,
       pendingSyncIds: new Set(),
     });
 
+    // Act: Render the history view.
     render(<ChargingHistory />);
     
+    // Assert: The empty-state message is shown.
     expect(screen.getByText(/no sessions/i)).toBeDefined();
   });
 });

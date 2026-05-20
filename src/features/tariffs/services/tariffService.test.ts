@@ -3,6 +3,12 @@ import { db, type Tariff } from '../../../lib/db'
 import { saveTariff, getTariffs, deleteTariff } from './tariffService'
 import 'fake-indexeddb/auto'
 
+/**
+ * Test suite for tariff persistence services.
+ *
+ * Verifies local tariff writes, sync outbox creation, active tariff filtering,
+ * and soft-delete behavior used by offline sync.
+ */
 describe('tariffService', () => {
   beforeEach(async () => {
     // Keep local tariff and outbox state isolated between fake IndexedDB tests.
@@ -11,8 +17,7 @@ describe('tariffService', () => {
   })
 
   it('should save a tariff and create an outbox entry', async () => {
-    // Saving locally must also queue a sync item so offline changes can replay
-    // when connectivity is available.
+    // Arrange: Build a tariff with cents-based pricing.
     const tariffData: Tariff = {
       id: 'tariff-1',
       user_id: 'user-1',
@@ -26,8 +31,10 @@ describe('tariffService', () => {
       updated_at: new Date()
     }
 
+    // Act: Save the tariff through the service transaction.
     await saveTariff(tariffData)
 
+    // Assert: The tariff and matching sync outbox item are persisted.
     const tariff = await db.tariffs.get('tariff-1')
     expect(tariff).toBeDefined()
     expect(tariff?.tariff_name).toBe('Supercharger')
@@ -38,8 +45,7 @@ describe('tariffService', () => {
   })
 
   it('should list all non-deleted tariffs', async () => {
-    // Soft-deleted tariffs remain in IndexedDB for sync/history purposes but
-    // should not appear in active tariff selectors or lists.
+    // Arrange: Seed one active tariff and one soft-deleted tariff.
     const t1: Tariff = {
       id: 't1', user_id: 'u1', provider_id: 'p1', tariff_name: 'T1',
       ac_price_per_kwh: 50, dc_price_per_kwh: 50, session_fee: 0,
@@ -54,14 +60,15 @@ describe('tariffService', () => {
 
     await db.tariffs.bulkAdd([t1, t2])
 
+    // Act: Query active tariffs through the service.
     const tariffs = await getTariffs()
+    // Assert: Soft-deleted tariffs are excluded from active results.
     expect(tariffs).toHaveLength(1)
     expect(tariffs[0].id).toBe('t1')
   })
 
   it('should soft delete a tariff and create a DELETE outbox entry', async () => {
-    // Deletion marks the record rather than removing it, preserving enough data
-    // for the sync engine to send the remote DELETE.
+    // Arrange: Seed a tariff that can be deleted.
     const tariff: Tariff = {
       id: 't-delete', user_id: 'u1', provider_id: 'p1', tariff_name: 'To Delete',
       ac_price_per_kwh: 50, dc_price_per_kwh: 50, session_fee: 0,
@@ -69,8 +76,10 @@ describe('tariffService', () => {
     }
     await db.tariffs.add(tariff)
 
+    // Act: Soft-delete the tariff through the service.
     await deleteTariff('t-delete')
 
+    // Assert: The tariff is marked deleted and a DELETE outbox item is queued.
     const retrieved = await db.tariffs.get('t-delete')
     expect(retrieved?.deleted_at).toBeDefined()
 

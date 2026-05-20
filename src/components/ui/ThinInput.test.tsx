@@ -9,21 +9,24 @@ import { ThinInput } from './ThinInput';
  */
 describe('ThinInput', () => {
   it('renders the label correctly', () => {
-    // Arrange & Act: Render with a label
+    // Arrange: Provide a visible label.
+    // Act: Render the input.
     render(<ThinInput label="Odometer" />);
     // Assert: Verify label is present
     expect(screen.getByText('Odometer')).toBeInTheDocument();
   });
 
   it('renders the unit correctly when provided', () => {
-    // Arrange & Act: Render with a unit
+    // Arrange: Provide a unit suffix.
+    // Act: Render the input.
     render(<ThinInput label="Distance" unit="km" />);
     // Assert: Verify unit is present
     expect(screen.getByText('km')).toBeInTheDocument();
   });
 
   it('renders an error message when provided', () => {
-    // Arrange & Act: Render with an error message
+    // Arrange: Provide an error message.
+    // Act: Render the input.
     render(<ThinInput label="Odometer" error="Value is too low" />);
     // Assert: Verify error is present
     expect(screen.getByText('Value is too low')).toBeInTheDocument();
@@ -39,7 +42,8 @@ describe('ThinInput', () => {
   });
 
   it('passes standard input props to the input element', () => {
-    // Arrange & Act: Render with standard input attributes
+    // Arrange: Provide standard input attributes.
+    // Act: Render the input.
     render(
       <ThinInput 
         label="Odometer" 
@@ -57,7 +61,8 @@ describe('ThinInput', () => {
   });
 
   it('associates the label with the input via id', () => {
-    // Arrange & Act: Render basic input
+    // Arrange: Provide a label without an explicit id.
+    // Act: Render the input.
     render(<ThinInput label="Energy used" />);
     
     // Assert: Verify standard a11y label association
@@ -67,7 +72,8 @@ describe('ThinInput', () => {
   });
 
   it('applies horizontal layout classes when requested', () => {
-    // Arrange & Act: Render with horizontal layout
+    // Arrange: Request horizontal layout.
+    // Act: Render the input.
     const { container } = render(<ThinInput label="kWh Billed" layout="horizontal" />);
     const wrapper = container.firstChild as HTMLElement;
     
