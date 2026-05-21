@@ -16,7 +16,9 @@ This is a React 19, TypeScript, Vite PWA for offline-first EV charging analytics
 
 ## Coding Style & Naming Conventions
 
-Use strict TypeScript and React function components. Prefer feature-local code before shared abstractions. Components use `PascalCase.tsx`, hooks `useName.ts`, services `nameService.ts`, and tests `*.test.ts(x)`. Exported props/interfaces/components need concise JSDoc. No emojis in source, comments, or config unless intentionally rendered in UI.
+Use strict TypeScript and React function components. Prefer feature-local code before shared abstractions. Components use `PascalCase.tsx`, hooks `useName.ts`, services `nameService.ts`, and tests `*.test.ts(x)`.
+
+Document exported interfaces, props types, and components with standard JSDoc (`/** ... */`). Keep comments concise and focused on why the code exists, important layout or domain behavior, and brief prop intent; rely on TypeScript for exact type details. No emojis in source, comments, or config unless intentionally rendered in UI.
 
 ## Architecture & Domain Rules
 
@@ -24,7 +26,9 @@ Data entry must remain offline-first: never require connectivity to create or ed
 
 ## Testing Guidelines
 
-Vitest, React Testing Library, jsdom, MSW, and fake IndexedDB are used for tests. Keep tests near covered code, as in `src/features/tariffs/services/tariffService.test.ts`. Use Arrange, Act, Assert comments and suite-level JSDoc. Cover domain logic, offline sync, idempotency, tariff snapshots, and changed UI workflows. Sync/data mutations should expose queue length, retry count, and last sync attempt.
+Vitest, React Testing Library, jsdom, MSW, and fake IndexedDB are used for tests. Keep tests near covered code, as in `src/features/tariffs/services/tariffService.test.ts`.
+
+Every test file should include a suite-level JSDoc block above the main `describe` explaining the file's focus. Use Arrange, Act, Assert comments inside test blocks (`// Arrange: ...`, `// Act: ...`, `// Assert: ...`) so setup, behavior, and expectations stay clear. Cover domain logic, offline sync, idempotency, tariff snapshots, and changed UI workflows. Sync/data mutations should expose queue length, retry count, and last sync attempt.
 
 ## Commit & Pull Request Guidelines
 
