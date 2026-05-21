@@ -10,6 +10,7 @@ import { saveSession } from './features/charging-sessions/services/sessionServic
 import { initialSync } from './features/offline-sync/services/syncEngine'
 import { type ChargingSession } from './lib/db'
 import { Navigation } from './components/ui/Navigation/Navigation'
+import { SyncStatusIndicator } from './features/offline-sync/components/SyncStatusIndicator'
 
 /**
  * Root application shell for the authenticated EV Analytics experience.
@@ -69,19 +70,23 @@ function App() {
                 <BatteryCharging className="w-6 h-6 text-accent" />
                 <span className="font-bold tracking-tight text-primary">EV Analytics</span>
               </div>
-              <button
-                onClick={handleLogout}
-                className="p-2 text-secondary hover:text-primary transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-                aria-label="Sign Out"
-              >
-                <LogOut className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-3">
+                <SyncStatusIndicator />
+                <button
+                  onClick={handleLogout}
+                  className="p-2 text-secondary hover:text-primary transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+                  aria-label="Sign Out"
+                >
+                  <LogOut className="w-5 h-5" />
+                </button>
+              </div>
             </div>
           </header>
 
           {/* Desktop Header (Only Logout button, right aligned) */}
           <header className="hidden md:flex bg-surface/80 backdrop-blur-md sticky top-0 z-10 border-b border-secondary/10">
-             <div className="flex-1 px-8 h-16 flex items-center justify-end">
+             <div className="flex-1 px-8 h-16 flex items-center justify-end gap-4">
+                <SyncStatusIndicator />
                 <button
                   onClick={handleLogout}
                   className="flex items-center gap-2 p-2 text-secondary hover:text-primary transition-colors min-h-[44px]"
