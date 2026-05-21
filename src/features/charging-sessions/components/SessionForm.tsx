@@ -1,5 +1,5 @@
 import React from 'react';
-import { useForm, Controller } from 'react-hook-form';
+import { useForm, Controller, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Save, X, Calendar, FileText } from 'lucide-react';
@@ -72,7 +72,6 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   const {
     register,
     handleSubmit,
-    watch,
     control,
     formState: { errors, isSubmitting },
   } = useForm<SessionFormValues>({
@@ -94,7 +93,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     },
   });
 
-  const selectedProviderId = watch('provider_id');
+  const selectedProviderId = useWatch({ control, name: 'provider_id' });
 
   const handleFormSubmit = async (values: SessionFormValues) => {
     // A session must belong to the active user; unauthenticated renders should
