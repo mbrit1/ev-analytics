@@ -55,7 +55,11 @@ export async function saveSession(session: ChargingSession): Promise<void> {
       table_name: 'sessions',
       action: 'INSERT',
       payload: session,
-      timestamp: new Date()
+      timestamp: new Date(),
+      retry_count: 0,
+      last_attempt_at: undefined,
+      next_attempt_at: undefined,
+      last_error: undefined
     });
   });
 }

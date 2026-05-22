@@ -135,6 +135,12 @@ describe('sessionService', () => {
     expect(outboxItems[0].table_name).toBe('sessions')
     expect(outboxItems[0].action).toBe('INSERT')
     expect(outboxItems[0].payload.id).toBe('session-123')
+    expect(outboxItems[0]).toMatchObject({
+      retry_count: 0,
+      last_attempt_at: undefined,
+      next_attempt_at: undefined,
+      last_error: undefined
+    })
   })
 
   it('should rollback session save if outbox entry fails', async () => {

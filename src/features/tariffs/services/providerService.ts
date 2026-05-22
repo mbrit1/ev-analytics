@@ -27,7 +27,11 @@ export async function saveProvider(provider: Provider): Promise<void> {
       // user's local intent for observability and future sync behavior.
       action: existing ? 'UPDATE' : 'INSERT',
       payload: providerToSave as SyncPayload,
-      timestamp: now
+      timestamp: now,
+      retry_count: 0,
+      last_attempt_at: undefined,
+      next_attempt_at: undefined,
+      last_error: undefined
     });
   });
 }

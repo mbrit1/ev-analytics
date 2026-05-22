@@ -125,6 +125,14 @@ export interface SyncOutbox {
   payload: SyncPayload;
   /** Time the local mutation was queued. */
   timestamp: Date;
+  /** Number of failed remote sync attempts for this queue item. */
+  retry_count?: number;
+  /** Most recent time this item was attempted by the sync engine. */
+  last_attempt_at?: Date;
+  /** Earliest time this item should be retried after a failure. */
+  next_attempt_at?: Date;
+  /** Last concise failure message recorded for diagnostics. */
+  last_error?: string;
 }
 
 /**
@@ -150,6 +158,12 @@ export class EVAnalyticsDB extends Dexie {
       tariffs: 'id, provider_id, deleted_at',
       sessions: 'id, session_timestamp, provider_id, charging_type, deleted_at',
       sync_outbox: '++id, table_name, action, timestamp'
+    });
+    this.version(2).stores({
+      providers: 'id, name, deleted_at',
+      tariffs: 'id, provider_id, deleted_at',
+      sessions: 'id, session_timestamp, provider_id, charging_type, deleted_at',
+      sync_outbox: '++id, table_name, action, timestamp, next_attempt_at'
     });
   }
 }

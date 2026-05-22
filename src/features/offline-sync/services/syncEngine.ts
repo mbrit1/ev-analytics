@@ -1,6 +1,18 @@
 import { db, type SyncOutbox, type Provider, type Tariff, type ChargingSession } from '../../../lib/db';
 import { supabase } from '../../../lib/supabase';
 
+const BASE_RETRY_DELAY_MS = 60_000;
+const MAX_RETRY_DELAY_MS = 15 * 60_000;
+
+export interface ProcessOutboxOptions {
+  now?: () => Date;
+}
+
+function getRetryDelayMs(retryCount: number): number {
+  const exponentialDelay = BASE_RETRY_DELAY_MS * (2 ** Math.max(0, retryCount - 1));
+  return Math.min(exponentialDelay, MAX_RETRY_DELAY_MS);
+}
+
 /**
  * Processes all entries in the sync outbox, uploading them to Supabase.
  *
@@ -8,14 +20,28 @@ import { supabase } from '../../../lib/supabase';
  * occurred. An item is deleted only after Supabase accepts it; failures leave
  * the item in place so a later sync attempt can retry the same payload.
  */
-export async function processOutbox(): Promise<void> {
+export async function processOutbox(options: ProcessOutboxOptions = {}): Promise<void> {
+  const now = options.now ?? (() => new Date());
   const items = await db.sync_outbox.orderBy('timestamp').toArray();
 
   for (const item of items) {
-    const success = await syncItem(item);
-    if (success) {
+    const currentTime = now();
+    if (item.next_attempt_at && item.next_attempt_at > currentTime) {
+      break;
+    }
+
+    const result = await syncItem(item);
+    if (result.success) {
       await db.sync_outbox.delete(item.id!);
     } else {
+      const retryCount = (item.retry_count ?? 0) + 1;
+      await db.sync_outbox.update(item.id!, {
+        retry_count: retryCount,
+        last_attempt_at: currentTime,
+        next_attempt_at: new Date(currentTime.getTime() + getRetryDelayMs(retryCount)),
+        last_error: result.errorMessage ?? 'Unknown sync error'
+      });
+
       // Later writes may depend on earlier ones, so stop at the first failure
       // rather than skipping ahead and risking out-of-order remote state.
       break;
@@ -30,9 +56,9 @@ export async function processOutbox(): Promise<void> {
  * are stored remotely in the `charging_sessions` table.
  *
  * @param item - Outbox entry created by a local write operation.
- * @returns True when Supabase accepted the payload; false when it should retry.
+ * @returns Success state and optional error message for retry bookkeeping.
  */
-async function syncItem(item: SyncOutbox): Promise<boolean> {
+async function syncItem(item: SyncOutbox): Promise<{ success: boolean; errorMessage?: string }> {
   try {
     let error;
 
@@ -49,13 +75,14 @@ async function syncItem(item: SyncOutbox): Promise<boolean> {
 
     if (error) {
       console.error(`Sync error for table ${item.table_name}:`, error.message);
-      return false;
+      return { success: false, errorMessage: error.message };
     }
 
-    return true;
+    return { success: true };
   } catch (err) {
     console.error(`Unexpected sync failure for table ${item.table_name}:`, err);
-    return false;
+    const message = err instanceof Error ? err.message : String(err);
+    return { success: false, errorMessage: message };
   }
 }
 
