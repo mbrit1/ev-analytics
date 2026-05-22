@@ -7,7 +7,7 @@ import { TariffList } from './features/tariffs/components/TariffList'
 import { ChargingHistory } from './features/charging-sessions/components/ChargingHistory'
 import { SessionForm } from './features/charging-sessions/components/SessionForm'
 import { saveSession } from './features/charging-sessions/services/sessionService'
-import { initialSync } from './features/offline-sync/services/syncEngine'
+import { startSyncRuntime } from './features/offline-sync/services/syncRuntime'
 import { type ChargingSession } from './lib/db'
 import { Navigation } from './components/ui/Navigation/Navigation'
 import { SyncStatusIndicator } from './features/offline-sync/components/SyncStatusIndicator'
@@ -25,11 +25,12 @@ function App() {
   const [isSessionFormOpen, setIsSessionFormOpen] = useState(false)
 
   useEffect(() => {
-    if (user) {
-      // Hydrate local IndexedDB from Supabase after auth is available; failures
-      // are logged without blocking offline-first local interaction.
-      initialSync().catch(console.error);
-    }
+    // Runtime is auth-gated and manages initial hydration plus background outbox
+    // processing for online and newly queued local writes.
+    const disposeSyncRuntime = startSyncRuntime({ isAuthenticated: Boolean(user) });
+    return () => {
+      disposeSyncRuntime();
+    };
   }, [user]);
 
   const handleLogout = async () => {

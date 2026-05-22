@@ -28,7 +28,11 @@ export async function saveTariff(tariff: Tariff): Promise<void> {
       // Existing local records become UPDATE syncs; new records become INSERTs.
       action: existing ? 'UPDATE' : 'INSERT',
       payload: tariffToSave as SyncPayload,
-      timestamp: now
+      timestamp: now,
+      retry_count: 0,
+      last_attempt_at: undefined,
+      next_attempt_at: undefined,
+      last_error: undefined
     });
   });
 }
@@ -71,7 +75,11 @@ export async function deleteTariff(id: string): Promise<void> {
       table_name: 'tariffs',
       action: 'DELETE',
       payload: deletedTariff as SyncPayload,
-      timestamp: now
+      timestamp: now,
+      retry_count: 0,
+      last_attempt_at: undefined,
+      next_attempt_at: undefined,
+      last_error: undefined
     });
   });
 }

@@ -220,6 +220,79 @@ describe('syncEngine', () => {
     )
   })
 
+  it('should record retry metadata and schedule backoff when Supabase returns an error', async () => {
+    // Arrange: Make Supabase return a retryable sync error.
+    const now = new Date('2026-05-21T12:00:00.000Z')
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: { message: 'Network Error' } }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+
+    await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'INSERT',
+      payload: { id: 'retry-me' } as SyncPayload,
+      timestamp: new Date('2026-05-21T11:00:00.000Z')
+    })
+
+    // Act: Attempt to process the failing outbox item.
+    await processOutbox({ now: () => now })
+
+    // Assert: The failed item stays queued with first retry metadata.
+    const [outboxItem] = await db.sync_outbox.toArray()
+    expect(outboxItem).toMatchObject({
+      retry_count: 1,
+      last_attempt_at: now,
+      next_attempt_at: new Date('2026-05-21T12:01:00.000Z'),
+      last_error: 'Network Error'
+    })
+  })
+
+  it('should record thrown error messages as retry metadata', async () => {
+    // Arrange: Make Supabase throw instead of returning an error object.
+    const now = new Date('2026-05-21T12:00:00.000Z')
+    const mockUpsert = vi.fn(() => Promise.reject(new Error('Connection lost')))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+
+    await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'INSERT',
+      payload: { id: 'throwing-item' } as SyncPayload,
+      timestamp: new Date('2026-05-21T11:00:00.000Z')
+    })
+
+    // Act: Attempt to process the throwing outbox item.
+    await processOutbox({ now: () => now })
+
+    // Assert: The thrown message is stored without deleting the item.
+    const [outboxItem] = await db.sync_outbox.toArray()
+    expect(outboxItem.retry_count).toBe(1)
+    expect(outboxItem.last_error).toBe('Connection lost')
+    expect(outboxItem.next_attempt_at?.toISOString()).toBe('2026-05-21T12:01:00.000Z')
+  })
+
+  it('should not process an item whose next retry is scheduled in the future', async () => {
+    // Arrange: Queue an item blocked by a future retry time.
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+
+    await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'INSERT',
+      payload: { id: 'not-yet' } as SyncPayload,
+      timestamp: new Date('2026-05-21T11:00:00.000Z'),
+      retry_count: 1,
+      next_attempt_at: new Date('2026-05-21T12:05:00.000Z')
+    })
+
+    // Act: Process before the retry window opens.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+
+    // Assert: Future-scheduled items are left untouched.
+    expect(mockUpsert).not.toHaveBeenCalled()
+    const [outboxItem] = await db.sync_outbox.toArray()
+    expect(outboxItem.payload).toEqual({ id: 'not-yet' })
+    expect(outboxItem.retry_count).toBe(1)
+  })
+
   it('should pull data from Supabase into Dexie during initialSync', async () => {
     // Arrange: Return provider rows from the mocked Supabase select call.
     const mockProviders = [

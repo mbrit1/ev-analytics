@@ -42,6 +42,12 @@ describe('tariffService', () => {
     const outbox = await db.sync_outbox.toArray()
     expect(outbox).toHaveLength(1)
     expect(outbox[0].table_name).toBe('tariffs')
+    expect(outbox[0]).toMatchObject({
+      retry_count: 0,
+      last_attempt_at: undefined,
+      next_attempt_at: undefined,
+      last_error: undefined
+    })
   })
 
   it('should list all non-deleted tariffs', async () => {
@@ -86,5 +92,11 @@ describe('tariffService', () => {
     const outbox = await db.sync_outbox.toArray()
     expect(outbox).toHaveLength(1)
     expect(outbox[0].action).toBe('DELETE')
+    expect(outbox[0]).toMatchObject({
+      retry_count: 0,
+      last_attempt_at: undefined,
+      next_attempt_at: undefined,
+      last_error: undefined
+    })
   })
 })
