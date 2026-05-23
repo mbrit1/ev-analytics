@@ -9,7 +9,7 @@ vi.mock('../features/auth', () => ({
   useAuth: vi.fn(),
   LoginForm: () => <div data-testid="login-form">Login Form</div>,
 }));
-vi.mock('../features/tariffs', () => ({
+vi.mock('../features/tariffs/components/TariffList', () => ({
   TariffList: () => <div>Tariff List</div>,
 }));
 vi.mock('../features/charging-sessions', () => ({
@@ -17,7 +17,31 @@ vi.mock('../features/charging-sessions', () => ({
   SessionForm: () => <div>Session Form</div>,
 }));
 vi.mock('../shared/ui', () => ({
-  Navigation: () => <nav>Navigation</nav>,
+  Navigation: ({
+    activeTab,
+    onTabChange,
+  }: {
+    activeTab: 'sessions' | 'tariffs';
+    onTabChange: (tab: 'sessions' | 'tariffs') => void;
+  }) => (
+    <nav>
+      <div>Navigation</div>
+      <button
+        type="button"
+        aria-pressed={activeTab === 'sessions'}
+        onClick={() => onTabChange('sessions')}
+      >
+        Sessions Tab
+      </button>
+      <button
+        type="button"
+        aria-pressed={activeTab === 'tariffs'}
+        onClick={() => onTabChange('tariffs')}
+      >
+        Tariffs Tab
+      </button>
+    </nav>
+  ),
 }));
 vi.mock('../features/offline-sync', () => ({
   SyncStatusIndicator: () => <div>Sync Status</div>,
@@ -171,5 +195,31 @@ describe('App auth gating', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Token revoked');
     expect(screen.getByText('Navigation')).toBeInTheDocument();
     consoleErrorSpy.mockRestore();
+  });
+
+  it('renders tariffs tab content for authenticated users', async () => {
+    // Arrange: Mock authenticated user and keep core app shell loaded.
+    const user = userEvent.setup();
+    vi.mocked(useAuth).mockReturnValue({
+      user: {
+        id: 'user-1',
+        email: 'driver@example.com',
+        app_metadata: {},
+        user_metadata: {},
+        aud: 'authenticated',
+        created_at: new Date().toISOString(),
+      },
+      session: null,
+      loading: false,
+      signIn: vi.fn(),
+      signOut: mockSignOut,
+    });
+
+    // Act: Switch from default sessions tab to tariffs tab.
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Tariffs Tab' }));
+
+    // Assert: Tariff view resolves through the direct tariff module mock.
+    expect(await screen.findByText('Tariff List')).toBeInTheDocument();
   });
 });
