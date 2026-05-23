@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { db } from '../../../infra/db';
 import type { SyncPayload } from '../../../infra/db';
-import { startSyncRuntime, createDefaultSyncRuntimeDeps, type SyncRuntimeDeps } from './syncRuntime';
+import {
+  startSyncRuntime,
+  createDefaultSyncRuntimeDeps,
+  type SyncRuntimeDeps,
+  type SyncEngineModule
+} from './syncRuntime';
 
 /**
  * Test suite for the sync runtime orchestrator.
@@ -46,20 +51,30 @@ describe('syncRuntime', () => {
     vi.clearAllMocks();
   });
 
+  const createDeps = (engine: SyncEngineModule, logger: Pick<Console, 'error'> = { error: vi.fn() }) => {
+    const loadSyncEngine = vi.fn(async () => engine);
+
+    const deps: SyncRuntimeDeps = {
+      loadSyncEngine,
+      addOnlineListener,
+      subscribeOutboxCreates,
+      logger
+    };
+
+    return { deps, loadSyncEngine };
+  };
+
   it('runs initialSync before processOutbox when authenticated', async () => {
     // Arrange: Capture call ordering between hydration and outbox processing.
     const callOrder: string[] = [];
-    const deps: SyncRuntimeDeps = {
+    const { deps } = createDeps({
       initialSync: vi.fn(async () => {
         callOrder.push('initialSync');
       }),
       processOutbox: vi.fn(async () => {
         callOrder.push('processOutbox');
-      }),
-      addOnlineListener,
-      subscribeOutboxCreates,
-      logger: { error: vi.fn() }
-    };
+      })
+    });
 
     // Act: Start the authenticated runtime and wait one microtask turn.
     const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
@@ -73,13 +88,11 @@ describe('syncRuntime', () => {
 
   it('triggers processOutbox on online event after initial run', async () => {
     // Arrange: Start with successful startup sync.
-    const deps: SyncRuntimeDeps = {
+    const processOutbox = vi.fn(async () => undefined);
+    const { deps } = createDeps({
       initialSync: vi.fn(async () => undefined),
-      processOutbox: vi.fn(async () => undefined),
-      addOnlineListener,
-      subscribeOutboxCreates,
-      logger: { error: vi.fn() }
-    };
+      processOutbox
+    });
 
     // Act: Start runtime, then simulate connectivity restoration.
     const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
@@ -91,18 +104,16 @@ describe('syncRuntime', () => {
     dispose();
 
     // Assert: One startup call plus one online-triggered call.
-    expect(deps.processOutbox).toHaveBeenCalledTimes(2);
+    expect(processOutbox).toHaveBeenCalledTimes(2);
   });
 
   it('triggers processOutbox when a new outbox entry is created', async () => {
     // Arrange: Start with successful startup sync.
-    const deps: SyncRuntimeDeps = {
+    const processOutbox = vi.fn(async () => undefined);
+    const { deps } = createDeps({
       initialSync: vi.fn(async () => undefined),
-      processOutbox: vi.fn(async () => undefined),
-      addOnlineListener,
-      subscribeOutboxCreates,
-      logger: { error: vi.fn() }
-    };
+      processOutbox
+    });
 
     // Act: Start runtime, then simulate a new outbox queue insertion.
     const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
@@ -114,21 +125,24 @@ describe('syncRuntime', () => {
     dispose();
 
     // Assert: Startup plus outbox-driven trigger.
-    expect(deps.processOutbox).toHaveBeenCalledTimes(2);
+    expect(processOutbox).toHaveBeenCalledTimes(2);
   });
 
   it('triggers processOutbox after outbox commit when using default Dexie subscription', async () => {
     // Arrange: Use the real default outbox subscription and clear local state.
     await db.sync_outbox.clear();
+    const processOutbox = vi.fn(async () => {
+      const [oldestItem] = await db.sync_outbox.orderBy('timestamp').toArray();
+      if (oldestItem?.id !== undefined) {
+        await db.sync_outbox.delete(oldestItem.id);
+      }
+    });
     const deps: SyncRuntimeDeps = {
       ...createDefaultSyncRuntimeDeps(),
-      initialSync: vi.fn(async () => undefined),
-      processOutbox: vi.fn(async () => {
-        const [oldestItem] = await db.sync_outbox.orderBy('timestamp').toArray();
-        if (oldestItem?.id !== undefined) {
-          await db.sync_outbox.delete(oldestItem.id);
-        }
-      }),
+      loadSyncEngine: vi.fn(async () => ({
+        initialSync: vi.fn(async () => undefined),
+        processOutbox
+      })),
       logger: { error: vi.fn() }
     };
 
@@ -136,7 +150,7 @@ describe('syncRuntime', () => {
     const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
     await Promise.resolve();
     await Promise.resolve();
-    expect(deps.processOutbox).toHaveBeenCalledTimes(1);
+    expect(processOutbox).toHaveBeenCalledTimes(1);
 
     await db.sync_outbox.add({
       table_name: 'sessions',
@@ -151,7 +165,7 @@ describe('syncRuntime', () => {
     dispose();
 
     // Assert: A post-create run occurs and processes the committed queue item.
-    expect(deps.processOutbox).toHaveBeenCalledTimes(2);
+    expect(processOutbox).toHaveBeenCalledTimes(2);
   });
 
   it('prevents parallel runs and performs exactly one rerun when retriggered in-flight', async () => {
@@ -163,16 +177,14 @@ describe('syncRuntime', () => {
           release = resolve;
         })
     );
-    const deps: SyncRuntimeDeps = {
+    const { deps } = createDeps({
       initialSync: vi.fn(async () => undefined),
-      processOutbox,
-      addOnlineListener,
-      subscribeOutboxCreates,
-      logger: { error: vi.fn() }
-    };
+      processOutbox
+    });
 
     // Act: Start runtime, retrigger twice while first run is still active.
     const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
+    await Promise.resolve();
     await Promise.resolve();
     triggerOnline?.();
     triggerOutboxCreate?.();
@@ -190,9 +202,12 @@ describe('syncRuntime', () => {
 
   it('does not run when unauthenticated', async () => {
     // Arrange: Provide no-op sync dependencies.
-    const deps: SyncRuntimeDeps = {
+    const loadSyncEngine = vi.fn(async () => ({
       initialSync: vi.fn(async () => undefined),
-      processOutbox: vi.fn(async () => undefined),
+      processOutbox: vi.fn(async () => undefined)
+    }));
+    const deps: SyncRuntimeDeps = {
+      loadSyncEngine,
       addOnlineListener,
       subscribeOutboxCreates,
       logger: { error: vi.fn() }
@@ -208,22 +223,116 @@ describe('syncRuntime', () => {
     // Assert: Runtime remains inactive and does not subscribe to triggers.
     expect(addOnlineListener).not.toHaveBeenCalled();
     expect(subscribeOutboxCreates).not.toHaveBeenCalled();
-    expect(deps.initialSync).not.toHaveBeenCalled();
-    expect(deps.processOutbox).not.toHaveBeenCalled();
+    expect(loadSyncEngine).not.toHaveBeenCalled();
+  });
+
+  it('loads syncEngine once on authenticated startup and executes engine functions', async () => {
+    // Arrange: Provide a lazy loader returning mock engine functions.
+    const initialSync = vi.fn(async () => undefined);
+    const processOutbox = vi.fn(async () => undefined);
+    const loadSyncEngine = vi.fn(async () => ({
+      initialSync,
+      processOutbox
+    }));
+    const deps: SyncRuntimeDeps = {
+      loadSyncEngine,
+      addOnlineListener,
+      subscribeOutboxCreates,
+      logger: { error: vi.fn() }
+    };
+
+    // Act: Start authenticated runtime and trigger additional reruns.
+    const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
+    await Promise.resolve();
+    await Promise.resolve();
+    triggerOnline?.();
+    triggerOutboxCreate?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    dispose();
+
+    // Assert: Engine loader runs once and returned functions are executed.
+    expect(loadSyncEngine).toHaveBeenCalledTimes(1);
+    expect(initialSync).toHaveBeenCalledTimes(1);
+    expect(processOutbox).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not execute engine functions when disposed before loader resolves', async () => {
+    // Arrange: Keep sync engine loader pending until runtime is disposed.
+    let resolveLoader: ((engine: SyncEngineModule) => void) | undefined;
+    const initialSync = vi.fn(async () => undefined);
+    const processOutbox = vi.fn(async () => undefined);
+    const loadSyncEngine = vi.fn(
+      () =>
+        new Promise<SyncEngineModule>(resolve => {
+          resolveLoader = resolve;
+        })
+    );
+    const deps: SyncRuntimeDeps = {
+      loadSyncEngine,
+      addOnlineListener,
+      subscribeOutboxCreates,
+      logger: { error: vi.fn() }
+    };
+
+    // Act: Start runtime, dispose while loader is pending, then resolve loader.
+    const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
+    await Promise.resolve();
+    dispose();
+    resolveLoader?.({ initialSync, processOutbox });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // Assert: No sync engine function executes after dispose race.
+    expect(initialSync).not.toHaveBeenCalled();
+    expect(processOutbox).not.toHaveBeenCalled();
+  });
+
+  it('logs loader failures and retries loading on later trigger', async () => {
+    // Arrange: Fail first engine load and succeed on a later trigger.
+    const logger = { error: vi.fn() };
+    const initialSync = vi.fn(async () => undefined);
+    const processOutbox = vi.fn(async () => undefined);
+    const loadSyncEngine = vi
+      .fn<() => Promise<SyncEngineModule>>()
+      .mockRejectedValueOnce(new Error('loader failed'))
+      .mockResolvedValueOnce({ initialSync, processOutbox });
+    const deps: SyncRuntimeDeps = {
+      loadSyncEngine,
+      addOnlineListener,
+      subscribeOutboxCreates,
+      logger
+    };
+
+    // Act: Start runtime, then retrigger after the failed initial load.
+    const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
+    await Promise.resolve();
+    await Promise.resolve();
+    triggerOnline?.();
+    await Promise.resolve();
+    await Promise.resolve();
+    dispose();
+
+    // Assert: Failure is logged and next trigger retries loader successfully.
+    expect(logger.error).toHaveBeenCalledWith('Loading sync engine failed:', expect.any(Error));
+    expect(loadSyncEngine).toHaveBeenCalledTimes(2);
+    expect(initialSync).toHaveBeenCalledTimes(1);
+    expect(processOutbox).toHaveBeenCalledTimes(1);
   });
 
   it('logs initialSync errors and still attempts processOutbox', async () => {
     // Arrange: Fail initial hydration but keep outbox processing successful.
     const logger = { error: vi.fn() };
-    const deps: SyncRuntimeDeps = {
-      initialSync: vi.fn(async () => {
-        throw new Error('initial failed');
-      }),
-      processOutbox: vi.fn(async () => undefined),
-      addOnlineListener,
-      subscribeOutboxCreates,
+    const processOutbox = vi.fn(async () => undefined);
+    const { deps } = createDeps(
+      {
+        initialSync: vi.fn(async () => {
+          throw new Error('initial failed');
+        }),
+        processOutbox
+      },
       logger
-    };
+    );
 
     // Act: Start runtime and let startup complete.
     const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
@@ -233,7 +342,7 @@ describe('syncRuntime', () => {
 
     // Assert: Initial failure is logged and outbox processing still runs.
     expect(logger.error).toHaveBeenCalledWith('Initial sync failed:', expect.any(Error));
-    expect(deps.processOutbox).toHaveBeenCalledTimes(1);
+    expect(processOutbox).toHaveBeenCalledTimes(1);
   });
 
   it('retries initialSync on a later trigger after an initial failure', async () => {
@@ -242,13 +351,10 @@ describe('syncRuntime', () => {
       .fn<() => Promise<void>>()
       .mockRejectedValueOnce(new Error('transient initial sync failure'))
       .mockResolvedValueOnce(undefined);
-    const deps: SyncRuntimeDeps = {
+    const { deps } = createDeps({
       initialSync,
-      processOutbox: vi.fn(async () => undefined),
-      addOnlineListener,
-      subscribeOutboxCreates,
-      logger: { error: vi.fn() }
-    };
+      processOutbox: vi.fn(async () => undefined)
+    });
 
     // Act: Start runtime, then trigger a second run via online event.
     const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
@@ -270,13 +376,13 @@ describe('syncRuntime', () => {
       .fn<() => Promise<void>>()
       .mockRejectedValueOnce(new Error('flush failed'))
       .mockResolvedValueOnce(undefined);
-    const deps: SyncRuntimeDeps = {
-      initialSync: vi.fn(async () => undefined),
-      processOutbox,
-      addOnlineListener,
-      subscribeOutboxCreates,
+    const { deps } = createDeps(
+      {
+        initialSync: vi.fn(async () => undefined),
+        processOutbox
+      },
       logger
-    };
+    );
 
     // Act: Start runtime, then retrigger via online event.
     const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
@@ -294,13 +400,10 @@ describe('syncRuntime', () => {
 
   it('cleans up listeners on dispose', async () => {
     // Arrange: Start with successful startup sync.
-    const deps: SyncRuntimeDeps = {
+    const { deps } = createDeps({
       initialSync: vi.fn(async () => undefined),
-      processOutbox: vi.fn(async () => undefined),
-      addOnlineListener,
-      subscribeOutboxCreates,
-      logger: { error: vi.fn() }
-    };
+      processOutbox: vi.fn(async () => undefined)
+    });
 
     // Act: Start runtime and then dispose.
     const dispose = startSyncRuntime({ isAuthenticated: true }, deps);

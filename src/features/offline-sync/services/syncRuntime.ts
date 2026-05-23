@@ -1,5 +1,9 @@
 import { db } from '../../../infra/db';
-import { initialSync, processOutbox } from './syncEngine';
+
+export interface SyncEngineModule {
+  initialSync: () => Promise<void>;
+  processOutbox: () => Promise<void>;
+}
 
 /**
  * Dependencies used by the sync runtime orchestrator.
@@ -7,10 +11,8 @@ import { initialSync, processOutbox } from './syncEngine';
  * Exported for focused unit tests without browser or Dexie side effects.
  */
 export interface SyncRuntimeDeps {
-  /** Initial remote-to-local hydration function run on authenticated startup. */
-  initialSync: () => Promise<void>;
-  /** Outbox processor that replays pending local mutations to Supabase. */
-  processOutbox: () => Promise<void>;
+  /** Lazy loader for syncEngine functions used on authenticated runtime startup. */
+  loadSyncEngine: () => Promise<SyncEngineModule>;
   /** Registers a callback for browser online events and returns cleanup. */
   addOnlineListener: (listener: () => void) => () => void;
   /** Registers a callback for new outbox entries and returns cleanup. */
@@ -20,8 +22,7 @@ export interface SyncRuntimeDeps {
 }
 
 const defaultDeps: SyncRuntimeDeps = {
-  initialSync,
-  processOutbox,
+  loadSyncEngine: () => import('./syncEngine'),
   addOnlineListener: (listener: () => void) => {
     window.addEventListener('online', listener);
     return () => window.removeEventListener('online', listener);
@@ -69,6 +70,7 @@ export function startSyncRuntime(
   let isRunning = false;
   let rerunRequested = false;
   let hasHydrated = false;
+  let engineModule: SyncEngineModule | undefined;
 
   const run = async (): Promise<void> => {
     if (isDisposed) {
@@ -82,12 +84,25 @@ export function startSyncRuntime(
 
     isRunning = true;
     try {
+      if (!engineModule) {
+        try {
+          engineModule = await deps.loadSyncEngine();
+        } catch (error) {
+          deps.logger.error('Loading sync engine failed:', error);
+          return;
+        }
+      }
+
+      if (isDisposed || !engineModule) {
+        return;
+      }
+
       do {
         rerunRequested = false;
 
         if (!hasHydrated) {
           try {
-            await deps.initialSync();
+            await engineModule.initialSync();
             hasHydrated = true;
           } catch (error) {
             deps.logger.error('Initial sync failed:', error);
@@ -95,7 +110,7 @@ export function startSyncRuntime(
         }
 
         try {
-          await deps.processOutbox();
+          await engineModule.processOutbox();
         } catch (error) {
           deps.logger.error('Outbox processing failed:', error);
         }
