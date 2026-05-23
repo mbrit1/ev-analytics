@@ -2,9 +2,9 @@ import React, { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { supabase } from '../../../lib/supabase';
 import { LogIn, Loader2 } from 'lucide-react';
 import { Slab } from '../../../components/ui/Slab';
+import { useAuth } from '../hooks/useAuth';
 
 const loginSchema = z.object({
   /** Supabase password auth requires a valid email address. */
@@ -25,6 +25,7 @@ type LoginFormValues = z.infer<typeof loginSchema>;
 export const LoginForm: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const { signIn } = useAuth();
 
   const {
     register,
@@ -44,15 +45,20 @@ export const LoginForm: React.FC = () => {
     setLoading(true);
     setAuthError(null);
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email: data.email,
-      password: data.password,
-    });
+    try {
+      const { error } = await signIn(data.email, data.password);
 
-    if (error) {
-      setAuthError(error.message);
+      if (error) {
+        setAuthError(error.message);
+      }
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? error.message
+        : 'Sign-in failed. Please try again.';
+      setAuthError(message);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (

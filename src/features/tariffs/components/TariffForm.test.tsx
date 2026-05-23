@@ -31,6 +31,8 @@ describe('TariffForm', () => {
       user: { id: 'user-1' } as any,
       loading: false,
       session: null,
+      signIn: vi.fn(),
+      signOut: vi.fn(),
     });
   });
 

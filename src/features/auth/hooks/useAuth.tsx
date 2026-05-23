@@ -1,6 +1,6 @@
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import type { User, Session } from '@supabase/supabase-js';
+import type { User, Session, AuthError } from '@supabase/supabase-js';
 import { supabase } from '../../../lib/supabase';
 import { isMockMode } from '../../../lib/mock-utils';
 
@@ -11,6 +11,10 @@ interface AuthContextType {
   session: Session | null;
   /** True while the initial Supabase session lookup is still unresolved. */
   loading: boolean;
+  /** Signs a user in via email/password or resolves immediately in mock mode. */
+  signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
+  /** Signs the current user out or resolves immediately in mock mode. */
+  signOut: () => Promise<{ error: AuthError | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -64,16 +68,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [loading, setLoading] = useState(!isMockMode());
 
+  const signIn = async (email: string, password: string): Promise<{ error: AuthError | null }> => {
+    if (isMockMode()) {
+      return { error: null };
+    }
+
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    return { error };
+  };
+
+  const signOut = async (): Promise<{ error: AuthError | null }> => {
+    if (isMockMode()) {
+      return { error: null };
+    }
+
+    const { error } = await supabase.auth.signOut();
+    return { error };
+  };
+
   useEffect(() => {
     if (isMockMode()) return;
 
     // Hydrate persisted auth state before rendering protected application
     // content. Supabase may restore this from browser storage.
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
-    });
+    supabase.auth.getSession()
+      .then(({ data: { session: hydratedSession } }) => {
+        setSession(hydratedSession);
+        setUser(hydratedSession?.user ?? null);
+      })
+      .catch(() => {
+        setSession(null);
+        setUser(null);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
 
     // Keep React context aligned with Supabase events such as sign-in, sign-out,
     // token refresh, and password recovery.
@@ -87,7 +116,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, session, loading }}>
+    <AuthContext.Provider value={{ user, session, loading, signIn, signOut }}>
       {children}
     </AuthContext.Provider>
   );
