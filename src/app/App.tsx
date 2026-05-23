@@ -47,8 +47,8 @@ function App() {
       return () => window.cancelIdleCallback(idleCallbackId)
     }
 
-    const timeoutId = window.setTimeout(prefetchTariffs, 800)
-    return () => window.clearTimeout(timeoutId)
+    const timeoutId = setTimeout(prefetchTariffs, 800)
+    return () => clearTimeout(timeoutId)
   }, [user])
 
   const handleLogout = async () => {
