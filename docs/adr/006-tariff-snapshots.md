@@ -1,30 +1,35 @@
-# ADR 006: Tariff Snapshot Strategy
+# ADR 006: Charging Plan And Ad-Hoc Snapshot Strategy
 
 ## Status
 Accepted
 
 ## Context
-Energy tariffs in Europe (and globally) are dynamic. Prices for AC and DC charging, as well as session fees, can change over time. If a user logs a charging session today and then updates their tariff prices next month, the historical session's cost should remain accurate based on the prices *at the time of the session*.
+Charging prices in Europe (and globally) are dynamic. Users may either charge against a saved charging plan or enter an ad-hoc session from a one-off receipt/app quote. If a user logs a session today and later edits or deletes the underlying plan, the historical session cost must remain accurate for the original point in time.
 
 ## Decision
-We will use a **Snapshot Strategy** for tariff data on every charging session entry.
+We will use a **Snapshot Strategy** for charging-session pricing.
 
-1.  **Denormalization:** When a `ChargingSession` is created, we will explicitly copy the current `ac_price_per_kwh`, `dc_price_per_kwh`, and `session_fee` from the selected `Tariff` into the `ChargingSession` record.
-2.  **Calculated Cost:** The `total_cost` will be calculated at the moment of entry using these snapshotted values and stored as a static integer (cents).
-3.  **UI Display:** The UI will prioritize the snapshotted values for historical views, ensuring that even if the original `Tariff` is deleted or modified, the historical record remains intact.
+1. **Charging-plan sessions:** When a `ChargingSession` uses `pricing_source = chargingPlan`, we copy the effective plan price components and session fee into applied snapshot fields on the session row.
+2. **Ad-hoc sessions:** When `pricing_source = adHoc`, we store a full `ad_hoc_pricing` snapshot object on the session so no saved plan is required. In this mode, `charging_plan_name` remains `NULL` and the UI uses an `Ad-Hoc` fallback label.
+3. **Calculated cost:** `total_cost` is calculated during entry from the selected source and stored as a static integer (cents).
+4. **UI display:** History and analytics read session snapshots first, so historical rows remain stable even if plans are edited/deleted later.
 
-## Attributes Added to `ChargingSession`
-- `applied_ac_price`: Integer (cents)
-- `applied_dc_price`: Integer (cents)
+## Snapshot Fields On `ChargingSession`
+- `pricing_source`: `'chargingPlan' | 'adHoc'`
+- `charging_plan_id` (nullable for ad-hoc)
+- `charging_plan_name` (nullable for ad-hoc)
+- `ad_hoc_pricing` (JSON snapshot for ad-hoc sessions)
+- `applied_ac_price_per_kwh`: Integer (cents)
+- `applied_dc_price_per_kwh`: Integer (cents)
 - `applied_session_fee`: Integer (cents)
 - `provider_name`: String (Denormalized for convenience)
-- `tariff_name`: String (Denormalized for convenience)
+- `charging_plan_name`: String (Denormalized plan label)
 
 ## Consequences
 - **Pros:**
     - Guaranteed data integrity for historical analytics.
     - Simplified analytics queries (no complex temporal joins).
-    - Resilience against tariff deletion.
+    - Supports both reusable plans and ad-hoc entries with a single session model.
 - **Cons:**
     - Slight increase in storage per session row (negligible for IndexedDB/PostgreSQL).
     - Requires logic in the session creation service to ensure snapshots are taken.

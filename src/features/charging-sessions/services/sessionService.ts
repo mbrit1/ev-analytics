@@ -1,4 +1,5 @@
-import { db, type ChargingSession, type Tariff, type Provider } from '../../../infra/db';
+import { db, type ChargingSession, type ChargingPlan, type Provider } from '../../../infra/db';
+import type { SessionPreparationInput } from '../model/types';
 
 /**
  * Prepares a complete ChargingSession object from user input and associated data.
@@ -13,26 +14,203 @@ import { db, type ChargingSession, type Tariff, type Provider } from '../../../i
  * @returns A complete charging session ready to persist locally.
  */
 export function prepareSession(
-  input: Omit<ChargingSession, 'id' | 'provider_name' | 'tariff_name' | 'total_cost' | 'applied_ac_price' | 'applied_dc_price' | 'applied_session_fee' | 'created_at' | 'updated_at'>,
-  tariff: Tariff,
-  provider: Provider
+  input: SessionPreparationInput,
+  chargingPlan?: ChargingPlan,
+  provider?: Provider
 ): ChargingSession {
-  const appliedPrice = input.charging_type === 'AC' ? tariff.ac_price_per_kwh : tariff.dc_price_per_kwh;
-  
-  // kWh is decimal input, while tariff prices and fees are integer cents.
-  const totalCost = Math.round(input.kwh_billed * appliedPrice) + tariff.session_fee;
+  const nextModeInput = input as SessionPreparationInput & {
+    session_mode?: 'plan' | 'adHoc';
+    tariff_plan_id?: string | null;
+    plan_selection_id?: string | null;
+    price_snapshot?: {
+      label: string;
+      kWhPrice: number;
+      sessionFee?: number;
+      blockingFee?: number;
+    };
+  };
+
+  if (nextModeInput.session_mode === 'plan') {
+    if (!nextModeInput.tariff_plan_id) {
+      throw new Error('tariff_plan_id is required for plan mode');
+    }
+    if (!nextModeInput.plan_selection_id) {
+      throw new Error('plan_selection_id is required for plan mode');
+    }
+  }
+
+  if (nextModeInput.session_mode === 'adHoc') {
+    if (nextModeInput.tariff_plan_id || nextModeInput.plan_selection_id) {
+      throw new Error('tariff_plan_id and plan_selection_id are forbidden for adHoc mode');
+    }
+    if (!nextModeInput.price_snapshot && !input.ad_hoc_pricing) {
+      throw new Error('price_snapshot is required for adHoc mode');
+    }
+  }
+
+  const now = new Date();
+  const assertIntegerCents = (value: number, label: string): number => {
+    if (!Number.isInteger(value)) {
+      throw new Error(`${label} must be an integer cent amount`);
+    }
+    return value;
+  };
+  const assertOptionalIntegerCents = (value: number | undefined, label: string): number | undefined => {
+    if (value == null) {
+      return undefined;
+    }
+    return assertIntegerCents(value, label);
+  };
+
+  if (input.pricing_source === 'chargingPlan') {
+    if (!input.provider_id) {
+      throw new Error('provider_id is required for chargingPlan pricing');
+    }
+    if (!input.charging_plan_id) {
+      throw new Error('charging_plan_id is required for chargingPlan pricing');
+    }
+    if (!provider) {
+      throw new Error('Provider is required for chargingPlan pricing');
+    }
+    if (!chargingPlan) {
+      throw new Error('Charging plan is required for chargingPlan pricing');
+    }
+
+    const resolveAppliedPricePerKwh = (): number => {
+      if (input.pricing_context === 'roaming') {
+        const roamingPrice = input.charging_type === 'AC'
+          ? chargingPlan.prices.roaming?.ac
+          : chargingPlan.prices.roaming?.dc;
+        if (roamingPrice == null) {
+          throw new Error(`No matching roaming ${input.charging_type} price for selected charging plan`);
+        }
+        return roamingPrice;
+      }
+
+      const domesticPrice = input.charging_type === 'AC'
+        ? chargingPlan.prices.domestic.ac
+        : chargingPlan.prices.domestic.dc;
+      if (domesticPrice == null) {
+        throw new Error(`No matching domestic ${input.charging_type} price for selected charging plan`);
+      }
+      return domesticPrice;
+    };
+
+    const appliedPricePerKwh = resolveAppliedPricePerKwh();
+    const appliedDomesticAc = assertOptionalIntegerCents(
+      chargingPlan.prices.domestic.ac,
+      'chargingPlan.prices.domestic.ac'
+    );
+    const appliedDomesticDc = assertOptionalIntegerCents(
+      chargingPlan.prices.domestic.dc,
+      'chargingPlan.prices.domestic.dc'
+    );
+    const appliedRoamingAc = assertOptionalIntegerCents(
+      chargingPlan.prices.roaming?.ac,
+      'chargingPlan.prices.roaming.ac'
+    );
+    const appliedRoamingDc = assertOptionalIntegerCents(
+      chargingPlan.prices.roaming?.dc,
+      'chargingPlan.prices.roaming.dc'
+    );
+    const appliedMonthlyBaseFee = assertOptionalIntegerCents(
+      chargingPlan.fees.subscriptionMonthly,
+      'chargingPlan.fees.subscriptionMonthly'
+    );
+    const appliedSessionFee = assertOptionalIntegerCents(
+      chargingPlan.fees.sessionFixed,
+      'chargingPlan.fees.sessionFixed'
+    ) ?? 0;
+    const normalizedAppliedPricePerKwh = assertIntegerCents(appliedPricePerKwh, 'applied_price_per_kwh');
+    const totalCost = Math.round(input.kwh_billed * normalizedAppliedPricePerKwh) + appliedSessionFee;
+
+    return {
+      ...input,
+      id: crypto.randomUUID(),
+      session_mode: 'plan',
+      tariff_plan_id: input.charging_plan_id,
+      plan_selection_id: nextModeInput.plan_selection_id,
+      price_snapshot: nextModeInput.price_snapshot ?? {
+        label: `${provider.name} ${chargingPlan.plan_name}`,
+        kWhPrice: normalizedAppliedPricePerKwh,
+        sessionFee: appliedSessionFee
+      },
+      provider_name: provider.name,
+      provider_id: input.provider_id,
+      charging_plan_id: input.charging_plan_id,
+      charging_plan_name: chargingPlan.plan_name,
+      total_cost: totalCost,
+      applied_price_per_kwh: normalizedAppliedPricePerKwh,
+      applied_ac_price_per_kwh: appliedDomesticAc,
+      applied_dc_price_per_kwh: appliedDomesticDc,
+      applied_roaming_ac_price_per_kwh: appliedRoamingAc,
+      applied_roaming_dc_price_per_kwh: appliedRoamingDc,
+      applied_monthly_base_fee: appliedMonthlyBaseFee,
+      applied_session_fee: appliedSessionFee,
+      ad_hoc_pricing: undefined,
+      created_at: now,
+      updated_at: now
+    };
+  }
+
+  if (!input.ad_hoc_pricing) {
+    throw new Error('ad_hoc_pricing is required for adHoc pricing');
+  }
+  if (!input.ad_hoc_pricing.cpoName?.trim()) {
+    throw new Error('ad_hoc_pricing.cpoName is required for adHoc pricing');
+  }
+
+  const adHocSnapshot: ChargingSession['ad_hoc_pricing'] = structuredClone(input.ad_hoc_pricing);
+  const cpoNameRaw = adHocSnapshot.cpoName;
+  if (!cpoNameRaw?.trim()) {
+    throw new Error('ad_hoc_pricing.cpoName is required for adHoc pricing');
+  }
+  const pricePerKwh = adHocSnapshot.pricePerKwh == null
+    ? null
+    : assertIntegerCents(adHocSnapshot.pricePerKwh, 'ad_hoc_pricing.pricePerKwh');
+  const pricePerMinute = adHocSnapshot.pricePerMinute != null
+    ? assertIntegerCents(adHocSnapshot.pricePerMinute, 'ad_hoc_pricing.pricePerMinute')
+    : undefined;
+  if (pricePerMinute != null) {
+    throw new Error('ad_hoc_pricing.pricePerMinute is not currently supported without a billed-duration field');
+  }
+  const pricePerSession = adHocSnapshot.pricePerSession != null
+    ? assertIntegerCents(adHocSnapshot.pricePerSession, 'ad_hoc_pricing.pricePerSession')
+    : undefined;
+  const perKwhCost = pricePerKwh == null ? 0 : Math.round(input.kwh_billed * pricePerKwh);
+  const sessionCost = pricePerSession ?? 0;
+  const otherFeesTotal = adHocSnapshot.otherFees?.reduce((sum, fee) => {
+    return sum + assertIntegerCents(fee.amount, `ad_hoc_pricing.otherFees.${fee.label}.amount`);
+  }, 0) ?? 0;
+  const cpoName = cpoNameRaw.trim();
 
   return {
     ...input,
     id: crypto.randomUUID(),
-    provider_name: provider.name,
-    tariff_name: tariff.tariff_name,
-    total_cost: totalCost,
-    applied_ac_price: tariff.ac_price_per_kwh,
-    applied_dc_price: tariff.dc_price_per_kwh,
-    applied_session_fee: tariff.session_fee,
-    created_at: new Date(),
-    updated_at: new Date()
+    session_mode: 'adHoc',
+    tariff_plan_id: null,
+    plan_selection_id: null,
+    price_snapshot: nextModeInput.price_snapshot ?? {
+      label: 'Ad-Hoc',
+      kWhPrice: pricePerKwh ?? 0,
+      sessionFee: sessionCost,
+      blockingFee: otherFeesTotal > 0 ? otherFeesTotal : undefined
+    },
+    provider_id: null,
+    provider_name: cpoName,
+    charging_plan_id: null,
+    charging_plan_name: 'Ad-Hoc',
+    total_cost: perKwhCost + sessionCost + otherFeesTotal,
+    ad_hoc_pricing: adHocSnapshot,
+    applied_price_per_kwh: pricePerKwh ?? undefined,
+    applied_ac_price_per_kwh: undefined,
+    applied_dc_price_per_kwh: undefined,
+    applied_roaming_ac_price_per_kwh: undefined,
+    applied_roaming_dc_price_per_kwh: undefined,
+    applied_monthly_base_fee: undefined,
+    applied_session_fee: sessionCost,
+    created_at: now,
+    updated_at: now
   };
 }
 

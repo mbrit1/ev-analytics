@@ -1,0 +1,30 @@
+import { useLiveQuery } from 'dexie-react-hooks';
+import { getChargingPlans, saveChargingPlan, deleteChargingPlan } from '../services/chargingPlanService';
+import type { ChargingPlan } from '../../../infra/db';
+
+/**
+ * Subscribes components to active charging plans and exposes write operations.
+ *
+ * Dexie live queries re-run after local tariff changes, giving the UI immediate
+ * feedback while the sync outbox handles remote persistence separately.
+ */
+export function useChargingPlans() {
+  const chargingPlans = useLiveQuery(() => getChargingPlans(), []);
+
+  const addChargingPlan = async (chargingPlan: ChargingPlan) => {
+    // saveChargingPlan handles both new records and edits based on id.
+    await saveChargingPlan(chargingPlan);
+  };
+
+  const removeChargingPlan = async (id: string) => {
+    // Plans are soft-deleted so existing session snapshots remain meaningful.
+    await deleteChargingPlan(id);
+  };
+
+  return {
+    chargingPlans: chargingPlans || [],
+    isLoading: chargingPlans === undefined,
+    addChargingPlan,
+    removeChargingPlan,
+  };
+}

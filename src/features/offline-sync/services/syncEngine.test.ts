@@ -1,8 +1,58 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { db, type SyncPayload, type Provider, type Tariff, type ChargingSession } from '../../../infra/db'
+import { db, type Provider, type ChargingPlan, type ChargingSession } from '../../../infra/db'
 import { processOutbox, initialSync } from './syncEngine'
 import { supabase } from '../../../infra/supabase'
 import 'fake-indexeddb/auto'
+
+function buildProvider(overrides: Partial<Provider> = {}): Provider {
+  const now = new Date('2026-05-21T00:00:00.000Z')
+  return {
+    id: 'provider-default',
+    user_id: 'user-1',
+    name: 'Ionity',
+    created_at: now,
+    updated_at: now,
+    ...overrides
+  }
+}
+
+function buildChargingPlan(overrides: Partial<ChargingPlan> = {}): ChargingPlan {
+  const now = new Date('2026-05-21T00:00:00.000Z')
+  return {
+    id: 'plan-default',
+    user_id: 'user-1',
+    provider_id: 'provider-default',
+    plan_name: 'Default Plan',
+    validity: { from: new Date('2026-01-01T00:00:00.000Z') },
+    prices: { domestic: { ac: 49, dc: 79 } },
+    fees: {},
+    created_at: now,
+    updated_at: now,
+    ...overrides
+  }
+}
+
+function buildChargingSession(overrides: Partial<ChargingSession> = {}): ChargingSession {
+  const now = new Date('2026-05-21T00:00:00.000Z')
+  return {
+    id: 'session-default',
+    user_id: 'user-1',
+    session_timestamp: new Date('2026-05-21T12:00:00.000Z'),
+    provider_id: 'provider-default',
+    provider_name: 'Ionity',
+    charging_plan_id: 'plan-default',
+    charging_plan_name: 'Default Plan',
+    charging_type: 'DC',
+    kwh_billed: 10,
+    total_cost: 790,
+    pricing_source: 'chargingPlan',
+    applied_dc_price_per_kwh: 79,
+    applied_session_fee: 0,
+    created_at: now,
+    updated_at: now,
+    ...overrides
+  }
+}
 
 // Mock Supabase so tests can assert sync behavior without network access.
 vi.mock('../../../infra/supabase', () => ({
@@ -26,7 +76,7 @@ describe('syncEngine', () => {
     // Keep each test's outbox/cache state independent inside fake IndexedDB.
     await db.sync_outbox.clear()
     await db.providers.clear()
-    await db.tariffs.clear()
+    await db.charging_plans.clear()
     await db.sessions.clear()
     vi.clearAllMocks()
   })
@@ -37,7 +87,7 @@ describe('syncEngine', () => {
 
   it('should process outbox items and upload to Supabase', async () => {
     // Arrange: Queue a local session write for sync.
-    const session = { id: 's1', user_id: 'u1', total_cost: 100 } as SyncPayload
+    const session = buildChargingSession({ id: 's1', user_id: 'u1', total_cost: 100 })
     await db.sync_outbox.add({
       table_name: 'sessions',
       action: 'INSERT',
@@ -65,13 +115,13 @@ describe('syncEngine', () => {
       {
         table_name: 'sessions',
         action: 'INSERT',
-        payload: { id: 'newer' } as SyncPayload,
+        payload: buildChargingSession({ id: 'newer' }),
         timestamp: new Date('2026-05-21T10:00:00.000Z')
       },
       {
         table_name: 'sessions',
         action: 'INSERT',
-        payload: { id: 'older' } as SyncPayload,
+        payload: buildChargingSession({ id: 'older' }),
         timestamp: new Date('2026-05-21T09:00:00.000Z')
       }
     ])
@@ -92,7 +142,7 @@ describe('syncEngine', () => {
     await db.sync_outbox.add({
       table_name: 'sessions',
       action: 'INSERT',
-      payload: { id: 's2' } as SyncPayload,
+      payload: buildChargingSession({ id: 's2' }),
       timestamp: new Date()
     })
 
@@ -115,13 +165,13 @@ describe('syncEngine', () => {
       {
         table_name: 'sessions',
         action: 'INSERT',
-        payload: { id: 'blocked-first' } as SyncPayload,
+        payload: buildChargingSession({ id: 'blocked-first' }),
         timestamp: new Date('2026-05-21T09:00:00.000Z')
       },
       {
         table_name: 'sessions',
         action: 'INSERT',
-        payload: { id: 'blocked-second' } as SyncPayload,
+        payload: buildChargingSession({ id: 'blocked-second' }),
         timestamp: new Date('2026-05-21T10:00:00.000Z')
       }
     ])
@@ -132,12 +182,12 @@ describe('syncEngine', () => {
     // Assert: Later writes are not attempted after an earlier failure.
     expect(mockUpsert).toHaveBeenCalledTimes(1)
     const outboxItems = await db.sync_outbox.orderBy('timestamp').toArray()
-    expect(outboxItems.map(item => (item.payload as SyncPayload).id)).toEqual(['blocked-first', 'blocked-second'])
+    expect(outboxItems.map(item => item.payload.id)).toEqual(['blocked-first', 'blocked-second'])
   })
 
   it('should upload provider outbox items to the providers table', async () => {
     // Arrange: Queue a provider mutation for sync.
-    const provider = { id: 'p1', user_id: 'u1', name: 'Ionity' } as Provider
+    const provider = buildProvider({ id: 'p1', user_id: 'u1', name: 'Ionity' })
     await db.sync_outbox.add({
       table_name: 'providers',
       action: 'INSERT',
@@ -152,40 +202,40 @@ describe('syncEngine', () => {
     expect(supabase.from).toHaveBeenCalledWith('providers')
   })
 
-  it('should upload tariff outbox items to the tariffs table', async () => {
-    // Arrange: Queue a tariff mutation for sync.
-    const tariff = { id: 't1', user_id: 'u1', provider_id: 'p1', tariff_name: 'Drive Free' } as Tariff
+  it('should upload charging plan outbox items to the charging_plans table', async () => {
+    // Arrange: Queue a charging plan mutation for sync.
+    const plan = buildChargingPlan({ id: 'cp1', user_id: 'u1', provider_id: 'p1', plan_name: 'Drive Free' })
     await db.sync_outbox.add({
-      table_name: 'tariffs',
+      table_name: 'charging_plans',
       action: 'INSERT',
-      payload: tariff,
+      payload: plan,
       timestamp: new Date()
     })
 
     // Act: Process the outbox.
     await processOutbox()
 
-    // Assert: Tariff mutations target the matching Supabase table.
-    expect(supabase.from).toHaveBeenCalledWith('tariffs')
+    // Assert: Charging-plan mutations target the matching Supabase table.
+    expect(supabase.from).toHaveBeenCalledWith('charging_plans')
   })
 
   it('should sync soft-delete outbox items with their deleted_at payload', async () => {
-    // Arrange: Queue a soft-deleted tariff record.
+    // Arrange: Queue a soft-deleted charging plan record.
     const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
     vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
 
     const deletedAt = new Date('2026-05-21T11:00:00.000Z')
-    const tariff = {
-      id: 't-deleted',
+    const chargingPlan = buildChargingPlan({
+      id: 'cp-deleted',
       user_id: 'u1',
       provider_id: 'p1',
-      tariff_name: 'Old tariff',
+      plan_name: 'Old charging plan',
       deleted_at: deletedAt
-    } as Tariff
+    })
     await db.sync_outbox.add({
-      table_name: 'tariffs',
+      table_name: 'charging_plans',
       action: 'DELETE',
-      payload: tariff,
+      payload: chargingPlan,
       timestamp: new Date()
     })
 
@@ -193,7 +243,7 @@ describe('syncEngine', () => {
     await processOutbox()
 
     // Assert: Deletes are replayed as soft-delete upserts and then removed.
-    expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({ id: 't-deleted', deleted_at: deletedAt }))
+    expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({ id: 'cp-deleted', deleted_at: deletedAt }))
     expect(await db.sync_outbox.count()).toBe(0)
   })
 
@@ -205,7 +255,7 @@ describe('syncEngine', () => {
     await db.sync_outbox.add({
       table_name: 'sessions',
       action: 'INSERT',
-      payload: { id: 's-throw' } as SyncPayload,
+      payload: buildChargingSession({ id: 's-throw' }),
       timestamp: new Date()
     })
 
@@ -229,7 +279,7 @@ describe('syncEngine', () => {
     await db.sync_outbox.add({
       table_name: 'sessions',
       action: 'INSERT',
-      payload: { id: 'retry-me' } as SyncPayload,
+      payload: buildChargingSession({ id: 'retry-me' }),
       timestamp: new Date('2026-05-21T11:00:00.000Z')
     })
 
@@ -246,6 +296,32 @@ describe('syncEngine', () => {
     })
   })
 
+  it('should record retry metadata for charging_plans failures', async () => {
+    // Arrange: Make charging-plan upload fail with a retryable Supabase error.
+    const now = new Date('2026-05-21T12:00:00.000Z')
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: { message: 'Charging-plan network error' } }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+
+    await db.sync_outbox.add({
+      table_name: 'charging_plans',
+      action: 'INSERT',
+      payload: buildChargingPlan({ id: 'cp-retry-1' }),
+      timestamp: new Date('2026-05-21T11:00:00.000Z')
+    })
+
+    // Act: Attempt to process the failing outbox item.
+    await processOutbox({ now: () => now })
+
+    // Assert: Retry metadata is written and item remains queued.
+    const [outboxItem] = await db.sync_outbox.toArray()
+    expect(outboxItem).toMatchObject({
+      retry_count: 1,
+      last_attempt_at: now,
+      next_attempt_at: new Date('2026-05-21T12:01:00.000Z'),
+      last_error: 'Charging-plan network error'
+    })
+  })
+
   it('should record thrown error messages as retry metadata', async () => {
     // Arrange: Make Supabase throw instead of returning an error object.
     const now = new Date('2026-05-21T12:00:00.000Z')
@@ -255,7 +331,7 @@ describe('syncEngine', () => {
     await db.sync_outbox.add({
       table_name: 'sessions',
       action: 'INSERT',
-      payload: { id: 'throwing-item' } as SyncPayload,
+      payload: buildChargingSession({ id: 'throwing-item' }),
       timestamp: new Date('2026-05-21T11:00:00.000Z')
     })
 
@@ -277,7 +353,7 @@ describe('syncEngine', () => {
     await db.sync_outbox.add({
       table_name: 'sessions',
       action: 'INSERT',
-      payload: { id: 'not-yet' } as SyncPayload,
+      payload: buildChargingSession({ id: 'not-yet' }),
       timestamp: new Date('2026-05-21T11:00:00.000Z'),
       retry_count: 1,
       next_attempt_at: new Date('2026-05-21T12:05:00.000Z')
@@ -289,15 +365,74 @@ describe('syncEngine', () => {
     // Assert: Future-scheduled items are left untouched.
     expect(mockUpsert).not.toHaveBeenCalled()
     const [outboxItem] = await db.sync_outbox.toArray()
-    expect(outboxItem.payload).toEqual({ id: 'not-yet' })
+    expect(outboxItem.payload).toMatchObject({ id: 'not-yet' })
     expect(outboxItem.retry_count).toBe(1)
+  })
+
+  it('should continue scanning and process ready items after delayed items', async () => {
+    // Arrange: First item is delayed, second item is ready now.
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: buildChargingSession({ id: 'delayed-first' }),
+        timestamp: new Date('2026-05-21T11:00:00.000Z'),
+        retry_count: 1,
+        next_attempt_at: new Date('2026-05-21T12:05:00.000Z')
+      },
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: buildChargingSession({ id: 'ready-second' }),
+        timestamp: new Date('2026-05-21T11:01:00.000Z')
+      }
+    ])
+
+    // Act: Process at a time where only the second item is eligible.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+
+    // Assert: Eligible later items are processed, delayed item remains queued.
+    expect(mockUpsert).toHaveBeenCalledTimes(1)
+    expect(mockUpsert).toHaveBeenCalledWith(expect.objectContaining({ id: 'ready-second' }))
+    const remaining = await db.sync_outbox.toArray()
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0].payload.id).toBe('delayed-first')
+  })
+
+  it('should keep unknown table_name items queued with retry metadata', async () => {
+    // Arrange: Insert an outbox row with an unsupported table name.
+    const now = new Date('2026-05-21T12:00:00.000Z')
+    await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'INSERT',
+      payload: buildChargingSession({ id: 'unknown-table-item' }),
+      timestamp: new Date('2026-05-21T11:00:00.000Z')
+    })
+    const [row] = await db.sync_outbox.toArray()
+    await db.sync_outbox.update(row.id!, { table_name: 'unknown_table' as never })
+
+    // Act: Process the outbox.
+    await processOutbox({ now: () => now })
+
+    // Assert: Unsupported table names are treated as failures.
+    expect(supabase.from).not.toHaveBeenCalled()
+    const [outboxItem] = await db.sync_outbox.toArray()
+    expect(outboxItem).toMatchObject({
+      retry_count: 1,
+      last_attempt_at: now,
+      next_attempt_at: new Date('2026-05-21T12:01:00.000Z'),
+      last_error: 'Unsupported sync table: unknown_table'
+    })
   })
 
   it('should pull data from Supabase into Dexie during initialSync', async () => {
     // Arrange: Return provider rows from the mocked Supabase select call.
     const mockProviders = [
-      { id: 'p1', name: 'Ionity', user_id: 'u1', created_at: new Date(), updated_at: new Date() },
-      { id: 'p2', name: 'Elli', user_id: 'u1', created_at: new Date(), updated_at: new Date() }
+      buildProvider({ id: 'p1', name: 'Ionity', user_id: 'u1' }),
+      buildProvider({ id: 'p2', name: 'Elli', user_id: 'u1' })
     ]
 
     const mockSelect = vi.fn(() => Promise.resolve({ data: mockProviders, error: null }))
@@ -312,21 +447,19 @@ describe('syncEngine', () => {
     expect(localProviders[0].name).toBe('Ionity')
   })
 
-  it('should hydrate providers, tariffs, and sessions from their remote tables', async () => {
+  it('should hydrate providers, charging plans, and sessions from their remote tables', async () => {
     // Arrange: Return table-specific rows from Supabase.
-    const remoteProviders = [
-      { id: 'p1', name: 'Ionity', user_id: 'u1', created_at: new Date(), updated_at: new Date() }
-    ] as Provider[]
-    const remoteTariffs = [
-      { id: 't1', provider_id: 'p1', tariff_name: 'Ionity Passport', user_id: 'u1', created_at: new Date(), updated_at: new Date() }
-    ] as Tariff[]
-    const remoteSessions = [
-      { id: 's1', provider_id: 'p1', tariff_id: 't1', user_id: 'u1', total_cost: 1500, session_timestamp: new Date() }
-    ] as ChargingSession[]
+    const remoteProviders: Provider[] = [buildProvider({ id: 'p1', name: 'Ionity', user_id: 'u1' })]
+    const remoteChargingPlans: ChargingPlan[] = [
+      buildChargingPlan({ id: 'cp1', provider_id: 'p1', plan_name: 'Ionity Passport', user_id: 'u1' })
+    ]
+    const remoteSessions: ChargingSession[] = [
+      buildChargingSession({ id: 's1', provider_id: 'p1', charging_plan_id: 'cp1', user_id: 'u1', total_cost: 1500 })
+    ]
 
     const mockSelect = vi.fn((tableName: string) => {
       if (tableName === 'providers') return Promise.resolve({ data: remoteProviders, error: null })
-      if (tableName === 'tariffs') return Promise.resolve({ data: remoteTariffs, error: null })
+      if (tableName === 'charging_plans') return Promise.resolve({ data: remoteChargingPlans, error: null })
       if (tableName === 'charging_sessions') return Promise.resolve({ data: remoteSessions, error: null })
       return Promise.resolve({ data: [], error: null })
     })
@@ -339,26 +472,26 @@ describe('syncEngine', () => {
 
     // Assert: Each remote table is requested and written to the matching Dexie table.
     expect(supabase.from).toHaveBeenCalledWith('providers')
-    expect(supabase.from).toHaveBeenCalledWith('tariffs')
+    expect(supabase.from).toHaveBeenCalledWith('charging_plans')
     expect(supabase.from).toHaveBeenCalledWith('charging_sessions')
     expect(await db.providers.toArray()).toEqual(remoteProviders)
-    expect(await db.tariffs.toArray()).toEqual(remoteTariffs)
+    expect(await db.charging_plans.toArray()).toEqual(remoteChargingPlans)
     expect(await db.sessions.toArray()).toEqual(remoteSessions)
   })
 
   it('should continue initialSync when one remote table fails', async () => {
-    // Arrange: Make providers fail while tariffs and sessions still return data.
-    const remoteTariffs = [
-      { id: 't1', provider_id: 'p1', tariff_name: 'Fallback tariff', user_id: 'u1', created_at: new Date(), updated_at: new Date() }
-    ] as Tariff[]
-    const remoteSessions = [
-      { id: 's1', provider_id: 'p1', tariff_id: 't1', user_id: 'u1', total_cost: 1500, session_timestamp: new Date() }
-    ] as ChargingSession[]
+    // Arrange: Make providers fail while charging_plans and sessions still return data.
+    const remoteChargingPlans: ChargingPlan[] = [
+      buildChargingPlan({ id: 'cp1', provider_id: 'p1', plan_name: 'Fallback plan', user_id: 'u1' })
+    ]
+    const remoteSessions: ChargingSession[] = [
+      buildChargingSession({ id: 's1', provider_id: 'p1', charging_plan_id: 'cp1', user_id: 'u1', total_cost: 1500 })
+    ]
 
     vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
       select: () => {
         if (tableName === 'providers') return Promise.resolve({ data: null, error: { message: 'Provider pull failed' } })
-        if (tableName === 'tariffs') return Promise.resolve({ data: remoteTariffs, error: null })
+        if (tableName === 'charging_plans') return Promise.resolve({ data: remoteChargingPlans, error: null })
         if (tableName === 'charging_sessions') return Promise.resolve({ data: remoteSessions, error: null })
         return Promise.resolve({ data: [], error: null })
       }
@@ -369,7 +502,7 @@ describe('syncEngine', () => {
 
     // Assert: A single table error does not block remaining local hydration.
     expect(await db.providers.count()).toBe(0)
-    expect(await db.tariffs.toArray()).toEqual(remoteTariffs)
+    expect(await db.charging_plans.toArray()).toEqual(remoteChargingPlans)
     expect(await db.sessions.toArray()).toEqual(remoteSessions)
     expect(consoleErrorSpy).toHaveBeenCalledWith('Error pulling data for providers:', 'Provider pull failed')
   })
@@ -379,7 +512,7 @@ describe('syncEngine', () => {
     await db.sync_outbox.add({
       table_name: 'sessions',
       action: 'INSERT',
-      payload: { id: 'pending-local' } as SyncPayload,
+      payload: buildChargingSession({ id: 'pending-local' }),
       timestamp: new Date()
     })
     vi.mocked(supabase.from).mockReturnValue({
@@ -392,6 +525,6 @@ describe('syncEngine', () => {
     // Assert: Pulling remote data does not discard unsynced local writes.
     const pendingItems = await db.sync_outbox.toArray()
     expect(pendingItems).toHaveLength(1)
-    expect((pendingItems[0].payload as SyncPayload).id).toBe('pending-local')
+    expect(pendingItems[0].payload.id).toBe('pending-local')
   })
 })

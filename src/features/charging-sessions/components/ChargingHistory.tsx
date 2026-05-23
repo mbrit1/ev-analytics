@@ -1,7 +1,7 @@
 import React from 'react';
 import { useSessions } from '../hooks/useSessions';
 import { formatCurrency, formatCentsToDecimal } from '../../../shared/lib';
-import { Calendar, Zap, Info, Clock, CheckCircle2 } from 'lucide-react';
+import { Calendar, Zap, Info } from 'lucide-react';
 import { Slab } from '../../../shared/ui';
 
 /**
@@ -12,7 +12,7 @@ import { Slab } from '../../../shared/ui';
  * outbox entry still needs remote sync.
  */
 export const ChargingHistory: React.FC = () => {
-  const { sessions, pendingSyncIds, isLoading } = useSessions();
+  const { sessions, isLoading } = useSessions();
 
   if (isLoading) {
     return (
@@ -61,20 +61,28 @@ export const ChargingHistory: React.FC = () => {
                 </h3>
                 <div className="flex flex-wrap items-center gap-3">
                   <p className="text-sm text-secondary font-medium">
-                    {session.tariff_name} • {session.charging_type}
+                    {(session.session_mode === 'adHoc' ? 'Ad-Hoc' : (session.price_snapshot?.label ?? session.charging_plan_name ?? 'Charging Plan'))} • {session.charging_type}
                   </p>
-                  {pendingSyncIds.has(session.id) ? (
-                    // Pending means the session exists locally but has not yet
-                    // been confirmed by the remote sync flow.
-                    <span className="flex items-center text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-100 uppercase tracking-tighter">
-                      <Clock className="w-3 h-3 mr-1" />
-                      Pending Sync
-                    </span>
-                  ) : (
-                    <span className="flex items-center text-[10px] font-bold text-green-600 bg-green-50 px-1.5 py-0.5 rounded border border-green-100 uppercase tracking-tighter">
-                      <CheckCircle2 className="w-3 h-3 mr-1" />
-                      Synced
-                    </span>
+                  {session.session_mode === 'adHoc' && (() => {
+                    const cpoName = session.ad_hoc_pricing?.cpoName?.trim();
+                    const providerName = session.provider_name.trim().toLowerCase();
+                    const shouldShowCpoName = cpoName != null && cpoName.toLowerCase() !== providerName;
+                    const metadataParts = [shouldShowCpoName ? cpoName : null].filter(Boolean);
+
+                    if (metadataParts.length === 0) {
+                      return null;
+                    }
+
+                    return (
+                      <p className="text-xs text-secondary/80 font-medium">
+                        {metadataParts.join(' • ')}
+                      </p>
+                    );
+                  })()}
+                  {(session.start_soc_percentage != null || session.end_soc_percentage != null) && (
+                    <p className="text-xs text-secondary/80 font-medium">
+                      SoC {session.start_soc_percentage != null ? `${session.start_soc_percentage}%` : '—'} → {session.end_soc_percentage != null ? `${session.end_soc_percentage}%` : '—'}
+                    </p>
                   )}
                 </div>
               </div>

@@ -14,6 +14,8 @@ interface ThinInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   align?: 'left' | 'right';
   /** Layout direction: 'vertical' (stacked) or 'horizontal' (row). */
   layout?: 'vertical' | 'horizontal';
+  /** Optional label class override for strict visual consistency across forms. */
+  labelClassName?: string;
 }
 
 /**
@@ -27,31 +29,31 @@ interface ThinInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
  * @returns The rendered input component.
  */
 export const ThinInput = forwardRef<HTMLInputElement, ThinInputProps>(
-  ({ label, unit, error, align, layout = 'vertical', className, id, ...props }, ref) => {
+  ({ label, unit, error, align, layout = 'vertical', className, id, labelClassName, ...props }, ref) => {
     const inputId = id || label.toLowerCase().replace(/\s+/g, '-');
     const isHorizontal = layout === 'horizontal';
     const textAlignment = align || (isHorizontal || unit ? 'right' : 'left');
 
     return (
-      <div 
+      <div
         className={`flex w-full transition-colors duration-300 ${
-          isHorizontal 
-            ? 'md:flex-row md:items-center md:justify-between md:gap-4 md:border-b md:border-secondary/20 md:focus-within:border-accent' 
+          isHorizontal
+            ? 'flex-col md:flex-row md:items-center md:justify-between md:gap-4 md:border-b md:border-secondary/20 md:focus-within:border-accent'
             : 'flex-col'
-        } ${!isHorizontal ? 'flex-col' : ''}`}
+        }`}
       >
         <label 
           htmlFor={inputId} 
-          className={`font-medium text-secondary uppercase tracking-wider shrink-0 transition-all duration-300 ${
+          className={`${labelClassName ?? ''} font-medium text-secondary uppercase tracking-[0.12em] leading-none shrink-0 transition-all duration-300 ${
             isHorizontal 
-              ? 'text-[11px] md:text-xs mb-1 md:mb-0' 
+              ? 'text-[13px] mb-1 md:mb-0' 
               : 'text-[13px] mb-1'
           }`}
         >
           {label}
         </label>
         <div 
-          className={`flex items-baseline transition-colors duration-300 py-1 ${
+          className={`flex items-center transition-colors duration-300 py-1 ${
             isHorizontal 
               ? 'flex-1 justify-end border-b border-secondary/20 md:border-none focus-within:border-accent md:focus-within:border-none' 
               : `border-b border-secondary/20 focus-within:border-accent ${

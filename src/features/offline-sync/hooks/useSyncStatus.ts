@@ -7,10 +7,12 @@ import { db } from '../../../infra/db';
 export interface PendingSyncByTable {
   /** Pending provider mutations. */
   providers: number;
-  /** Pending tariff mutations. */
-  tariffs: number;
+  /** Pending charging-plan mutations. */
+  charging_plans: number;
   /** Pending charging session mutations. */
   sessions: number;
+  /** Pending provider-plan selection history mutations. */
+  provider_plan_selections: number;
 }
 
 /**
@@ -29,7 +31,12 @@ export interface SyncStatus {
   isLoading: boolean;
 }
 
-const emptyPendingByTable: PendingSyncByTable = { providers: 0, tariffs: 0, sessions: 0 };
+const emptyPendingByTable: PendingSyncByTable = {
+  providers: 0,
+  charging_plans: 0,
+  sessions: 0,
+  provider_plan_selections: 0
+};
 
 /**
  * Reads the local sync outbox and returns normalized pending sync status.

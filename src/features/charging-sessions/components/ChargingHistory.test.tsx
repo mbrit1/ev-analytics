@@ -10,7 +10,7 @@ vi.mock('../hooks/useSessions');
 /**
  * Test suite for charging history rendering.
  *
- * Verifies session row content, localized values, sync status badges, and the
+ * Verifies session row content, localized values, ad-hoc details, and the
  * empty state while the data hook is mocked.
  */
 describe('ChargingHistory', () => {
@@ -26,11 +26,12 @@ describe('ChargingHistory', () => {
           id: 's1', 
           session_timestamp: new Date('2024-05-14T10:00:00Z'),
           provider_name: 'Tesla',
-          tariff_name: 'Supercharger',
+          charging_plan_name: 'Supercharger',
           charging_type: 'DC',
           kwh_billed: 45.5,
           total_cost: 2275, // 22.75 EUR
-          location_type: 'Fast Charger'
+          session_mode: 'plan',
+          price_snapshot: { label: 'Supercharger', kWhPrice: 50 }
         } as unknown as ChargingSession
       ],
       isLoading: false,
@@ -40,12 +41,55 @@ describe('ChargingHistory', () => {
     // Act: Render the history view.
     render(<ChargingHistory />);
     
-    // Assert: Session details and pending sync status are visible.
+    // Assert: Session details are visible and per-row sync badges are omitted.
     expect(screen.getByText(/tesla/i)).toBeDefined();
     expect(screen.getByText(/supercharger/i)).toBeDefined();
     expect(screen.getByText(/45,5/)).toBeDefined();
-    expect(screen.getByText(/22,75 €/)).toBeDefined();
-    expect(screen.getByText(/pending sync/i)).toBeDefined();
+    expect(screen.getByText(/22,75/)).toBeDefined();
+    expect(screen.queryByText(/pending sync/i)).toBeNull();
+    expect(screen.queryByText(/synced/i)).toBeNull();
+  });
+
+  it('renders ad-hoc sessions with cpo/source details without extra price lines', () => {
+    // Arrange: Return one synced ad-hoc session with pricing snapshot details.
+    vi.mocked(useSessions).mockReturnValue({
+      sessions: [
+        {
+          id: 's2',
+          session_timestamp: new Date('2024-05-20T10:00:00Z'),
+          provider_name: 'Fast CPO',
+          charging_plan_name: null,
+          charging_type: 'DC',
+          kwh_billed: 20,
+          total_cost: 1780,
+          session_mode: 'adHoc',
+          pricing_source: 'adHoc',
+          ad_hoc_pricing: {
+            cpoName: 'Fast CPO',
+            pricePerKwh: 69,
+            pricePerSession: 150,
+            receiptUrl: 'https://example.com/r/1',
+            otherFees: [{ label: 'Parking', amount: 200, notes: 'Garage fee' }]
+          }
+        } as unknown as ChargingSession
+      ],
+      isLoading: false,
+      pendingSyncIds: new Set(),
+    });
+
+    // Act: Render history.
+    render(<ChargingHistory />);
+
+    // Assert: Ad-hoc labeling is visible, detailed price lines are hidden.
+    expect(screen.getByText(/ad-hoc/i)).toBeDefined();
+    expect(screen.getAllByText(/fast cpo/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText((content) => content.includes('/kWh'))).toBeNull();
+    expect(screen.queryByText((content) => content.includes('/session'))).toBeNull();
+    expect(screen.queryByText(/receipt: https:\/\/example\.com\/r\/1/i)).toBeNull();
+    expect(screen.queryByText(/parking/i)).toBeNull();
+    expect(screen.queryByText(/soc/i)).toBeNull();
+    expect(screen.queryByText(/pending sync/i)).toBeNull();
+    expect(screen.queryByText(/synced/i)).toBeNull();
   });
 
   it('renders empty state when no sessions', () => {

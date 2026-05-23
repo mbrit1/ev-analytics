@@ -1,8 +1,58 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { db, type SyncPayload } from '../../../infra/db';
+import { db, type Provider, type ChargingPlan, type ChargingSession } from '../../../infra/db';
 import { useSyncStatus } from './useSyncStatus';
 import 'fake-indexeddb/auto';
+
+function buildProvider(overrides: Partial<Provider> = {}): Provider {
+  const now = new Date('2026-05-21T00:00:00.000Z');
+  return {
+    id: 'provider-default',
+    user_id: 'user-1',
+    name: 'Ionity',
+    created_at: now,
+    updated_at: now,
+    ...overrides
+  };
+}
+
+function buildChargingPlan(overrides: Partial<ChargingPlan> = {}): ChargingPlan {
+  const now = new Date('2026-05-21T00:00:00.000Z');
+  return {
+    id: 'plan-default',
+    user_id: 'user-1',
+    provider_id: 'provider-default',
+    plan_name: 'Default Plan',
+    validity: { from: new Date('2026-01-01T00:00:00.000Z') },
+    prices: { domestic: { ac: 49, dc: 79 } },
+    fees: {},
+    created_at: now,
+    updated_at: now,
+    ...overrides
+  };
+}
+
+function buildChargingSession(overrides: Partial<ChargingSession> = {}): ChargingSession {
+  const now = new Date('2026-05-21T00:00:00.000Z');
+  return {
+    id: 'session-default',
+    user_id: 'user-1',
+    session_timestamp: new Date('2026-05-21T12:00:00.000Z'),
+    provider_id: 'provider-default',
+    provider_name: 'Ionity',
+    charging_plan_id: 'plan-default',
+    charging_plan_name: 'Default Plan',
+    charging_type: 'DC',
+    kwh_billed: 10,
+    total_cost: 790,
+    pricing_source: 'chargingPlan',
+    applied_dc_price_per_kwh: 79,
+    applied_session_fee: 0,
+    created_at: now,
+    updated_at: now,
+    ...overrides
+  };
+}
 
 /**
  * Test suite for the sync status live query hook.
@@ -29,37 +79,37 @@ describe('useSyncStatus', () => {
     expect(result.current).toEqual({
       queueLength: 0,
       hasPendingSync: false,
-      pendingByTable: { providers: 0, tariffs: 0, sessions: 0 },
+      pendingByTable: { providers: 0, charging_plans: 0, sessions: 0, provider_plan_selections: 0 },
       oldestPendingAt: undefined,
       isLoading: false
     });
   });
 
-  it('counts mixed provider tariff and session outbox entries by table', async () => {
+  it('counts mixed provider charging plan and session outbox entries by table', async () => {
     // Arrange: Queue local mutations across every sync-supported table.
     await db.sync_outbox.bulkAdd([
       {
         table_name: 'providers',
         action: 'INSERT',
-        payload: { id: 'provider-1' } as SyncPayload,
+        payload: buildProvider({ id: 'provider-1' }),
         timestamp: new Date('2026-05-21T09:00:00.000Z')
       },
       {
-        table_name: 'tariffs',
+        table_name: 'charging_plans',
         action: 'UPDATE',
-        payload: { id: 'tariff-1' } as SyncPayload,
+        payload: buildChargingPlan({ id: 'plan-1' }),
         timestamp: new Date('2026-05-21T09:01:00.000Z')
       },
       {
         table_name: 'sessions',
         action: 'INSERT',
-        payload: { id: 'session-1' } as SyncPayload,
+        payload: buildChargingSession({ id: 'session-1' }),
         timestamp: new Date('2026-05-21T09:02:00.000Z')
       },
       {
         table_name: 'sessions',
         action: 'DELETE',
-        payload: { id: 'session-2' } as SyncPayload,
+        payload: buildChargingSession({ id: 'session-2' }),
         timestamp: new Date('2026-05-21T09:03:00.000Z')
       }
     ]);
@@ -74,7 +124,12 @@ describe('useSyncStatus', () => {
     // Assert: Pending status and per-table counts reflect the outbox contents.
     expect(result.current.queueLength).toBe(4);
     expect(result.current.hasPendingSync).toBe(true);
-    expect(result.current.pendingByTable).toEqual({ providers: 1, tariffs: 1, sessions: 2 });
+    expect(result.current.pendingByTable).toEqual({
+      providers: 1,
+      charging_plans: 1,
+      sessions: 2,
+      provider_plan_selections: 0
+    });
   });
 
   it('returns the earliest oldest pending timestamp from non-sorted outbox entries', async () => {
@@ -84,19 +139,19 @@ describe('useSyncStatus', () => {
       {
         table_name: 'sessions',
         action: 'INSERT',
-        payload: { id: 'session-newer' } as SyncPayload,
+        payload: buildChargingSession({ id: 'session-newer' }),
         timestamp: new Date('2026-05-21T10:00:00.000Z')
       },
       {
-        table_name: 'tariffs',
+        table_name: 'charging_plans',
         action: 'UPDATE',
-        payload: { id: 'tariff-earliest' } as SyncPayload,
+        payload: buildChargingPlan({ id: 'plan-earliest' }),
         timestamp: earliestTimestamp
       },
       {
         table_name: 'providers',
         action: 'INSERT',
-        payload: { id: 'provider-middle' } as SyncPayload,
+        payload: buildProvider({ id: 'provider-middle' }),
         timestamp: new Date('2026-05-21T09:00:00.000Z')
       }
     ]);
