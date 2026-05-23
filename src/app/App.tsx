@@ -1,11 +1,15 @@
 import { BatteryCharging, Loader2, LogOut, Plus } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, lazy, Suspense } from 'react'
 import { useAuth, LoginForm } from '../features/auth'
-import { TariffList } from '../features/tariffs'
 import { ChargingHistory, SessionForm, saveSession } from '../features/charging-sessions'
 import { startSyncRuntime, SyncStatusIndicator } from '../features/offline-sync'
 import { type ChargingSession } from '../infra/db'
 import { Navigation } from '../shared/ui'
+
+const TariffList = lazy(async () => {
+  const module = await import('../features/tariffs/components/TariffList')
+  return { default: module.TariffList }
+})
 
 /**
  * Root application shell for the authenticated EV Analytics experience.
@@ -28,6 +32,24 @@ function App() {
       disposeSyncRuntime();
     };
   }, [user]);
+
+  useEffect(() => {
+    if (!user) {
+      return
+    }
+
+    const prefetchTariffs = () => {
+      void import('../features/tariffs/components/TariffList')
+    }
+
+    if ('requestIdleCallback' in window) {
+      const idleCallbackId = window.requestIdleCallback(prefetchTariffs, { timeout: 1500 })
+      return () => window.cancelIdleCallback(idleCallbackId)
+    }
+
+    const timeoutId = window.setTimeout(prefetchTariffs, 800)
+    return () => window.clearTimeout(timeoutId)
+  }, [user])
 
   const handleLogout = async () => {
     setLogoutError(null)
@@ -117,7 +139,15 @@ function App() {
                 </div>
               )}
               {activeTab === 'tariffs' ? (
-                <TariffList />
+                <Suspense
+                  fallback={(
+                    <div className="min-h-[200px] flex items-center justify-center">
+                      <Loader2 className="w-6 h-6 text-accent animate-spin" />
+                    </div>
+                  )}
+                >
+                  <TariffList />
+                </Suspense>
               ) : (
                 <div className="space-y-6">
                   <div className="flex items-center justify-between">
