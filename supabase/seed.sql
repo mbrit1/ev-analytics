@@ -48,51 +48,51 @@ BEGIN
     -- 4. Charging Sessions
     -- High-speed Road Trip (Ionity)
     INSERT INTO charging_sessions (
-        user_id, session_timestamp, provider_id, tariff_id, location_type, charging_type, 
+        user_id, session_timestamp, provider_id, provider_name, tariff_id, tariff_name, location_type, charging_type, 
         kwh_billed, total_cost, odometer_km, start_soc_percentage, end_soc_percentage, 
         applied_ac_price, applied_dc_price, applied_session_fee, notes
     ) VALUES (
-        v_user_id, NOW() - INTERVAL '30 days', v_ionity_id, v_ionity_tariff_id, 'Fast Charger', 'DC',
+        v_user_id, NOW() - INTERVAL '30 days', v_ionity_id, 'Ionity', v_ionity_tariff_id, 'Ionity Direct', 'Fast Charger', 'DC',
         52.4, 4140, 45200, 5, 80, 79, 79, 0, 'A7 Nord, Lutterberg. Quick stop.'
     );
 
     -- Weekly Commute Charging (EnBW AC at Work)
     INSERT INTO charging_sessions (
-        user_id, session_timestamp, provider_id, tariff_id, location_type, charging_type, 
+        user_id, session_timestamp, provider_id, provider_name, tariff_id, tariff_name, location_type, charging_type, 
         kwh_billed, total_cost, odometer_km, start_soc_percentage, end_soc_percentage, 
         applied_ac_price, applied_dc_price, applied_session_fee, notes
     ) VALUES (
-        v_user_id, NOW() - INTERVAL '25 days', v_enbw_id, v_enbw_tariff_id, 'Work', 'AC',
+        v_user_id, NOW() - INTERVAL '25 days', v_enbw_id, 'EnBW', v_enbw_tariff_id, 'mobility+ M', 'Work', 'AC',
         25.1, 1280, 45450, 40, 95, 51, 61, 0, 'Full charge during shift.'
     );
 
     -- City Trip (Elli Public AC)
     INSERT INTO charging_sessions (
-        user_id, session_timestamp, provider_id, tariff_id, location_type, charging_type, 
+        user_id, session_timestamp, provider_id, provider_name, tariff_id, tariff_name, location_type, charging_type, 
         kwh_billed, total_cost, odometer_km, start_soc_percentage, end_soc_percentage, 
         applied_ac_price, applied_dc_price, applied_session_fee, notes
     ) VALUES (
-        v_user_id, NOW() - INTERVAL '18 days', v_elli_id, v_elli_tariff_id, 'Public', 'AC',
+        v_user_id, NOW() - INTERVAL '18 days', v_elli_id, 'Elli', v_elli_tariff_id, 'Drive Free', 'Public', 'AC',
         12.8, 691, 45680, 55, 85, 54, 73, 0, 'Downtown parking.'
     );
 
     -- Tesla Supercharger
     INSERT INTO charging_sessions (
-        user_id, session_timestamp, provider_id, tariff_id, location_type, charging_type, 
+        user_id, session_timestamp, provider_id, provider_name, tariff_id, tariff_name, location_type, charging_type, 
         kwh_billed, total_cost, odometer_km, start_soc_percentage, end_soc_percentage, 
         applied_ac_price, applied_dc_price, applied_session_fee, notes
     ) VALUES (
-        v_user_id, NOW() - INTERVAL '12 days', v_tesla_id, v_tesla_tariff_id, 'Fast Charger', 'DC',
+        v_user_id, NOW() - INTERVAL '12 days', v_tesla_id, 'Tesla', v_tesla_tariff_id, 'Supercharger PAYG', 'Fast Charger', 'DC',
         35.0, 1575, 46100, 20, 85, 45, 45, 0, 'Supercharger Hilpoltstein.'
     );
 
     -- Recent Fast Charge (EnBW DC)
     INSERT INTO charging_sessions (
-        user_id, session_timestamp, provider_id, tariff_id, location_type, charging_type, 
+        user_id, session_timestamp, provider_id, provider_name, tariff_id, tariff_name, location_type, charging_type, 
         kwh_billed, total_cost, odometer_km, start_soc_percentage, end_soc_percentage, 
         applied_ac_price, applied_dc_price, applied_session_fee, notes
     ) VALUES (
-        v_user_id, NOW() - INTERVAL '5 days', v_enbw_id, v_enbw_tariff_id, 'Fast Charger', 'DC',
+        v_user_id, NOW() - INTERVAL '5 days', v_enbw_id, 'EnBW', v_enbw_tariff_id, 'mobility+ M', 'Fast Charger', 'DC',
         40.2, 2452, 46500, 15, 85, 51, 61, 0, 'Last-minute top-up.'
     );
 
