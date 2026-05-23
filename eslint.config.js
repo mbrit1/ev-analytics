@@ -64,4 +64,24 @@ export default defineConfig([
       ],
     },
   },
+  {
+    files: ['src/features/*/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['../../*/components/**', '../../*/hooks/**', '../../*/services/**', '../../*/model/**'],
+              message: 'Cross-feature imports must use the target feature index.ts API.',
+            },
+            {
+              group: ['../../../features/*/*/**'],
+              message: 'Cross-feature deep imports are not allowed; import from features/<domain> instead.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 ])
