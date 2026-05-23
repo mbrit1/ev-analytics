@@ -3,7 +3,9 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './app/App.tsx'
 import { AuthProvider } from './features/auth'
-import { isMockMode } from './infra/mocks'
+
+const ENABLE_MOCKS =
+  import.meta.env.DEV && import.meta.env.VITE_ENABLE_MOCKS === 'true'
 
 /**
  * Starts the MSW browser worker only for explicit local mock-mode runs.
@@ -12,7 +14,7 @@ import { isMockMode } from './infra/mocks'
  * configuration is used unless `VITE_ENABLE_MOCKS` opts into seeded mock data.
  */
 async function enableMocking() {
-  if (!isMockMode()) {
+  if (!ENABLE_MOCKS) {
     return
   }
 
