@@ -8,7 +8,7 @@ vi.mock('../hooks/useSyncStatus');
 const baseStatus: SyncStatus = {
   queueLength: 0,
   hasPendingSync: false,
-  pendingByTable: { providers: 0, tariffs: 0, sessions: 0 },
+  pendingByTable: { providers: 0, charging_plans: 0, sessions: 0, provider_plan_selections: 0 },
   isLoading: false
 };
 

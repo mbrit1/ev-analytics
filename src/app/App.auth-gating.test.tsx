@@ -9,7 +9,7 @@ vi.mock('../features/auth', () => ({
   useAuth: vi.fn(),
   LoginForm: () => <div data-testid="login-form">Login Form</div>,
 }));
-vi.mock('../features/tariffs/components/TariffList', () => ({
+vi.mock('../features/charging-plans/components/TariffList', () => ({
   TariffList: () => <div>Tariff List</div>,
 }));
 vi.mock('../features/charging-sessions', () => ({

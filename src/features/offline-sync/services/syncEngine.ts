@@ -1,4 +1,4 @@
-import { db, type SyncOutbox, type Provider, type Tariff, type ChargingSession } from '../../../infra/db';
+import { db, type SyncOutbox, type Provider, type ChargingPlan, type ChargingSession } from '../../../infra/db';
 import { supabase } from '../../../infra/supabase';
 
 const BASE_RETRY_DELAY_MS = 60_000;
@@ -27,7 +27,9 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
   for (const item of items) {
     const currentTime = now();
     if (item.next_attempt_at && item.next_attempt_at > currentTime) {
-      break;
+      // Skip delayed items but continue scanning so later ready items do not
+      // starve behind an older future-retry entry.
+      continue;
     }
 
     const result = await syncItem(item);
@@ -65,12 +67,16 @@ async function syncItem(item: SyncOutbox): Promise<{ success: boolean; errorMess
     if (item.table_name === 'providers') {
       const result = await supabase.from('providers').upsert(item.payload as Provider);
       error = result.error;
-    } else if (item.table_name === 'tariffs') {
-      const result = await supabase.from('tariffs').upsert(item.payload as Tariff);
+    } else if (item.table_name === 'charging_plans') {
+      const result = await supabase.from('charging_plans').upsert(item.payload as ChargingPlan);
       error = result.error;
     } else if (item.table_name === 'sessions') {
       const result = await supabase.from('charging_sessions').upsert(item.payload as ChargingSession);
       error = result.error;
+    } else {
+      const message = `Unsupported sync table: ${item.table_name}`;
+      console.error(message);
+      return { success: false, errorMessage: message };
     }
 
     if (error) {
@@ -94,7 +100,7 @@ async function syncItem(item: SyncOutbox): Promise<{ success: boolean; errorMess
  * Typically called on app startup or after login.
  */
 export async function initialSync(): Promise<void> {
-  const tables: (keyof typeof db)[] = ['providers', 'tariffs', 'sessions'];
+  const tables: (keyof typeof db)[] = ['providers', 'charging_plans', 'sessions'];
 
   for (const tableName of tables) {
     const table = db[tableName];
@@ -113,7 +119,7 @@ export async function initialSync(): Promise<void> {
 
       if (data && data.length > 0) {
         if (tableName === 'providers') await db.providers.bulkPut(data);
-        if (tableName === 'tariffs') await db.tariffs.bulkPut(data);
+        if (tableName === 'charging_plans') await db.charging_plans.bulkPut(data);
         if (tableName === 'sessions') await db.sessions.bulkPut(data);
       }
     }

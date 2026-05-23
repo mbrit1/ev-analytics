@@ -7,7 +7,7 @@ import { type ChargingSession } from '../infra/db'
 import { Navigation } from '../shared/ui'
 
 const TariffList = lazy(async () => {
-  const module = await import('../features/tariffs/components/TariffList')
+  const module = await import('../features/charging-plans/components/TariffList')
   return { default: module.TariffList }
 })
 
@@ -39,7 +39,7 @@ function App() {
     }
 
     const prefetchTariffs = () => {
-      void import('../features/tariffs/components/TariffList')
+      void import('../features/charging-plans/components/TariffList')
     }
 
     if ('requestIdleCallback' in window) {

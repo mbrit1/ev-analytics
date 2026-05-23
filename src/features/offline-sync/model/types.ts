@@ -1,1 +1,1 @@
-export type { SyncPayload, SyncOutbox } from '../../../infra/db'
+export type { SyncPayload, SyncOutbox, SyncOutboxEntry } from '../../../infra/db'

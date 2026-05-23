@@ -1,6 +1,6 @@
 import { http, HttpResponse, delay } from 'msw'
 import { isMockMode, MOCK_SUPABASE_URL } from '../infra/mocks'
-import { mockProviders, mockTariffs, mockSessions } from './seed-data'
+import { mockProviders, mockChargingPlans, mockSessions } from './seed-data'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || (isMockMode() ? MOCK_SUPABASE_URL : 'https://your-project.supabase.co')
 
@@ -38,9 +38,9 @@ export const handlers = [
     await delay(300)
     return HttpResponse.json(mockProviders)
   }),
-  http.get(`${SUPABASE_URL}/rest/v1/tariffs`, async () => {
+  http.get(`${SUPABASE_URL}/rest/v1/charging_plans`, async () => {
     await delay(300)
-    return HttpResponse.json(mockTariffs)
+    return HttpResponse.json(mockChargingPlans)
   }),
   http.get(`${SUPABASE_URL}/rest/v1/charging_sessions`, async () => {
     await delay(300)

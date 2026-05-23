@@ -1,20 +1,14 @@
--- Seed data for EV Analytics
--- This script populates the database with realistic sample data.
+-- Seed data for EV Analytics charging-plan architecture.
 -- Requirement: Ensure at least one user exists in auth.users before running.
 
 DO $$
 DECLARE
     v_user_id UUID;
-    v_ionity_id UUID;
-    v_elli_id UUID;
-    v_enbw_id UUID;
-    v_tesla_id UUID;
-    v_ionity_tariff_id UUID;
-    v_elli_tariff_id UUID;
-    v_enbw_tariff_id UUID;
-    v_tesla_tariff_id UUID;
+    v_ionity_id UUID := '00000000-0000-0000-0000-000000000101';
+    v_enbw_id UUID := '00000000-0000-0000-0000-000000000102';
+    v_ionity_plan_id UUID := '00000000-0000-0000-0000-000000000201';
+    v_enbw_plan_id UUID := '00000000-0000-0000-0000-000000000202';
 BEGIN
-    -- 1. Fetch the first user found in auth.users
     SELECT id INTO v_user_id FROM auth.users LIMIT 1;
 
     IF v_user_id IS NULL THEN
@@ -22,80 +16,181 @@ BEGIN
         RETURN;
     END IF;
 
-    -- 2. Providers
-    INSERT INTO providers (user_id, name) VALUES (v_user_id, 'Ionity') RETURNING id INTO v_ionity_id;
-    INSERT INTO providers (user_id, name) VALUES (v_user_id, 'Elli') RETURNING id INTO v_elli_id;
-    INSERT INTO providers (user_id, name) VALUES (v_user_id, 'EnBW') RETURNING id INTO v_enbw_id;
-    INSERT INTO providers (user_id, name) VALUES (v_user_id, 'Tesla') RETURNING id INTO v_tesla_id;
+    -- Providers (rerun-safe)
+    INSERT INTO providers (id, user_id, name)
+    VALUES (v_ionity_id, v_user_id, 'Ionity')
+    ON CONFLICT (id) DO UPDATE
+      SET user_id = EXCLUDED.user_id,
+          name = EXCLUDED.name,
+          updated_at = NOW(),
+          deleted_at = NULL;
 
-    -- 3. Tariffs (Prices in cents)
-    -- Ionity Direct (Premium High Speed)
-    INSERT INTO tariffs (user_id, provider_id, tariff_name, ac_price_per_kwh, dc_price_per_kwh, session_fee, valid_from)
-    VALUES (v_user_id, v_ionity_id, 'Ionity Direct', 79, 79, 0, '2023-01-01') RETURNING id INTO v_ionity_tariff_id;
+    INSERT INTO providers (id, user_id, name)
+    VALUES (v_enbw_id, v_user_id, 'EnBW')
+    ON CONFLICT (id) DO UPDATE
+      SET user_id = EXCLUDED.user_id,
+          name = EXCLUDED.name,
+          updated_at = NOW(),
+          deleted_at = NULL;
 
-    -- Elli Drive Free (Standard Public)
-    INSERT INTO tariffs (user_id, provider_id, tariff_name, ac_price_per_kwh, dc_price_per_kwh, session_fee, valid_from)
-    VALUES (v_user_id, v_elli_id, 'Drive Free', 54, 73, 0, '2023-01-01') RETURNING id INTO v_elli_tariff_id;
-
-    -- EnBW mobility+ M (Good balance)
-    INSERT INTO tariffs (user_id, provider_id, tariff_name, ac_price_per_kwh, dc_price_per_kwh, session_fee, valid_from)
-    VALUES (v_user_id, v_enbw_id, 'mobility+ M', 51, 61, 0, '2023-01-01') RETURNING id INTO v_enbw_tariff_id;
-
-    -- Tesla Supercharger
-    INSERT INTO tariffs (user_id, provider_id, tariff_name, ac_price_per_kwh, dc_price_per_kwh, session_fee, valid_from)
-    VALUES (v_user_id, v_tesla_id, 'Supercharger PAYG', 45, 45, 0, '2023-01-01') RETURNING id INTO v_tesla_tariff_id;
-
-    -- 4. Charging Sessions
-    -- High-speed Road Trip (Ionity)
-    INSERT INTO charging_sessions (
-        user_id, session_timestamp, provider_id, provider_name, tariff_id, tariff_name, location_type, charging_type, 
-        kwh_billed, total_cost, odometer_km, start_soc_percentage, end_soc_percentage, 
-        applied_ac_price, applied_dc_price, applied_session_fee, notes
+    -- Charging plans (rerun-safe)
+    INSERT INTO charging_plans (
+      id,
+      user_id,
+      provider_id,
+      name,
+      validity,
+      prices,
+      fees
     ) VALUES (
-        v_user_id, NOW() - INTERVAL '30 days', v_ionity_id, 'Ionity', v_ionity_tariff_id, 'Ionity Direct', 'Fast Charger', 'DC',
-        52.4, 4140, 45200, 5, 80, 79, 79, 0, 'A7 Nord, Lutterberg. Quick stop.'
-    );
+      v_ionity_plan_id,
+      v_user_id,
+      v_ionity_id,
+      'Ionity Direct',
+      '{"from":"2023-01-01T00:00:00.000Z"}'::jsonb,
+      '{"domestic":{"ac":79,"dc":79}}'::jsonb,
+      '{"sessionFixed":0}'::jsonb
+    )
+    ON CONFLICT (id) DO UPDATE
+      SET user_id = EXCLUDED.user_id,
+          provider_id = EXCLUDED.provider_id,
+          name = EXCLUDED.name,
+          validity = EXCLUDED.validity,
+          prices = EXCLUDED.prices,
+          fees = EXCLUDED.fees,
+          updated_at = NOW(),
+          deleted_at = NULL;
 
-    -- Weekly Commute Charging (EnBW AC at Work)
-    INSERT INTO charging_sessions (
-        user_id, session_timestamp, provider_id, provider_name, tariff_id, tariff_name, location_type, charging_type, 
-        kwh_billed, total_cost, odometer_km, start_soc_percentage, end_soc_percentage, 
-        applied_ac_price, applied_dc_price, applied_session_fee, notes
+    INSERT INTO charging_plans (
+      id,
+      user_id,
+      provider_id,
+      name,
+      validity,
+      prices,
+      fees
     ) VALUES (
-        v_user_id, NOW() - INTERVAL '25 days', v_enbw_id, 'EnBW', v_enbw_tariff_id, 'mobility+ M', 'Work', 'AC',
-        25.1, 1280, 45450, 40, 95, 51, 61, 0, 'Full charge during shift.'
-    );
+      v_enbw_plan_id,
+      v_user_id,
+      v_enbw_id,
+      'mobility+ M',
+      '{"from":"2023-01-01T00:00:00.000Z"}'::jsonb,
+      '{"domestic":{"ac":51,"dc":61},"roaming":{"ac":59,"dc":69}}'::jsonb,
+      '{"sessionFixed":0}'::jsonb
+    )
+    ON CONFLICT (id) DO UPDATE
+      SET user_id = EXCLUDED.user_id,
+          provider_id = EXCLUDED.provider_id,
+          name = EXCLUDED.name,
+          validity = EXCLUDED.validity,
+          prices = EXCLUDED.prices,
+          fees = EXCLUDED.fees,
+          updated_at = NOW(),
+          deleted_at = NULL;
 
-    -- City Trip (Elli Public AC)
+    -- Plan-based charging session snapshot (rerun-safe)
     INSERT INTO charging_sessions (
-        user_id, session_timestamp, provider_id, provider_name, tariff_id, tariff_name, location_type, charging_type, 
-        kwh_billed, total_cost, odometer_km, start_soc_percentage, end_soc_percentage, 
-        applied_ac_price, applied_dc_price, applied_session_fee, notes
+        id,
+        user_id,
+        session_timestamp,
+        provider_id,
+        provider_name,
+        charging_plan_id,
+        charging_plan_name,
+        charging_type,
+        kwh_billed,
+        total_cost,
+        pricing_source,
+        applied_ac_price_per_kwh,
+        applied_dc_price_per_kwh,
+        applied_session_fee,
+        notes
     ) VALUES (
-        v_user_id, NOW() - INTERVAL '18 days', v_elli_id, 'Elli', v_elli_tariff_id, 'Drive Free', 'Public', 'AC',
-        12.8, 691, 45680, 55, 85, 54, 73, 0, 'Downtown parking.'
-    );
+        '00000000-0000-0000-0000-000000000301',
+        v_user_id,
+        NOW() - INTERVAL '5 days',
+        v_enbw_id,
+        'EnBW',
+        v_enbw_plan_id,
+        'mobility+ M',
+        'DC',
+        40.2,
+        2452,
+        'chargingPlan',
+        51,
+        61,
+        0,
+        'Plan-based DC top-up.'
+    )
+    ON CONFLICT (id) DO UPDATE
+      SET user_id = EXCLUDED.user_id,
+          session_timestamp = EXCLUDED.session_timestamp,
+          provider_id = EXCLUDED.provider_id,
+          provider_name = EXCLUDED.provider_name,
+          charging_plan_id = EXCLUDED.charging_plan_id,
+          charging_plan_name = EXCLUDED.charging_plan_name,
+          charging_type = EXCLUDED.charging_type,
+          kwh_billed = EXCLUDED.kwh_billed,
+          total_cost = EXCLUDED.total_cost,
+          pricing_source = EXCLUDED.pricing_source,
+          applied_ac_price_per_kwh = EXCLUDED.applied_ac_price_per_kwh,
+          applied_dc_price_per_kwh = EXCLUDED.applied_dc_price_per_kwh,
+          applied_session_fee = EXCLUDED.applied_session_fee,
+          notes = EXCLUDED.notes,
+          updated_at = NOW(),
+          deleted_at = NULL;
 
-    -- Tesla Supercharger
+    -- Ad-hoc charging session snapshot (no plan id/name required, rerun-safe)
     INSERT INTO charging_sessions (
-        user_id, session_timestamp, provider_id, provider_name, tariff_id, tariff_name, location_type, charging_type, 
-        kwh_billed, total_cost, odometer_km, start_soc_percentage, end_soc_percentage, 
-        applied_ac_price, applied_dc_price, applied_session_fee, notes
+        id,
+        user_id,
+        session_timestamp,
+        provider_id,
+        provider_name,
+        charging_plan_id,
+        charging_plan_name,
+        charging_type,
+        kwh_billed,
+        total_cost,
+        pricing_source,
+        ad_hoc_pricing,
+        applied_price_per_kwh,
+        applied_session_fee,
+        notes
     ) VALUES (
-        v_user_id, NOW() - INTERVAL '12 days', v_tesla_id, 'Tesla', v_tesla_tariff_id, 'Supercharger PAYG', 'Fast Charger', 'DC',
-        35.0, 1575, 46100, 20, 85, 45, 45, 0, 'Supercharger Hilpoltstein.'
-    );
+        '00000000-0000-0000-0000-000000000302',
+        v_user_id,
+        NOW() - INTERVAL '2 days',
+        v_ionity_id,
+        'Ionity',
+        NULL,
+        NULL,
+        'DC',
+        18.6,
+        1469,
+        'adHoc',
+        '{"cpoName":"Ionity","pricePerKwh":79,"priceCapturedFrom":"stationDisplay"}'::jsonb,
+        79,
+        0,
+        'Ad-hoc receipt-based entry.'
+    )
+    ON CONFLICT (id) DO UPDATE
+      SET user_id = EXCLUDED.user_id,
+          session_timestamp = EXCLUDED.session_timestamp,
+          provider_id = EXCLUDED.provider_id,
+          provider_name = EXCLUDED.provider_name,
+          charging_plan_id = EXCLUDED.charging_plan_id,
+          charging_plan_name = EXCLUDED.charging_plan_name,
+          charging_type = EXCLUDED.charging_type,
+          kwh_billed = EXCLUDED.kwh_billed,
+          total_cost = EXCLUDED.total_cost,
+          pricing_source = EXCLUDED.pricing_source,
+          ad_hoc_pricing = EXCLUDED.ad_hoc_pricing,
+          applied_price_per_kwh = EXCLUDED.applied_price_per_kwh,
+          applied_session_fee = EXCLUDED.applied_session_fee,
+          notes = EXCLUDED.notes,
+          updated_at = NOW(),
+          deleted_at = NULL;
 
-    -- Recent Fast Charge (EnBW DC)
-    INSERT INTO charging_sessions (
-        user_id, session_timestamp, provider_id, provider_name, tariff_id, tariff_name, location_type, charging_type, 
-        kwh_billed, total_cost, odometer_km, start_soc_percentage, end_soc_percentage, 
-        applied_ac_price, applied_dc_price, applied_session_fee, notes
-    ) VALUES (
-        v_user_id, NOW() - INTERVAL '5 days', v_enbw_id, 'EnBW', v_enbw_tariff_id, 'mobility+ M', 'Fast Charger', 'DC',
-        40.2, 2452, 46500, 15, 85, 51, 61, 0, 'Last-minute top-up.'
-    );
-
-    RAISE NOTICE 'Seed data successfully inserted for user %', v_user_id;
-
+    RAISE NOTICE 'Charging-plan seed data inserted for user %', v_user_id;
 END $$;

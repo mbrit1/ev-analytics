@@ -35,4 +35,16 @@
     color: var(--primary-typography);
     @apply antialiased;
   }
+
+  /* Keep native date text readable in macOS dark mode (WebKit can render it too faint). */
+  input[type='date'] {
+    color: var(--primary-typography);
+    -webkit-text-fill-color: var(--primary-typography);
+    opacity: 1;
+  }
+
+  input[type='date']::-webkit-datetime-edit {
+    color: var(--primary-typography);
+    opacity: 1;
+  }
 }
