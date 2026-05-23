@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { db, type Provider } from '../../../lib/db';
+import { db, type Provider } from '../../../infra/db';
 import { getProviders, saveProvider } from './providerService';
 import 'fake-indexeddb/auto';
 

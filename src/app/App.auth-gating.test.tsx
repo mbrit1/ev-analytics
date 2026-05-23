@@ -3,28 +3,24 @@ import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AuthError } from '@supabase/supabase-js';
 import App from './App';
-import { useAuth } from './features/auth/hooks/useAuth';
+import { useAuth } from '../features/auth';
 
-vi.mock('./features/auth/hooks/useAuth');
-vi.mock('./features/auth/components/LoginForm', () => ({
+vi.mock('../features/auth', () => ({
+  useAuth: vi.fn(),
   LoginForm: () => <div data-testid="login-form">Login Form</div>,
 }));
-vi.mock('./features/tariffs/components/TariffList', () => ({
+vi.mock('../features/tariffs', () => ({
   TariffList: () => <div>Tariff List</div>,
 }));
-vi.mock('./features/charging-sessions/components/ChargingHistory', () => ({
+vi.mock('../features/charging-sessions', () => ({
   ChargingHistory: () => <div>Charging History</div>,
-}));
-vi.mock('./features/charging-sessions/components/SessionForm', () => ({
   SessionForm: () => <div>Session Form</div>,
 }));
-vi.mock('./components/ui/Navigation/Navigation', () => ({
+vi.mock('../shared/ui', () => ({
   Navigation: () => <nav>Navigation</nav>,
 }));
-vi.mock('./features/offline-sync/components/SyncStatusIndicator', () => ({
+vi.mock('../features/offline-sync', () => ({
   SyncStatusIndicator: () => <div>Sync Status</div>,
-}));
-vi.mock('./features/offline-sync/services/syncRuntime', () => ({
   startSyncRuntime: vi.fn(() => vi.fn()),
 }));
 

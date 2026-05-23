@@ -1,5 +1,5 @@
 import { http, HttpResponse, delay } from 'msw'
-import { isMockMode, MOCK_SUPABASE_URL } from '../lib/mock-utils'
+import { isMockMode, MOCK_SUPABASE_URL } from '../infra/mocks'
 import { mockProviders, mockTariffs, mockSessions } from './seed-data'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || (isMockMode() ? MOCK_SUPABASE_URL : 'https://your-project.supabase.co')

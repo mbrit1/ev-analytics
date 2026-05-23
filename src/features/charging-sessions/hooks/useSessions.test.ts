@@ -2,7 +2,7 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useSessions } from './useSessions';
 import { getSessions } from '../services/sessionService';
-import { type ChargingSession } from '../../../lib/db';
+import { type ChargingSession } from '../../../infra/db';
 
 // Mock the service so the hook test can focus on live-query state transitions.
 vi.mock('../services/sessionService');

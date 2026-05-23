@@ -1,8 +1,8 @@
 /* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { User, Session, AuthError } from '@supabase/supabase-js';
-import { supabase } from '../../../lib/supabase';
-import { isMockMode } from '../../../lib/mock-utils';
+import { supabase } from '../../../infra/supabase';
+import { isMockMode } from '../../../infra/mocks';
 
 interface AuthContextType {
   /** The current Supabase user, or the local mock user when mock mode is active. */

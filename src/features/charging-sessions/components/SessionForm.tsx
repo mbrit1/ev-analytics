@@ -3,14 +3,14 @@ import { useForm, Controller, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Save, X, Calendar, FileText } from 'lucide-react';
-import { useTariffs } from '../../tariffs/hooks/useTariffs';
-import { useProviders } from '../../tariffs/hooks/useProviders';
-import { useAuth } from '../../auth/hooks/useAuth';
-import { type ChargingSession } from '../../../lib/db';
+import { useTariffs } from '../../tariffs';
+import { useProviders } from '../../tariffs';
+import { useAuth } from '../../auth';
+import { type ChargingSession } from '../../../infra/db';
 import { prepareSession } from '../services/sessionService';
-import { Slab } from '../../../components/ui/Slab';
-import { ThinInput } from '../../../components/ui/ThinInput';
-import { TactileMatrix } from '../../../components/ui/TactileMatrix';
+import { Slab } from '../../../shared/ui';
+import { ThinInput } from '../../../shared/ui';
+import { TactileMatrix } from '../../../shared/ui';
 
 /**
  * Browser form values are kept as strings so react-hook-form can preserve

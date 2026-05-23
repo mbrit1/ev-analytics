@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ChargingHistory } from './ChargingHistory';
 import { useSessions } from '../hooks/useSessions';
-import { type ChargingSession } from '../../../lib/db';
+import { type ChargingSession } from '../../../infra/db';
 
 // Mock the hook to cover rendering states without depending on IndexedDB.
 vi.mock('../hooks/useSessions');

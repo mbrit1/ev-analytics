@@ -1,6 +1,6 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { describe, it, expect, beforeEach } from 'vitest';
-import { db, type SyncPayload } from '../../../lib/db';
+import { db, type SyncPayload } from '../../../infra/db';
 import { useSyncStatus } from './useSyncStatus';
 import 'fake-indexeddb/auto';
 

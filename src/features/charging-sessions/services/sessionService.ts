@@ -1,4 +1,4 @@
-import { db, type ChargingSession, type Tariff, type Provider } from '../../../lib/db';
+import { db, type ChargingSession, type Tariff, type Provider } from '../../../infra/db';
 
 /**
  * Prepares a complete ChargingSession object from user input and associated data.

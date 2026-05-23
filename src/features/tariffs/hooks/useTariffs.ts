@@ -1,6 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getTariffs, saveTariff, deleteTariff } from '../services/tariffService';
-import type { Tariff } from '../../../lib/db';
+import type { Tariff } from '../../../infra/db';
 
 /**
  * Subscribes components to active tariffs and exposes tariff write operations.

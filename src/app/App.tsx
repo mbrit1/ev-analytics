@@ -1,15 +1,11 @@
 import { BatteryCharging, Loader2, LogOut, Plus } from 'lucide-react'
 import { useState, useEffect } from 'react'
-import { useAuth } from './features/auth/hooks/useAuth'
-import { LoginForm } from './features/auth/components/LoginForm'
-import { TariffList } from './features/tariffs/components/TariffList'
-import { ChargingHistory } from './features/charging-sessions/components/ChargingHistory'
-import { SessionForm } from './features/charging-sessions/components/SessionForm'
-import { saveSession } from './features/charging-sessions/services/sessionService'
-import { startSyncRuntime } from './features/offline-sync/services/syncRuntime'
-import { type ChargingSession } from './lib/db'
-import { Navigation } from './components/ui/Navigation/Navigation'
-import { SyncStatusIndicator } from './features/offline-sync/components/SyncStatusIndicator'
+import { useAuth, LoginForm } from '../features/auth'
+import { TariffList } from '../features/tariffs'
+import { ChargingHistory, SessionForm, saveSession } from '../features/charging-sessions'
+import { startSyncRuntime, SyncStatusIndicator } from '../features/offline-sync'
+import { type ChargingSession } from '../infra/db'
+import { Navigation } from '../shared/ui'
 
 /**
  * Root application shell for the authenticated EV Analytics experience.

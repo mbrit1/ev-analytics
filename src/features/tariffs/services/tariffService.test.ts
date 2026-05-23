@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { db, type Tariff } from '../../../lib/db'
+import { db, type Tariff } from '../../../infra/db'
 import { saveTariff, getTariffs, deleteTariff } from './tariffService'
 import 'fake-indexeddb/auto'
 

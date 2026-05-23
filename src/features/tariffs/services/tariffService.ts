@@ -1,4 +1,4 @@
-import { db, type Tariff, type SyncPayload } from '../../../lib/db';
+import { db, type Tariff, type SyncPayload } from '../../../infra/db';
 
 /**
  * Saves a tariff to the local database and creates a sync outbox entry.

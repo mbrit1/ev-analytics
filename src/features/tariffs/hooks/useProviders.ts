@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../../../lib/db';
+import { db } from '../../../infra/db';
 
 /**
  * Subscribes components to active charging providers in the local cache.
