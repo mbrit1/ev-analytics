@@ -2,7 +2,6 @@ import { BatteryCharging, Loader2, LogOut, Plus } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useAuth } from './features/auth/hooks/useAuth'
 import { LoginForm } from './features/auth/components/LoginForm'
-import { supabase } from './lib/supabase'
 import { TariffList } from './features/tariffs/components/TariffList'
 import { ChargingHistory } from './features/charging-sessions/components/ChargingHistory'
 import { SessionForm } from './features/charging-sessions/components/SessionForm'
@@ -20,9 +19,10 @@ import { SyncStatusIndicator } from './features/offline-sync/components/SyncStat
  * the local Dexie-backed feature services.
  */
 function App() {
-  const { user, loading } = useAuth()
+  const { user, loading, signOut } = useAuth()
   const [activeTab, setActiveTab] = useState<'sessions' | 'tariffs'>('sessions')
   const [isSessionFormOpen, setIsSessionFormOpen] = useState(false)
+  const [logoutError, setLogoutError] = useState<string | null>(null)
 
   useEffect(() => {
     // Runtime is auth-gated and manages initial hydration plus background outbox
@@ -34,7 +34,20 @@ function App() {
   }, [user]);
 
   const handleLogout = async () => {
-    await supabase.auth.signOut()
+    setLogoutError(null)
+    try {
+      const { error } = await signOut()
+      if (error) {
+        setLogoutError(error.message || 'Sign-out failed. Please try again.')
+        console.error('Sign-out failed:', error)
+      }
+    } catch (error) {
+      const message = error instanceof Error && error.message
+        ? error.message
+        : 'Sign-out failed. Please try again.'
+      setLogoutError(message)
+      console.error('Sign-out failed:', error)
+    }
   }
 
   const handleSessionSubmit = async (session: ChargingSession) => {
@@ -102,6 +115,11 @@ function App() {
           {/* Main Content */}
           <main className="flex-1 w-full p-4 md:p-8 pb-32 md:pb-8">
             <div className="max-w-2xl mx-auto">
+              {logoutError && (
+                <div role="alert" className="mb-4 p-3 text-sm text-red-500 bg-red-500/10 rounded-lg">
+                  {logoutError}
+                </div>
+              )}
               {activeTab === 'tariffs' ? (
                 <TariffList />
               ) : (

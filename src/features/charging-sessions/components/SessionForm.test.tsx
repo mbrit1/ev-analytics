@@ -10,7 +10,7 @@ import { type Tariff, type Provider } from '../../../lib/db';
 vi.mock('../../tariffs/hooks/useTariffs');
 vi.mock('../../tariffs/hooks/useProviders');
 vi.mock('../../auth/hooks/useAuth', () => ({
-  useAuth: () => ({ user: { id: 'user-1' } })
+  useAuth: () => ({ user: { id: 'user-1' }, loading: false, session: null, signIn: vi.fn(), signOut: vi.fn() })
 }));
 
 /**
@@ -63,7 +63,7 @@ describe('SessionForm', () => {
     expect(startSocInput).toHaveAttribute('inputMode', 'numeric');
   });
 
-  it.skip('submits correctly with initial values', async () => {
+  it('submits correctly with initial values', async () => {
     // Arrange: Seed edit-mode initial values for a complete session.
     const initialValues = {
       session_timestamp: new Date('2024-05-15'),
