@@ -1,5 +1,7 @@
 # Phase 2: Core Infrastructure (Auth & Database) Implementation Plan
 
+**Status:** Completed (`2026-05-23`)
+
 ## Background & Motivation
 Phase 2 focuses on establishing the secure foundation of the application: Supabase authentication (single-user design) and the PostgreSQL database schema with Row-Level Security (RLS) policies. To avoid a "big bang" implementation, this phase is broken down into small, independently verifiable chunks.
 
@@ -47,3 +49,9 @@ Phase 2 focuses on establishing the secure foundation of the application: Supaba
 ## Verification & Next Steps
 - After each chunk, we will review the changes and commit them individually.
 - Once all chunks are complete, we will verify the end-to-end authentication flow and schema definition before moving to Phase 3 (Offline Sync Engine).
+
+## Completion Notes
+- Auth flow implemented with `AuthProvider` and `useAuth` action methods.
+- Login gating and logout wiring are covered by tests.
+- `supabase/schema.sql` and `supabase/seed.sql` are aligned with snapshot fields used by sync payloads.
+- Two-user RLS live verification passed via `scripts/verify-rls-live.mjs`.
