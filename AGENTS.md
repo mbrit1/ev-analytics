@@ -23,6 +23,7 @@ Boundary rules:
 
 - `npm run dev`: start Vite locally.
 - `npm run build`: type-check and build `dist/`.
+- `npm run build:analyze`: build with bundle analysis output (`dist/bundle-stats.json`) for size/performance investigations.
 - `npm run lint`: run ESLint.
 - `npm run test`: start Vitest watch mode.
 - `npm run test -- --run`: run Vitest once.
@@ -65,6 +66,8 @@ When changing project structure:
 - verify import boundary rules with lint checks,
 - verify behavior with tests/build,
 - and include `moved paths + boundary impact` explicitly in handoff notes.
+
+For performance-sensitive work (new dependencies, major UI additions, bundling/runtime changes), run `npm run build:analyze` and include notable bundle-size deltas or top chunk drivers in handoff notes.
 
 On handoff, summarize changed files, verification, risks, and a suggested commit message.
 
