@@ -32,7 +32,7 @@ const tariffSchema = z.object({
 
 type TariffFormValues = z.infer<typeof tariffSchema>;
 
-interface TariffFormProps {
+export interface TariffFormProps {
   /** Persists the fully converted tariff record. */
   onSubmit: (data: Tariff) => Promise<void>;
   /** Closes the form without saving. */

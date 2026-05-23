@@ -67,3 +67,61 @@ describe('TariffForm', () => {
     expect(screen.getByLabelText(/session fee/i)).toHaveAttribute('inputMode', 'decimal');
   });
 });
+
+/**
+ * Test suite for the tariff form loader.
+ *
+ * Verifies the lazy wrapper renders a loading fallback and forwards callbacks
+ * to the deferred TariffForm implementation.
+ */
+describe('TariffFormLoader', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('renders loading fallback while lazy form module resolves', async () => {
+    // Arrange: Mock TariffForm with a delayed module resolution.
+    vi.doMock('./TariffForm', async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return {
+        TariffForm: () => <div>Lazy Tariff Form</div>,
+      };
+    });
+    const { TariffFormLoader } = await import('./TariffFormLoader');
+
+    // Act: Render lazy loader and assert immediate fallback.
+    render(<TariffFormLoader onSubmit={vi.fn()} onCancel={vi.fn()} />);
+
+    // Assert: Fallback appears before deferred module renders.
+    expect(screen.getByText(/loading tariff form/i)).toBeInTheDocument();
+    expect(await screen.findByText('Lazy Tariff Form')).toBeInTheDocument();
+  });
+
+  it('forwards props to the lazy-loaded tariff form', async () => {
+    // Arrange: Track props received by deferred TariffForm.
+    const received = vi.fn();
+    vi.doMock('./TariffForm', async () => ({
+      TariffForm: (props: unknown) => {
+        received(props);
+        return <div>Deferred Form</div>;
+      },
+    }));
+    const { TariffFormLoader } = await import('./TariffFormLoader');
+    const onSubmit = vi.fn();
+    const onCancel = vi.fn();
+    const initialValues = { tariff_name: 'Workday' };
+
+    // Act: Render lazy loader and wait for the deferred form.
+    render(<TariffFormLoader onSubmit={onSubmit} onCancel={onCancel} initialValues={initialValues} />);
+    await screen.findByText('Deferred Form');
+
+    // Assert: Loader passes through form contract unchanged.
+    expect(received).toHaveBeenCalledWith(
+      expect.objectContaining({
+        onSubmit,
+        onCancel,
+        initialValues,
+      })
+    );
+  });
+});

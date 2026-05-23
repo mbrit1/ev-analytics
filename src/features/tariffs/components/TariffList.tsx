@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Trash2, Edit2, Info } from 'lucide-react';
 import { useTariffs } from '../hooks/useTariffs';
-import { TariffForm } from './TariffForm';
+import { TariffFormLoader } from './TariffFormLoader';
 import { formatCurrency } from '../../../shared/lib';
 import { useProviders } from '../hooks/useProviders';
 import { type Tariff } from '../../../infra/db';
@@ -81,7 +81,7 @@ export const TariffList: React.FC = () => {
       </div>
 
       {isFormOpen && (
-        <TariffForm
+        <TariffFormLoader
           onSubmit={handleSubmit}
           onCancel={() => {
             setIsFormOpen(false);
