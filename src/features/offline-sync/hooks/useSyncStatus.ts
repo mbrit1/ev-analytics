@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../../../lib/db';
+import { db } from '../../../infra/db';
 
 /**
  * Counts of pending sync mutations grouped by local table.

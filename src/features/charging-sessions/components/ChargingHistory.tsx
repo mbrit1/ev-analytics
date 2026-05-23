@@ -1,8 +1,8 @@
 import React from 'react';
 import { useSessions } from '../hooks/useSessions';
-import { formatCurrency, formatCentsToDecimal } from '../../../lib/utils';
+import { formatCurrency, formatCentsToDecimal } from '../../../shared/lib';
 import { Calendar, Zap, Info, Clock, CheckCircle2 } from 'lucide-react';
-import { Slab } from '../../../components/ui/Slab';
+import { Slab } from '../../../shared/ui';
 
 /**
  * Displays locally saved charging sessions with their calculated cost and sync state.

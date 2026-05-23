@@ -1,9 +1,9 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
-import App from './App.tsx'
-import { AuthProvider } from './features/auth/hooks/useAuth.tsx'
-import { isMockMode } from './lib/mock-utils'
+import App from './app/App.tsx'
+import { AuthProvider } from './features/auth'
+import { isMockMode } from './infra/mocks'
 
 /**
  * Starts the MSW browser worker only for explicit local mock-mode runs.

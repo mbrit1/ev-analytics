@@ -1,15 +1,15 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SessionForm } from './SessionForm';
-import { useTariffs } from '../../tariffs/hooks/useTariffs';
-import { useProviders } from '../../tariffs/hooks/useProviders';
-import { type Tariff, type Provider } from '../../../lib/db';
+import { useTariffs } from '../../tariffs';
+import { useProviders } from '../../tariffs';
+import { type Tariff, type Provider } from '../../../infra/db';
 
 // Mock dependent hooks so form tests can exercise validation and submission UI
 // without requiring tariff/provider IndexedDB state.
-vi.mock('../../tariffs/hooks/useTariffs');
-vi.mock('../../tariffs/hooks/useProviders');
-vi.mock('../../auth/hooks/useAuth', () => ({
+vi.mock('../../tariffs');
+vi.mock('../../tariffs');
+vi.mock('../../auth', () => ({
   useAuth: () => ({ user: { id: 'user-1' }, loading: false, session: null, signIn: vi.fn(), signOut: vi.fn() })
 }));
 

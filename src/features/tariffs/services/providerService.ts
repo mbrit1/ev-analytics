@@ -1,4 +1,4 @@
-import { db, type Provider, type SyncPayload } from '../../../lib/db';
+import { db, type Provider, type SyncPayload } from '../../../infra/db';
 
 /**
  * Saves a charging provider locally and queues the change for remote sync.

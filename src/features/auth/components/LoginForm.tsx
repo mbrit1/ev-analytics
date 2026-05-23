@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { LogIn, Loader2 } from 'lucide-react';
-import { Slab } from '../../../components/ui/Slab';
+import { Slab } from '../../../shared/ui';
 import { useAuth } from '../hooks/useAuth';
 
 const loginSchema = z.object({

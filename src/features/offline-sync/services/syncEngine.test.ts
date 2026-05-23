@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { db, type SyncPayload, type Provider, type Tariff, type ChargingSession } from '../../../lib/db'
+import { db, type SyncPayload, type Provider, type Tariff, type ChargingSession } from '../../../infra/db'
 import { processOutbox, initialSync } from './syncEngine'
-import { supabase } from '../../../lib/supabase'
+import { supabase } from '../../../infra/supabase'
 import 'fake-indexeddb/auto'
 
 // Mock Supabase so tests can assert sync behavior without network access.
-vi.mock('../../../lib/supabase', () => ({
+vi.mock('../../../infra/supabase', () => ({
   supabase: {
     from: vi.fn(() => ({
       upsert: vi.fn(() => Promise.resolve({ error: null }))

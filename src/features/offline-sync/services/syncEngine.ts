@@ -1,5 +1,5 @@
-import { db, type SyncOutbox, type Provider, type Tariff, type ChargingSession } from '../../../lib/db';
-import { supabase } from '../../../lib/supabase';
+import { db, type SyncOutbox, type Provider, type Tariff, type ChargingSession } from '../../../infra/db';
+import { supabase } from '../../../infra/supabase';
 
 const BASE_RETRY_DELAY_MS = 60_000;
 const MAX_RETRY_DELAY_MS = 15 * 60_000;

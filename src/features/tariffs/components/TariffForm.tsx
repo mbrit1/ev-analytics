@@ -4,12 +4,12 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Save, X, PlusCircle, Check, Calendar } from 'lucide-react';
 import { useProviders } from '../hooks/useProviders';
-import { parseDecimalToCents } from '../../../lib/utils';
-import { useAuth } from '../../auth/hooks/useAuth';
+import { parseDecimalToCents } from '../../../shared/lib';
+import { useAuth } from '../../auth';
 import { saveProvider } from '../services/providerService';
-import { type Tariff } from '../../../lib/db';
-import { Slab } from '../../../components/ui/Slab';
-import { ThinInput } from '../../../components/ui/ThinInput';
+import { type Tariff } from '../../../infra/db';
+import { Slab } from '../../../shared/ui';
+import { ThinInput } from '../../../shared/ui';
 
 /**
  * Form values stay as strings so users can type localized decimal prices before

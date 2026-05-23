@@ -2,12 +2,12 @@ import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TariffForm } from './TariffForm';
 import { useProviders } from '../hooks/useProviders';
-import { useAuth } from '../../auth/hooks/useAuth';
+import { useAuth } from '../../auth';
 
 // Mock hooks and provider persistence so form tests stay focused on rendered
 // inputs instead of IndexedDB state.
 vi.mock('../hooks/useProviders');
-vi.mock('../../auth/hooks/useAuth');
+vi.mock('../../auth');
 vi.mock('../services/providerService');
 
 /**

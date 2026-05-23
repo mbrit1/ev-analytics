@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { db } from '../../../lib/db';
-import type { SyncPayload } from '../../../lib/db';
+import { db } from '../../../infra/db';
+import type { SyncPayload } from '../../../infra/db';
 import { startSyncRuntime, createDefaultSyncRuntimeDeps, type SyncRuntimeDeps } from './syncRuntime';
 
 /**

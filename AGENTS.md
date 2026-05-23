@@ -2,7 +2,22 @@
 
 ## Project Structure & Module Organization
 
-This is a React 19, TypeScript, Vite PWA for offline-first EV charging analytics. Application code lives in `src/`. Feature work belongs under `src/features/<domain>/`, such as `auth`, `charging-sessions`, `offline-sync`, and `tariffs`. Shared infrastructure is in `src/lib/`, reusable UI in `src/components/ui/`, and tests/mocks in `src/test/` and `src/mocks/`. Assets belong in `public/` or `src/assets/`. Supabase files are in `supabase/`; ADRs are in `docs/adr/`.
+This is a React 19, TypeScript, Vite PWA for offline-first EV charging analytics. Application code lives in `src/` and is layered as:
+
+- `src/app/`: app composition, top-level shell, and provider wiring.
+- `src/features/<domain>/`: domain workflows (for example `auth`, `charging-sessions`, `offline-sync`, `tariffs`) with `components/`, `hooks/`, `services/`, `model/`, and `index.ts`.
+- `src/shared/ui/`: reusable, domain-agnostic UI primitives.
+- `src/shared/lib/`: pure shared helpers without infrastructure dependencies.
+- `src/infra/`: technical adapters and integrations (`db`, `supabase`, `mocks`).
+- `src/test/` and `src/mocks/`: shared testing and mock infrastructure.
+
+Assets belong in `public/` or `src/assets/`. Supabase files are in `supabase/`; ADRs are in `docs/adr/`.
+
+Boundary rules:
+- `features` may depend on `shared` and approved `infra` interfaces.
+- `shared` must remain domain-agnostic and never import from `features`.
+- `infra` contains implementation details and must not import from `features`.
+- Cross-feature imports must use `src/features/<domain>/index.ts` rather than deep paths.
 
 ## Build, Test, and Development Commands
 
@@ -30,6 +45,8 @@ Vitest, React Testing Library, jsdom, MSW, and fake IndexedDB are used for tests
 
 Every test file should include a suite-level JSDoc block above the main `describe` explaining the file's focus. Use Arrange, Act, Assert comments inside test blocks (`// Arrange: ...`, `// Act: ...`, `// Assert: ...`) so setup, behavior, and expectations stay clear. Cover domain logic, offline sync, idempotency, tariff snapshots, and changed UI workflows. Sync/data mutations should expose queue length, retry count, and last sync attempt.
 
+For structural refactors, use a `move first, behavior unchanged` sequence, then separate behavioral changes into follow-up commits with targeted tests.
+
 ## Commit & Pull Request Guidelines
 
 Use small, scoped changes and avoid unrelated refactors. Create a feature branch before code changes, for example `feat/phase-2-auth`. Use Conventional Commits: `type(scope): description`, such as `feat(sync): implement offline outbox queue`. Commit bodies explain why and note trade-offs. Before proposing a push or PR, run:
@@ -42,7 +59,14 @@ PRs need a summary, verification results, linked issues/ADRs, and screenshots fo
 
 ## Agent Workflow Notes
 
-`AGENTS.md` is Codex’s source of truth. `GEMINI.md` remains legacy/reference guidance. Superpowers artifacts live in `docs/superpowers/specs/` and `docs/superpowers/plans/`; use them for planned work, but rely on the installed plugin for workflow mechanics. On handoff, summarize changed files, verification, risks, and a suggested commit message.
+`AGENTS.md` is Codex’s source of truth. `GEMINI.md` remains legacy/reference guidance. Superpowers artifacts live in `docs/superpowers/specs/` and `docs/superpowers/plans/`; use them for planned work, but rely on the installed plugin for workflow mechanics.
+
+When changing project structure:
+- verify import boundary rules with lint checks,
+- verify behavior with tests/build,
+- and include `moved paths + boundary impact` explicitly in handoff notes.
+
+On handoff, summarize changed files, verification, risks, and a suggested commit message.
 
 ## Security & Configuration Tips
 

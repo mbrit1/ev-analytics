@@ -11,11 +11,11 @@ const mockGetSession = vi.hoisted(() => vi.fn());
 const mockOnAuthStateChange = vi.hoisted(() => vi.fn());
 const mockUnsubscribe = vi.hoisted(() => vi.fn());
 
-vi.mock('../../../lib/mock-utils', () => ({
+vi.mock('../../../infra/mocks', () => ({
   isMockMode: mockIsMockMode,
 }));
 
-vi.mock('../../../lib/supabase', () => ({
+vi.mock('../../../infra/supabase', () => ({
   supabase: {
     auth: {
       signInWithPassword: mockSignInWithPassword,

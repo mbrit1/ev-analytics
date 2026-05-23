@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { EVAnalyticsDB, type Tariff, type Provider } from '../../../lib/db'
+import { EVAnalyticsDB, type Tariff, type Provider } from '../../../infra/db'
 import { saveSession, prepareSession } from './sessionService'
 import 'fake-indexeddb/auto'
 

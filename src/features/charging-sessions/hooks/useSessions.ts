@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type SyncPayload } from '../../../lib/db';
+import { db, type SyncPayload } from '../../../infra/db';
 import { getSessions } from '../services/sessionService';
 
 /**

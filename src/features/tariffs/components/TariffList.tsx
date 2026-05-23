@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { Plus, Trash2, Edit2, Info } from 'lucide-react';
 import { useTariffs } from '../hooks/useTariffs';
 import { TariffForm } from './TariffForm';
-import { formatCurrency } from '../../../lib/utils';
+import { formatCurrency } from '../../../shared/lib';
 import { useProviders } from '../hooks/useProviders';
-import { type Tariff } from '../../../lib/db';
-import { formatCentsToDecimal } from '../../../lib/utils';
-import { Slab } from '../../../components/ui/Slab';
+import { type Tariff } from '../../../infra/db';
+import { formatCentsToDecimal } from '../../../shared/lib';
+import { Slab } from '../../../shared/ui';
 
 /**
  * Displays active tariffs and coordinates create, edit, and soft-delete flows.

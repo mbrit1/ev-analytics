@@ -18,5 +18,50 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/features/*/*/*'],
+              message: 'Import cross-feature modules through features/<domain>/index.ts only.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/shared/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/features/**'],
+              message: 'Shared layer must remain domain-agnostic and may not import from features.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/infra/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/features/**'],
+              message: 'Infrastructure layer may not import from features.',
+            },
+          ],
+        },
+      ],
+    },
   },
 ])
