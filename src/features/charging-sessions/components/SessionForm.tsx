@@ -202,6 +202,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   const { user } = useAuth();
   const { chargingPlans } = useChargingPlans();
   const { providers } = useProviders();
+  const hiddenDateInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const {
     register,
@@ -244,10 +245,12 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   const selectedProviderId = useWatch({ control, name: 'provider_id' });
   const selectedPricingSource = useWatch({ control, name: 'pricing_source' });
   const selectedPlanId = useWatch({ control, name: 'charging_plan_id' });
+  const selectedSessionDate = useWatch({ control, name: 'session_timestamp' });
   const providerPlans = React.useMemo(
     () => chargingPlans.filter(plan => plan.provider_id === selectedProviderId),
     [chargingPlans, selectedProviderId]
   );
+  const sessionDateField = register('session_timestamp');
 
   React.useEffect(() => {
     if (selectedPricingSource === 'adHoc') {
@@ -281,6 +284,24 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
 
     setValue('charging_plan_id', '');
   }, [selectedPricingSource, selectedProviderId, providerPlans, getValues, setValue]);
+
+  const sessionDateLabel = React.useMemo(() => {
+    const raw = selectedSessionDate || formatDateInputValue(new Date());
+    const [year, month, day] = raw.split('-');
+    if (!year || !month || !day) return raw;
+    return `${day}.${month}.${year}`;
+  }, [selectedSessionDate]);
+
+  const openNativeDatePicker = React.useCallback(() => {
+    const input = hiddenDateInputRef.current;
+    if (!input) return;
+    if (typeof input.showPicker === 'function') {
+      input.showPicker();
+      return;
+    }
+    input.focus();
+    input.click();
+  }, []);
 
   const handleFormSubmit = async (values: SessionFormValues) => {
     // A session must belong to the active user; unauthenticated renders should
@@ -394,13 +415,32 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
             <label htmlFor="session_timestamp" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
               Date
             </label>
-            <div className="flex items-baseline border-b border-secondary/20 focus-within:border-accent transition-colors duration-300 py-1">
-              <Calendar className="w-5 h-5 mr-2 text-secondary/40" />
+            <div className="relative border-b border-secondary/20 focus-within:border-accent transition-colors duration-300">
+              <button
+                type="button"
+                onClick={openNativeDatePicker}
+                className="w-full py-1 min-h-[44px] flex items-center text-left"
+                aria-label="Open session picker"
+              >
+                <Calendar className="w-5 h-5 mr-2 text-secondary/40 shrink-0" />
+                <span className="flex-1 text-primary text-xl font-medium tabular-nums">
+                  {sessionDateLabel}
+                </span>
+                <Calendar className="w-5 h-5 text-primary shrink-0" />
+              </button>
               <input
                 id="session_timestamp"
                 type="date"
-                {...register('session_timestamp')}
-                className="flex-1 bg-transparent text-xl font-medium outline-none"
+                name={sessionDateField.name}
+                onChange={sessionDateField.onChange}
+                onBlur={sessionDateField.onBlur}
+                ref={(element) => {
+                  sessionDateField.ref(element);
+                  hiddenDateInputRef.current = element;
+                }}
+                className="absolute opacity-0 pointer-events-none w-px h-px"
+                tabIndex={-1}
+                aria-hidden="true"
               />
             </div>
             {errors.session_timestamp && (
