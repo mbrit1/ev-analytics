@@ -16,6 +16,8 @@ interface ThinInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   layout?: 'vertical' | 'horizontal';
   /** Optional label class override for strict visual consistency across forms. */
   labelClassName?: string;
+  /** Whether to render a visual required marker next to the label. */
+  requiredIndicator?: boolean;
 }
 
 /**
@@ -29,7 +31,7 @@ interface ThinInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
  * @returns The rendered input component.
  */
 export const ThinInput = forwardRef<HTMLInputElement, ThinInputProps>(
-  ({ label, unit, error, align, layout = 'vertical', className, id, labelClassName, ...props }, ref) => {
+  ({ label, unit, error, align, layout = 'vertical', className, id, labelClassName, requiredIndicator = false, ...props }, ref) => {
     const inputId = id || label.toLowerCase().replace(/\s+/g, '-');
     const isHorizontal = layout === 'horizontal';
     const textAlignment = align || (isHorizontal || unit ? 'right' : 'left');
@@ -51,6 +53,12 @@ export const ThinInput = forwardRef<HTMLInputElement, ThinInputProps>(
           }`}
         >
           {label}
+          {requiredIndicator && (
+            <>
+              {' '}
+              <span className="text-primary" aria-hidden="true">*</span>
+            </>
+          )}
         </label>
         <div 
           className={`flex items-center transition-colors duration-300 py-1 ${
