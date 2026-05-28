@@ -246,6 +246,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   const selectedPricingSource = useWatch({ control, name: 'pricing_source' });
   const selectedPlanId = useWatch({ control, name: 'charging_plan_id' });
   const selectedSessionDate = useWatch({ control, name: 'session_timestamp' });
+  const isChargingPlanPricing = selectedPricingSource === 'chargingPlan';
   const providerPlans = React.useMemo(
     () => chargingPlans.filter(plan => plan.provider_id === selectedProviderId),
     [chargingPlans, selectedProviderId]
@@ -396,9 +397,14 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   return (
     <Slab>
       <div className="flex items-center justify-between mb-8">
-        <h2 className="text-2xl font-bold text-primary">
-          {initialValues?.id ? 'Edit Session' : 'New Session'}
-        </h2>
+        <div className="flex flex-col">
+          <h2 className="text-2xl font-bold text-primary">
+            {initialValues?.id ? 'Edit Session' : 'New Session'}
+          </h2>
+          <p className="text-sm text-secondary mt-1">
+            <span className="text-primary font-medium" aria-hidden="true">*</span> Required fields
+          </p>
+        </div>
         <button
           onClick={onCancel}
           className="p-2 text-secondary/40 hover:text-secondary rounded-full hover:bg-secondary/10 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
@@ -413,7 +419,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
           {/* Date */}
           <div className="flex flex-col">
             <label htmlFor="session_timestamp" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
-              Date
+              Date <span className="text-primary" aria-hidden="true">*</span>
             </label>
             <div className="relative border-b border-secondary/20 focus-within:border-accent transition-colors duration-300">
               <button
@@ -441,6 +447,8 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                 className="absolute opacity-0 pointer-events-none w-px h-px"
                 tabIndex={-1}
                 aria-hidden="true"
+                required
+                aria-required="true"
               />
             </div>
             {errors.session_timestamp && (
@@ -474,11 +482,13 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
               {/* Charging Plan Provider */}
               <div className="flex flex-col">
                 <label htmlFor="provider_id" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
-                  Charging Plan Provider
+                  Charging Plan Provider <span className="text-primary" aria-hidden="true">*</span>
                 </label>
                 <select
                   id="provider_id"
                   {...register('provider_id')}
+                  required={isChargingPlanPricing}
+                  aria-required={isChargingPlanPricing ? 'true' : 'false'}
                   className={`w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors ${
                     selectedProviderId ? 'text-primary' : 'text-primary/70'
                   }`}
@@ -496,11 +506,13 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
               {/* Plan */}
               <div className="flex flex-col">
                 <label htmlFor="charging_plan_id" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
-                  Plan
+                  Plan <span className="text-primary" aria-hidden="true">*</span>
                 </label>
                 <select
                   id="charging_plan_id"
                   {...register('charging_plan_id')}
+                  required={isChargingPlanPricing}
+                  aria-required={isChargingPlanPricing ? 'true' : 'false'}
                   disabled={!selectedProviderId || providerPlans.length === 0}
                   className={`w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors disabled:text-secondary/55 disabled:cursor-not-allowed ${
                     selectedPlanId ? 'text-primary' : 'text-primary/70'
@@ -541,6 +553,9 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
             <>
               <ThinInput
                 label="CPO/Operator"
+                requiredIndicator
+                required
+                aria-required="true"
                 type="text"
                 placeholder="Operator name"
                 {...register('cpo_name')}
@@ -554,6 +569,9 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
           <div className="flex flex-col gap-8">
             <ThinInput
               label="Price per kWh"
+              requiredIndicator
+              required
+              aria-required="true"
               unit="EUR"
               type="text"
               inputMode="decimal"
@@ -615,6 +633,9 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
           {/* kWh Billed */}
           <ThinInput
             label="kWh Billed"
+            requiredIndicator
+            required
+            aria-required="true"
             unit="kWh"
             type="text"
             inputMode="decimal"
