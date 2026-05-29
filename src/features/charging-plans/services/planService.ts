@@ -1,51 +1,24 @@
 import { db, type ChargingPlan, type SyncPayload } from '../../../infra/db';
 
-/**
- * Enforces integer-cents currency representation for monetary fields.
- *
- * @param value - Candidate amount to validate.
- * @param fieldName - Field name used for error context.
- */
 function assertIntegerCents(value: number, fieldName: string): void {
   if (!Number.isInteger(value)) {
     throw new Error(`${fieldName} must be an integer number of cents`);
   }
 }
 
-/**
- * Ensures a monetary value is not negative.
- *
- * @param value - Candidate amount to validate.
- * @param fieldName - Field name used for error context.
- */
 function assertNonNegative(value: number, fieldName: string): void {
   if (value < 0) {
     throw new Error(`${fieldName} must be non-negative`);
   }
 }
 
-/**
- * Validates optional monetary fields when present.
- *
- * @param value - Optional amount in integer cents.
- * @param fieldName - Field name used for error context.
- */
 function assertNonNegativeNullable(value: number | undefined, fieldName: string): void {
   if (value == null) return;
   assertIntegerCents(value, fieldName);
   assertNonNegative(value, fieldName);
 }
 
-/**
- * Validates charging-plan domain constraints for pricing and fee fields.
- *
- * Rules:
- * - Monetary values must be integer cents and non-negative.
- * - At least one meaningful price/fee signal must be present.
- *
- * @param plan - Charging plan payload to validate before persistence.
- */
-function validateChargingPlan(plan: ChargingPlan): void {
+function validatePlan(plan: ChargingPlan): void {
   assertNonNegativeNullable(plan.ac_price_per_kwh, 'ac_price_per_kwh');
   assertNonNegativeNullable(plan.dc_price_per_kwh, 'dc_price_per_kwh');
   assertNonNegativeNullable(plan.roaming_ac_price_per_kwh, 'roaming_ac_price_per_kwh');
@@ -80,47 +53,35 @@ function periodsOverlap(
   rightStart: Date,
   rightEnd: Date | null | undefined
 ): boolean {
-  // Half-open intervals [start, end) allow right.start === left.end.
   return leftStart.getTime() < dateToComparableMs(rightEnd)
     && rightStart.getTime() < dateToComparableMs(leftEnd);
 }
 
-/**
- * Saves a charging plan to the local database and creates a sync outbox entry.
- *
- * Tariff prices and fees are stored as integer cents. The local write and sync
- * outbox entry are created in one transaction so offline changes can be replayed
- * remotely without losing their corresponding local state.
- *
- * @param plan - Charging plan record to insert or update.
- */
 export async function saveChargingPlan(plan: ChargingPlan): Promise<void> {
-  validateChargingPlan(plan);
+  validatePlan(plan);
 
   await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
     const existing = await db.charging_plans.get(plan.id);
     const now = new Date();
     const normalizedPlanName = (plan.name ?? '').trim();
-
     const normalizedPlanNameLower = normalizedPlanName.toLowerCase();
+
     const overlappingTariffVersion = await db.charging_plans
       .where('provider_id')
       .equals(plan.provider_id)
-      .filter((plan) => (
-        !plan.deleted_at
-        && plan.id !== plan.id
-        && plan.user_id === plan.user_id
-        && (plan.name ?? '').trim().toLowerCase() === normalizedPlanNameLower
-        && periodsOverlap(plan.valid_from, plan.valid_to, plan.valid_from, plan.valid_to)
+      .filter((candidate) => (
+        !candidate.deleted_at
+        && candidate.id !== plan.id
+        && candidate.user_id === plan.user_id
+        && (candidate.name ?? '').trim().toLowerCase() === normalizedPlanNameLower
+        && periodsOverlap(plan.valid_from, plan.valid_to, candidate.valid_from, candidate.valid_to)
       ))
       .first();
 
     if (overlappingTariffVersion) {
       throw new Error('Tariff validity overlaps with an existing active version for this provider and name');
     }
-    
-    // Preserve the original creation timestamp on edits while refreshing the
-    // modification timestamp for conflict/audit visibility.
+
     const planToSave: ChargingPlan = {
       ...plan,
       name: normalizedPlanName,
@@ -131,7 +92,6 @@ export async function saveChargingPlan(plan: ChargingPlan): Promise<void> {
     await db.charging_plans.put(planToSave);
     await db.sync_outbox.add({
       table_name: 'charging_plans',
-      // Existing local records become UPDATE syncs; new records become INSERTs.
       action: existing ? 'UPDATE' : 'INSERT',
       payload: planToSave as SyncPayload,
       timestamp: now,
@@ -143,44 +103,29 @@ export async function saveChargingPlan(plan: ChargingPlan): Promise<void> {
   });
 }
 
-/**
- * Returns all charging plans that have not been soft-deleted.
- *
- * @returns Active local tariffs available for forms and charging sessions.
- */
 export async function getChargingPlans(): Promise<ChargingPlan[]> {
-  // Simple filter is efficient enough for single-user plan counts
   return db.charging_plans
     .filter((plan) => !plan.deleted_at)
     .toArray();
 }
 
-/**
- * Soft deletes a charging plan locally and creates a DELETE outbox entry.
- *
- * Retrieval is inside the transaction to prevent race conditions. The record is
- * retained locally with `deleted_at` so the deletion can still sync remotely
- * and historical charging sessions can keep their tariff snapshots intact.
- *
- * @param id - Charging plan id to mark deleted.
- */
 export async function deleteChargingPlan(id: string): Promise<void> {
   await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
     const plan = await db.charging_plans.get(id);
     if (!plan || plan.deleted_at) return;
 
     const now = new Date();
-    const deletedChargingPlan: ChargingPlan = {
+    const deletedPlan: ChargingPlan = {
       ...plan,
       deleted_at: now,
       updated_at: now
     };
 
-    await db.charging_plans.put(deletedChargingPlan);
+    await db.charging_plans.put(deletedPlan);
     await db.sync_outbox.add({
       table_name: 'charging_plans',
       action: 'DELETE',
-      payload: deletedChargingPlan as SyncPayload,
+      payload: deletedPlan as SyncPayload,
       timestamp: now,
       retry_count: 0,
       last_attempt_at: undefined,

@@ -1,6 +1,6 @@
 export * from './hooks/useProviders'
 export * from './hooks/useChargingPlans'
 export * from './services/providerService'
-export * from './services/chargingPlanService'
+export * from './services/planService'
 export * from './services/providerPlanSelectionService'
 export * from './model/types'

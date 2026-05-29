@@ -118,8 +118,8 @@ git commit -m "refactor(tariffs): make tariff name optional and normalize blank 
 ### Task 3: Enforce one unnamed tariff per provider in save path
 
 **Files:**
-- Modify: `src/features/charging-plans/services/chargingPlanService.ts`
-- Test: `src/features/charging-plans/services/chargingPlanService.test.ts` (create if missing)
+- Modify: `src/features/charging-plans/services/planService.ts`
+- Test: `src/features/charging-plans/services/planService.test.ts` (create if missing)
 
 - [ ] **Step 1: Write failing service tests for unnamed-variant constraint**
 ```ts
@@ -135,7 +135,7 @@ it('allows named + unnamed tariffs for same provider', async () => {});
 ```
 
 - [ ] **Step 2: Run tests and confirm failures**
-Run: `npm run test -- --run src/features/charging-plans/services/chargingPlanService.test.ts`  
+Run: `npm run test -- --run src/features/charging-plans/services/planService.test.ts`  
 Expected: FAIL on missing constraint.
 
 - [ ] **Step 3: Implement validation before write**
@@ -163,12 +163,12 @@ plan_name: normalizedPlanName
 ```
 
 - [ ] **Step 5: Re-run service tests**
-Run: `npm run test -- --run src/features/charging-plans/services/chargingPlanService.test.ts`  
+Run: `npm run test -- --run src/features/charging-plans/services/planService.test.ts`  
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
 ```bash
-git add src/features/charging-plans/services/chargingPlanService.ts src/features/charging-plans/services/chargingPlanService.test.ts
+git add src/features/charging-plans/services/planService.ts src/features/charging-plans/services/planService.test.ts
 git commit -m "feat(tariffs): enforce single unnamed tariff per provider"
 ```
 
@@ -219,7 +219,7 @@ git commit -m "feat(tariffs): surface duplicate unnamed-variant validation in fo
 - Modify: none (verification only)
 
 - [ ] **Step 1: Run focused tariff tests**
-Run: `npm run test -- --run src/features/charging-plans/components/TariffList.test.tsx src/features/charging-plans/components/TariffForm.test.tsx src/features/charging-plans/services/chargingPlanService.test.ts`  
+Run: `npm run test -- --run src/features/charging-plans/components/TariffList.test.tsx src/features/charging-plans/components/TariffForm.test.tsx src/features/charging-plans/services/planService.test.ts`  
 Expected: PASS.
 
 - [ ] **Step 2: Run required project checks**
@@ -243,6 +243,6 @@ Expected: bundle stats generated without regressions of concern.
 - List card identity changes: title is provider name; variant subtitle is optional.
 
 ## Assumptions
-- `chargingPlanService` is the canonical write path for tariffs.
+- `planService` is the canonical write path for tariffs.
 - No DB schema migration is needed; constraint is app-layer validation.
 - Provider fallback text (`Unknown provider`) is acceptable as a defensive fallback even though missing-provider state is not expected.

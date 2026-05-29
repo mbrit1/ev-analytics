@@ -7,18 +7,24 @@ export const mockProviders = [
 ];
 
 /**
- * Seed charging plans mirror nested pricing/fees payloads persisted in Supabase.
+ * Seed charging plans mirror flattened pricing columns persisted in Supabase.
  */
 export const mockChargingPlans = [
   {
     id: 'cp1',
     user_id: 'mock-user-id',
     provider_id: 'p1',
-    plan_name: 'Supercharger',
+    name: 'Supercharger',
     valid_from: new Date(),
-          valid_to: null,
-    prices: { domestic: { ac: 45, dc: 45 } },
-    fees: { sessionFixed: 0 },
+    valid_to: null,
+    ac_price_per_kwh: 45,
+    dc_price_per_kwh: 45,
+    roaming_ac_price_per_kwh: null,
+    roaming_dc_price_per_kwh: null,
+    monthly_base_fee: 0,
+    session_fee: 0,
+    affiliation: null,
+    notes: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   },
@@ -26,11 +32,17 @@ export const mockChargingPlans = [
     id: 'cp2',
     user_id: 'mock-user-id',
     provider_id: 'p2',
-    plan_name: 'mobility+ ADAC',
+    name: 'mobility+ ADAC',
     valid_from: new Date(),
-          valid_to: null,
-    prices: { domestic: { ac: 51, dc: 61 }, roaming: { ac: 59, dc: 69 } },
-    fees: { sessionFixed: 0 },
+    valid_to: null,
+    ac_price_per_kwh: 51,
+    dc_price_per_kwh: 61,
+    roaming_ac_price_per_kwh: 59,
+    roaming_dc_price_per_kwh: 69,
+    monthly_base_fee: 0,
+    session_fee: 0,
+    affiliation: null,
+    notes: null,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
   }
@@ -47,7 +59,7 @@ export const mockSessions = [
     session_timestamp: new Date().toISOString(),
     provider_id: 'p1',
     provider_name_snapshot: 'Tesla',
-    charging_plan_id: 'cp1',
+    tariff_plan_id: 'cp1',
     charging_plan_name_snapshot: 'Supercharger',
     charging_type: 'DC',
     kwh_billed: 45.2,
@@ -56,7 +68,7 @@ export const mockSessions = [
     tariff_plan_id: 'cp1',
     plan_selection_id: 'ps1',
     price_snapshot: { label: 'Tesla Supercharger', kWhPrice: 45, sessionFee: 0 },
-    pricing_source: 'chargingPlan',
+    session_mode: 'plan',
     start_soc_percentage: 15,
     end_soc_percentage: 80,
     applied_ac_price_per_kwh: 45,
@@ -71,16 +83,16 @@ export const mockSessions = [
     session_timestamp: new Date().toISOString(),
     provider_id: 'p2',
     provider_name_snapshot: 'EnBW',
-    charging_plan_id: null,
+    tariff_plan_id: null,
     charging_plan_name_snapshot: null,
     charging_type: 'AC',
     kwh_billed: 20,
     total_cost: 1020,
-    session_mode: 'adHoc',
+    session_mode: 'ad_hoc',
     tariff_plan_id: null,
     plan_selection_id: null,
     price_snapshot: { label: 'Ad-Hoc', kWhPrice: 51, sessionFee: 0 },
-    pricing_source: 'adHoc',
+    session_mode: 'ad_hoc',
     ad_hoc_pricing: {
       cpoName: 'EnBW',
       pricePerKwh: 51

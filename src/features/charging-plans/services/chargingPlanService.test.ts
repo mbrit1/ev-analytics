@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { db, type ChargingPlan } from '../../../infra/db'
-import { saveChargingPlan, getChargingPlans, deleteChargingPlan } from './chargingPlanService'
+import { saveChargingPlan, getChargingPlans, deleteChargingPlan } from './planService'
 import 'fake-indexeddb/auto'
 
 /**
@@ -9,7 +9,7 @@ import 'fake-indexeddb/auto'
  * Verifies local tariff writes, sync outbox creation, active tariff filtering,
  * and soft-delete behavior used by offline sync.
  */
-describe('chargingPlanService', () => {
+describe('planService', () => {
   beforeEach(async () => {
     // Keep local charging-plan and outbox state isolated between fake IndexedDB tests.
     await db.charging_plans.clear()
@@ -18,11 +18,11 @@ describe('chargingPlanService', () => {
 
   it('should save a charging plan and create an outbox entry', async () => {
     // Arrange: Build a charging plan with cents-based pricing.
-    const chargingPlanData: ChargingPlan = {
+    const planData: ChargingPlan = {
       id: 'plan-1',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: 'Supercharger',
+      name: 'Supercharger',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 45,
@@ -34,12 +34,12 @@ describe('chargingPlanService', () => {
     }
 
     // Act: Save the charging plan through the service transaction.
-    await saveChargingPlan(chargingPlanData)
+    await saveChargingPlan(planData)
 
     // Assert: The charging plan and matching sync outbox item are persisted.
-    const chargingPlan = await db.charging_plans.get('plan-1')
-    expect(chargingPlan).toBeDefined()
-    expect(chargingPlan?.plan_name).toBe('Supercharger')
+    const plan = await db.charging_plans.get('plan-1')
+    expect(plan).toBeDefined()
+    expect(plan?.name).toBe('Supercharger')
 
     const outbox = await db.sync_outbox.toArray()
     expect(outbox).toHaveLength(1)
@@ -55,7 +55,7 @@ describe('chargingPlanService', () => {
   it('should list all non-deleted charging plans', async () => {
     // Arrange: Seed one active charging plan and one soft-deleted charging plan.
     const p1: ChargingPlan = {
-      id: 'p1', user_id: 'u1', provider_id: 'provider-1', plan_name: 'Plan 1',
+      id: 'p1', user_id: 'u1', provider_id: 'provider-1', name: 'Plan 1',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 50,
@@ -65,7 +65,7 @@ describe('chargingPlanService', () => {
       created_at: new Date(), updated_at: new Date()
     }
     const p2: ChargingPlan = {
-      id: 'p2', user_id: 'u1', provider_id: 'provider-1', plan_name: 'Plan 2',
+      id: 'p2', user_id: 'u1', provider_id: 'provider-1', name: 'Plan 2',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 60,
@@ -79,16 +79,16 @@ describe('chargingPlanService', () => {
     await db.charging_plans.bulkAdd([p1, p2])
 
     // Act: Query active charging plans through the service.
-    const chargingPlans = await getChargingPlans()
+    const plans = await getChargingPlans()
     // Assert: Soft-deleted charging plans are excluded from active results.
-    expect(chargingPlans).toHaveLength(1)
-    expect(chargingPlans[0].id).toBe('p1')
+    expect(plans).toHaveLength(1)
+    expect(plans[0].id).toBe('p1')
   })
 
   it('should soft delete a charging plan and create a DELETE outbox entry', async () => {
     // Arrange: Seed a charging plan that can be deleted.
-    const chargingPlan: ChargingPlan = {
-      id: 'plan-delete', user_id: 'u1', provider_id: 'provider-1', plan_name: 'To Delete',
+    const plan: ChargingPlan = {
+      id: 'plan-delete', user_id: 'u1', provider_id: 'provider-1', name: 'To Delete',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 50,
@@ -97,7 +97,7 @@ describe('chargingPlanService', () => {
       session_fee: 0 ,
       created_at: new Date(), updated_at: new Date()
     }
-    await db.charging_plans.add(chargingPlan)
+    await db.charging_plans.add(plan)
 
     // Act: Soft-delete the charging plan through the service.
     await deleteChargingPlan('plan-delete')
@@ -119,11 +119,11 @@ describe('chargingPlanService', () => {
 
   it('should allow optional domestic prices and save roaming and fee based charging plan', async () => {
     // Arrange: Create a charging plan using nullable core prices with other meaningful fees.
-    const chargingPlanData: ChargingPlan = {
+    const planData: ChargingPlan = {
       id: 'plan-subscription-1',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: 'Subscription Plan',
+      name: 'Subscription Plan',
       valid_from: new Date(),
           valid_to: null,
       roaming_ac_price_per_kwh: 89,
@@ -135,7 +135,7 @@ describe('chargingPlanService', () => {
     }
 
     // Act: Save and read back.
-    await saveChargingPlan(chargingPlanData)
+    await saveChargingPlan(planData)
     const saved = await db.charging_plans.get('plan-subscription-1')
 
     // Assert: Optional and new pricing fields are persisted.
@@ -149,11 +149,11 @@ describe('chargingPlanService', () => {
 
   it('should reject negative monetary values', async () => {
     // Arrange: Build a charging plan with an invalid negative fee.
-    const chargingPlanData: ChargingPlan = {
+    const planData: ChargingPlan = {
       id: 'plan-negative-1',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: 'Invalid Plan',
+      name: 'Invalid Plan',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 45,
@@ -165,16 +165,16 @@ describe('chargingPlanService', () => {
     }
 
     // Act/Assert: Validation should reject negative cents values.
-    await expect(saveChargingPlan(chargingPlanData)).rejects.toThrow('session_fee must be non-negative')
+    await expect(saveChargingPlan(planData)).rejects.toThrow('session_fee must be non-negative')
   })
 
   it('should reject non-integer money values', async () => {
     // Arrange: Build a charging plan with a decimal cents field.
-    const chargingPlanData: ChargingPlan = {
+    const planData: ChargingPlan = {
       id: 'plan-invalid-cents-1',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: 'Invalid Cents Plan',
+      name: 'Invalid Cents Plan',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 45.5,
@@ -185,16 +185,16 @@ describe('chargingPlanService', () => {
     }
 
     // Act/Assert: Validation should reject non-integer cents values.
-    await expect(saveChargingPlan(chargingPlanData)).rejects.toThrow('ac_price_per_kwh must be an integer number of cents')
+    await expect(saveChargingPlan(planData)).rejects.toThrow('ac_price_per_kwh must be an integer number of cents')
   })
 
   it('should reject plan without meaningful pricing or fees', async () => {
     // Arrange: Create a plan with no price and no fee signals.
-    const chargingPlanData: ChargingPlan = {
+    const planData: ChargingPlan = {
       id: 'plan-empty-1',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: 'Empty Plan',
+      name: 'Empty Plan',
       valid_from: new Date(),
           valid_to: null,
       monthly_base_fee: 0,
@@ -204,16 +204,16 @@ describe('chargingPlanService', () => {
     }
 
     // Act/Assert: Validation should reject meaningless plan payloads.
-    await expect(saveChargingPlan(chargingPlanData)).rejects.toThrow('charging plan requires at least one price or fee value')
+    await expect(saveChargingPlan(planData)).rejects.toThrow('charging plan requires at least one price or fee value')
   })
 
   it('should allow plan payload without non-core fee fields', async () => {
     // Arrange: Core pricing only payload.
-    const chargingPlanData: ChargingPlan = {
+    const planData: ChargingPlan = {
       id: 'plan-other-fee-1',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: 'Other Fee Plan',
+      name: 'Other Fee Plan',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 12 ,
@@ -224,16 +224,16 @@ describe('chargingPlanService', () => {
     }
 
     // Act/Assert: Save succeeds with core fields only.
-    await expect(saveChargingPlan(chargingPlanData)).resolves.toBeUndefined()
+    await expect(saveChargingPlan(planData)).resolves.toBeUndefined()
   })
 
   it('should allow first unnamed tariff for a provider', async () => {
     // Arrange: Build an unnamed tariff for a provider with no existing unnamed tariff.
-    const chargingPlanData: ChargingPlan = {
+    const planData: ChargingPlan = {
       id: 'plan-unnamed-1',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: '   ',
+      name: '   ',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 45 ,
@@ -244,11 +244,11 @@ describe('chargingPlanService', () => {
     }
 
     // Act: Save the first unnamed tariff.
-    await saveChargingPlan(chargingPlanData)
+    await saveChargingPlan(planData)
 
     // Assert: Save succeeds and normalized name is persisted as empty string.
     const saved = await db.charging_plans.get('plan-unnamed-1')
-    expect(saved?.plan_name).toBe('')
+    expect(saved?.name).toBe('')
   })
 
   it('should reject overlapping unnamed tariff versions for the same provider', async () => {
@@ -257,7 +257,7 @@ describe('chargingPlanService', () => {
       id: 'plan-unnamed-existing',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: '',
+      name: '',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 40 ,
@@ -272,7 +272,7 @@ describe('chargingPlanService', () => {
       id: 'plan-unnamed-new',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: '   ',
+      name: '   ',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 50 ,
@@ -292,7 +292,7 @@ describe('chargingPlanService', () => {
       id: 'plan-mixed-unnamed',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: '',
+      name: '',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 40 ,
@@ -307,7 +307,7 @@ describe('chargingPlanService', () => {
       id: 'plan-mixed-named',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: 'Fast DC',
+      name: 'Fast DC',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 55 ,
@@ -322,7 +322,7 @@ describe('chargingPlanService', () => {
 
     // Assert: Named + unnamed combination is allowed.
     const savedNamed = await db.charging_plans.get('plan-mixed-named')
-    expect(savedNamed?.plan_name).toBe('Fast DC')
+    expect(savedNamed?.name).toBe('Fast DC')
   })
 
   it('should allow unnamed tariffs for different providers', async () => {
@@ -331,7 +331,7 @@ describe('chargingPlanService', () => {
       id: 'plan-provider-one-unnamed',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: '',
+      name: '',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 40 ,
@@ -346,7 +346,7 @@ describe('chargingPlanService', () => {
       id: 'plan-provider-two-unnamed',
       user_id: 'user-1',
       provider_id: 'provider-2',
-      plan_name: '  ',
+      name: '  ',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 60 ,
@@ -361,7 +361,7 @@ describe('chargingPlanService', () => {
 
     // Assert: Unnamed tariffs are allowed across different providers.
     const saved = await db.charging_plans.get('plan-provider-two-unnamed')
-    expect(saved?.plan_name).toBe('')
+    expect(saved?.name).toBe('')
   })
 
   it('should reject overlapping named tariff versions case-insensitively for same user and provider', async () => {
@@ -370,7 +370,7 @@ describe('chargingPlanService', () => {
       id: 'plan-named-existing',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: 'Mobility+ M',
+      name: 'Mobility+ M',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 45 ,
@@ -385,7 +385,7 @@ describe('chargingPlanService', () => {
       id: 'plan-named-duplicate',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: '  mobility+ m ',
+      name: '  mobility+ m ',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 49 ,
@@ -405,7 +405,7 @@ describe('chargingPlanService', () => {
       id: 'plan-provider-a',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: 'Eco Plan',
+      name: 'Eco Plan',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 45 ,
@@ -420,7 +420,7 @@ describe('chargingPlanService', () => {
       id: 'plan-provider-b',
       user_id: 'user-1',
       provider_id: 'provider-2',
-      plan_name: '  eco plan ',
+      name: '  eco plan ',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 55 ,
@@ -432,7 +432,7 @@ describe('chargingPlanService', () => {
 
     // Assert: Different providers can reuse the same name.
     const saved = await db.charging_plans.get('plan-provider-b')
-    expect(saved?.plan_name).toBe('eco plan')
+    expect(saved?.name).toBe('eco plan')
   })
 
   it('should allow non-overlapping versions for the same provider and name', async () => {
@@ -441,7 +441,7 @@ describe('chargingPlanService', () => {
       id: 'plan-version-1',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: 'Flex',
+      name: 'Flex',
       valid_from: new Date('2026-01-01T00:00:00.000Z'),
       valid_to: new Date('2026-02-01T00:00:00.000Z'),
       ac_price_per_kwh: 45,
@@ -456,7 +456,7 @@ describe('chargingPlanService', () => {
       id: 'plan-version-2',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: ' flex ',
+      name: ' flex ',
       valid_from: new Date('2026-02-01T00:00:00.000Z'),
       valid_to: null,
       ac_price_per_kwh: 49,
@@ -468,7 +468,7 @@ describe('chargingPlanService', () => {
 
     // Assert: Boundary-touching versions are allowed.
     const saved = await db.charging_plans.get('plan-version-2')
-    expect(saved?.plan_name).toBe('flex')
+    expect(saved?.name).toBe('flex')
   })
 
   it('should allow overlapping periods for different names under the same provider', async () => {
@@ -477,7 +477,7 @@ describe('chargingPlanService', () => {
       id: 'plan-overlap-a',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: 'Mobility+',
+      name: 'Mobility+',
       valid_from: new Date('2026-01-01T00:00:00.000Z'),
       valid_to: null,
       ac_price_per_kwh: 45,
@@ -492,7 +492,7 @@ describe('chargingPlanService', () => {
       id: 'plan-overlap-b',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: 'Viellader',
+      name: 'Viellader',
       valid_from: new Date('2026-01-15T00:00:00.000Z'),
       valid_to: null,
       ac_price_per_kwh: 55,
@@ -504,7 +504,7 @@ describe('chargingPlanService', () => {
 
     // Assert: Different logical tariffs may overlap.
     const saved = await db.charging_plans.get('plan-overlap-b')
-    expect(saved?.plan_name).toBe('Viellader')
+    expect(saved?.name).toBe('Viellader')
   })
 
   it('should allow reusing named tariff when conflicting record is soft-deleted', async () => {
@@ -513,7 +513,7 @@ describe('chargingPlanService', () => {
       id: 'plan-deleted',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: 'Night Saver',
+      name: 'Night Saver',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 35 ,
@@ -529,7 +529,7 @@ describe('chargingPlanService', () => {
       id: 'plan-active-replacement',
       user_id: 'user-1',
       provider_id: 'provider-1',
-      plan_name: '  night saver ',
+      name: '  night saver ',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 39 ,
@@ -541,6 +541,6 @@ describe('chargingPlanService', () => {
 
     // Assert: Soft-deleted rows are ignored by uniqueness checks.
     const saved = await db.charging_plans.get('plan-active-replacement')
-    expect(saved?.plan_name).toBe('night saver')
+    expect(saved?.name).toBe('night saver')
   })
 })

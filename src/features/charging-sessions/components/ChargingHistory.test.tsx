@@ -62,8 +62,8 @@ describe('ChargingHistory', () => {
           charging_type: 'DC',
           kwh_billed: 20,
           total_cost: 1780,
-          session_mode: 'adHoc',
-          pricing_source: 'adHoc',
+          session_mode: 'ad_hoc',
+          session_mode: 'ad_hoc',
           ad_hoc_pricing: {
             cpoName: 'Fast CPO',
             pricePerKwh: 69,

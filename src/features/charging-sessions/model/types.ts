@@ -15,21 +15,21 @@ type SessionPreparationBaseInput = Omit<
   | 'applied_session_fee'
   | 'created_at'
   | 'updated_at'
-  | 'charging_plan_id'
+  | 'tariff_plan_id'
   | 'ad_hoc_pricing'
 > & {
-  charging_plan_id?: string | null;
+  tariff_plan_id?: string | null;
   ad_hoc_pricing?: AdHocPricingSnapshot | null;
 };
 
 export type ChargingPlanSessionPreparationInput = SessionPreparationBaseInput & {
-  pricing_source: 'chargingPlan';
-  charging_plan_id: string;
+  session_mode: 'plan';
+  tariff_plan_id: string;
 };
 
 export type AdHocSessionPreparationInput = SessionPreparationBaseInput & {
-  pricing_source: 'adHoc';
-  charging_plan_id?: string | null;
+  session_mode: 'ad_hoc';
+  tariff_plan_id?: string | null;
   ad_hoc_pricing: AdHocPricingSnapshot;
 };
 

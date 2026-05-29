@@ -46,7 +46,7 @@ In `src/infra/db/db.ts`:
 - Rename interface `Tariff` to `ChargingPlan`.
 - Remove `FixedTariffCost`.
 - Add `AdHocPricingSnapshot`.
-- Change `ChargingSession` from `tariff_id`, `tariff_name`, and `pricing_context` to `charging_plan_id`, `charging_plan_name`, and `pricing_source`.
+- Change `ChargingSession` from `tariff_id`, `tariff_name`, and `pricing_context` to `tariff_plan_id`, `charging_plan_name`, and `session_mode`.
 - Add nested `ChargingPlan` fields from the spec: `validity`, `prices`, `fees`, optional `affiliation`, optional `notes`.
 - Rename table property `tariffs` to `charging_plans`.
 - Remove table property `fixed_tariff_costs`.
@@ -89,7 +89,7 @@ Create/update service tests to cover:
 Run:
 
 ```bash
-npm run test -- --run src/features/charging-plans/services/chargingPlanService.test.ts
+npm run test -- --run src/features/charging-plans/services/planService.test.ts
 ```
 
 Expected: fail because the new feature/service does not exist yet.
@@ -97,7 +97,7 @@ Expected: fail because the new feature/service does not exist yet.
 - [ ] **Step 2: Implement charging-plan services and hooks**
 
 Create `src/features/charging-plans` from the current tariff feature:
-- `services/chargingPlanService.ts`
+- `services/planService.ts`
 - `hooks/useChargingPlans.ts`
 - `hooks/useProviders.ts`
 - `services/providerService.ts`
@@ -120,7 +120,7 @@ Keep `App.tsx` lazy route/page title behavior visible as Tariffs.
 Run:
 
 ```bash
-npm run test -- --run src/features/charging-plans/services/chargingPlanService.test.ts src/features/tariffs/services/tariffService.test.ts
+npm run test -- --run src/features/charging-plans/services/planService.test.ts src/features/tariffs/services/tariffService.test.ts
 ```
 
 Expected: new charging-plan tests pass; old tariff service test path should be removed or no longer exist.
@@ -135,11 +135,11 @@ Expected: new charging-plan tests pass; old tariff service test path should be r
 - [ ] **Step 1: Write failing session pricing tests**
 
 Cover:
-- `pricing_source = 'chargingPlan'` requires `charging_plan_id`.
+- `session_mode = 'plan'` requires `tariff_plan_id`.
 - charging-plan domestic AC/DC resolves from `plan.prices.domestic`.
 - charging-plan roaming AC/DC resolves from `plan.prices.roaming`.
 - `fees.sessionFixed` is added to plan session totals.
-- `pricing_source = 'adHoc'` requires `ad_hoc_pricing`.
+- `session_mode = 'ad_hoc'` requires `ad_hoc_pricing`.
 - ad-hoc totals include `pricePerKwh`, optional `pricePerMinute`, optional `pricePerSession`, and `otherFees`.
 - ad-hoc sessions do not require a saved charging plan.
 - snapshots remain stable on the session record.
@@ -155,14 +155,14 @@ Expected: fail on old tariff/pricing-context assumptions.
 - [ ] **Step 2: Update session preparation**
 
 Change `prepareSession()` to accept:
-- input with `pricing_source`
+- input with `session_mode`
 - optional `ChargingPlan`
 - required `Provider` for plan sessions
 - ad-hoc snapshot for ad-hoc sessions
 
 Implementation rules:
-- For `chargingPlan`, require provider and plan; snapshot provider name, charging plan name, domestic/roaming prices, and plan fees.
-- For `adHoc`, use `ad_hoc_pricing.cpoName` as the provider display fallback and `Ad-Hoc` as the plan display fallback.
+- For `plan`, require provider and plan; snapshot provider name, charging plan name, domestic/roaming prices, and plan fees.
+- For `ad_hoc`, use `ad_hoc_pricing.cpoName` as the provider display fallback and `Ad-Hoc` as the plan display fallback.
 - Persist `total_cost` as integer cents.
 - Do not distribute subscription/monthly fees into individual sessions.
 
@@ -247,7 +247,7 @@ Cover:
 - pricing source selector offers `Charging Plan` and `Ad-Hoc`.
 - selecting `Charging Plan` shows provider/plan and domestic/roaming controls.
 - selecting `Ad-Hoc` hides plan selector and shows ad-hoc pricing fields.
-- ad-hoc submit calls `onSubmit` with `pricing_source: 'adHoc'` and an `ad_hoc_pricing` snapshot.
+- ad-hoc submit calls `onSubmit` with `session_mode: 'ad_hoc'` and an `ad_hoc_pricing` snapshot.
 - history displays ad-hoc sessions as `Ad-Hoc` with CPO/payment details when present.
 
 Run:
@@ -312,7 +312,7 @@ Use `charging_plans` table with:
 - `affiliation` JSONB nullable
 - `notes`, timestamps, soft-delete
 
-Update `charging_sessions` to reference `charging_plans` through nullable `charging_plan_id`; ad-hoc sessions must be valid without a plan id.
+Update `charging_sessions` to reference `charging_plans` through nullable `tariff_plan_id`; ad-hoc sessions must be valid without a plan id.
 Drop `fixed_tariff_costs`.
 Keep RLS authenticated single-user policies.
 

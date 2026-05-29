@@ -11,7 +11,7 @@ import { Slab } from '../../../shared/ui';
  * Tariffs screen backed by the charging-plan domain.
  */
 export const TariffList: React.FC = () => {
-  const { chargingPlans, addChargingPlan, removeChargingPlan, isLoading } = useChargingPlans();
+  const { plans, addChargingPlan, removeChargingPlan, isLoading } = useChargingPlans();
   const { providers } = useProviders();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<ChargingPlan | undefined>(undefined);
@@ -55,9 +55,9 @@ export const TariffList: React.FC = () => {
         />
       )}
 
-      {chargingPlans.map((plan) => {
+      {plans.map((plan) => {
         const providerName = providerNameById.get(plan.provider_id) ?? plan.provider_id;
-        const variantName = (plan.plan_name ?? '').trim();
+        const variantName = (plan.name ?? '').trim();
         const editLabel = variantName.length > 0 ? `Edit ${providerName} ${variantName}` : `Edit ${providerName}`;
         const deleteLabel = variantName.length > 0 ? `Delete ${providerName} ${variantName}` : `Delete ${providerName}`;
 

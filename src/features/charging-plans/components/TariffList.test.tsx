@@ -29,12 +29,12 @@ describe('TariffList', () => {
   it('does not render fixed tariff costs and shows domestic prices first', () => {
     // Arrange: Prepare one tariff with domestic, roaming, and fee values.
     vi.mocked(useChargingPlans).mockReturnValue({
-      chargingPlans: [
+      plans: [
         {
           id: 't1',
           user_id: 'u1',
           provider_id: 'p1',
-          plan_name: 'Primary Plan',
+          name: 'Primary Plan',
           valid_from: new Date(),
           valid_to: null,
           ac_price_per_kwh: 39,
@@ -71,7 +71,7 @@ describe('TariffList', () => {
       id: 't1',
       user_id: 'u1',
       provider_id: 'p1',
-      plan_name: 'Primary Plan',
+      name: 'Primary Plan',
       valid_from: new Date(),
           valid_to: null,
       ac_price_per_kwh: 39,
@@ -82,7 +82,7 @@ describe('TariffList', () => {
       updated_at: new Date('2026-01-01T00:00:00.000Z'),
     };
     vi.mocked(useChargingPlans).mockReturnValue({
-      chargingPlans: [plan],
+      plans: [plan],
       addChargingPlan: vi.fn(),
       removeChargingPlan: vi.fn(),
       isLoading: false,
@@ -97,7 +97,7 @@ describe('TariffList', () => {
     expect(screen.getByText('Tariff Form')).toBeInTheDocument();
     expect(mockTariffFormLoader).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        initialValues: expect.objectContaining({ id: 't1', plan_name: 'Primary Plan' }),
+        initialValues: expect.objectContaining({ id: 't1', name: 'Primary Plan' }),
       })
     );
   });
@@ -106,12 +106,12 @@ describe('TariffList', () => {
     // Arrange: Render one tariff so top and row actions are visible.
     const removeChargingPlan = vi.fn();
     vi.mocked(useChargingPlans).mockReturnValue({
-      chargingPlans: [
+      plans: [
         {
           id: 't1',
           user_id: 'u1',
           provider_id: 'p1',
-          plan_name: 'Primary Plan',
+          name: 'Primary Plan',
           valid_from: new Date(),
           valid_to: null,
           ac_price_per_kwh: 39,
@@ -140,12 +140,12 @@ describe('TariffList', () => {
   it('hides optional pricing rows when amounts are zero', () => {
     // Arrange: Render tariff with optional amounts set to zero.
     vi.mocked(useChargingPlans).mockReturnValue({
-      chargingPlans: [
+      plans: [
         {
           id: 't1',
           user_id: 'u1',
           provider_id: 'p1',
-          plan_name: 'Zero Optional Plan',
+          name: 'Zero Optional Plan',
           valid_from: new Date(),
           valid_to: null,
           ac_price_per_kwh: 45,
@@ -176,12 +176,12 @@ describe('TariffList', () => {
   it('renders provider name as card title and only shows non-empty variant subtitle', () => {
     // Arrange: Two tariffs for same provider, only one has a non-empty variant name.
     vi.mocked(useChargingPlans).mockReturnValue({
-      chargingPlans: [
+      plans: [
         {
           id: 't1',
           user_id: 'u1',
           provider_id: 'p1',
-          plan_name: '   ',
+          name: '   ',
           valid_from: new Date(),
           valid_to: null,
           ac_price_per_kwh: 45, dc_price_per_kwh: 45 ,
@@ -194,7 +194,7 @@ describe('TariffList', () => {
           id: 't2',
           user_id: 'u1',
           provider_id: 'p1',
-          plan_name: 'Weekend Saver',
+          name: 'Weekend Saver',
           valid_from: new Date(),
           valid_to: null,
           ac_price_per_kwh: 51, dc_price_per_kwh: 61 ,
@@ -222,12 +222,12 @@ describe('TariffList', () => {
   it('handles empty and whitespace-only plan names without rendering subtitle', () => {
     // Arrange: Provider exists, but variant names are empty or blank.
     vi.mocked(useChargingPlans).mockReturnValue({
-      chargingPlans: [
+      plans: [
         {
           id: 't1',
           user_id: 'u1',
           provider_id: 'p1',
-          plan_name: '',
+          name: '',
           valid_from: new Date(),
           valid_to: null,
           ac_price_per_kwh: 45, dc_price_per_kwh: 45 ,
@@ -240,7 +240,7 @@ describe('TariffList', () => {
           id: 't2',
           user_id: 'u1',
           provider_id: 'p1',
-          plan_name: '   ',
+          name: '   ',
           valid_from: new Date(),
           valid_to: null,
           ac_price_per_kwh: 51, dc_price_per_kwh: 61 ,
@@ -272,12 +272,12 @@ describe('TariffList', () => {
       isLoading: false,
     });
     vi.mocked(useChargingPlans).mockReturnValue({
-      chargingPlans: [
+      plans: [
         {
           id: 't1',
           user_id: 'u1',
           provider_id: 'provider-fallback',
-          plan_name: 'Night Saver',
+          name: 'Night Saver',
           valid_from: new Date(),
           valid_to: null,
           ac_price_per_kwh: 45, dc_price_per_kwh: 45 ,

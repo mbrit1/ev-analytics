@@ -20,9 +20,9 @@ const sessionSchema = z.object({
   session_timestamp: z.string().min(1, 'Date is required'),
   /** Selected provider determines the available tariff options in plan mode. */
   provider_id: z.string().min(1, 'Provider is required'),
-  pricing_source: z.enum(['chargingPlan', 'adHoc']),
+  session_mode: z.enum(['plan', 'ad_hoc']),
   /** Selected plan supplies the price snapshots used for cost calculation. */
-  charging_plan_id: z.string().optional(),
+  tariff_plan_id: z.string().optional(),
   charging_type: z.enum(['AC', 'DC']),
   pricing_mode: z.enum(['standard', 'roaming']),
   /** Required billed energy; accepts comma or period decimal separators. */
@@ -97,11 +97,11 @@ const sessionSchema = z.object({
     });
   }
 
-  if (values.pricing_source === 'chargingPlan') {
-    if (!values.charging_plan_id) {
+  if (values.session_mode === 'plan') {
+    if (!values.tariff_plan_id) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['charging_plan_id'],
+        path: ['tariff_plan_id'],
         message: 'Plan is required',
       });
     }
@@ -145,24 +145,24 @@ function parseDateInputAsUtc(dateInput: string): Date {
 }
 
 function resolveInitialPlanId(initialValues?: LegacySessionInitialValues): string {
-  if (resolveInitialPricingSource(initialValues) === 'adHoc') {
+  if (resolveInitialPricingSource(initialValues) === 'ad_hoc') {
     return '';
   }
-  return initialValues?.charging_plan_id ?? initialValues?.tariff_id ?? '';
+  return initialValues?.tariff_plan_id ?? initialValues?.tariff_id ?? '';
 }
 
-function resolveInitialPricingSource(initialValues?: LegacySessionInitialValues): SessionFormValues['pricing_source'] {
-  if (initialValues?.pricing_source) {
-    return initialValues.pricing_source;
+function resolveInitialPricingSource(initialValues?: LegacySessionInitialValues): SessionFormValues['session_mode'] {
+  if (initialValues?.session_mode) {
+    return initialValues.session_mode;
   }
   if (initialValues?.pricing_context === 'ad_hoc') {
-    return 'adHoc';
+    return 'ad_hoc';
   }
-  return 'chargingPlan';
+  return 'plan';
 }
 
 function resolveInitialPricingMode(initialValues?: LegacySessionInitialValues): SessionFormValues['pricing_mode'] {
-  if (resolveInitialPricingSource(initialValues) === 'adHoc') {
+  if (resolveInitialPricingSource(initialValues) === 'ad_hoc') {
     return 'standard';
   }
   if (initialValues?.pricing_context != null) {
@@ -180,14 +180,14 @@ function parseDecimalToCents(value?: string): number | undefined {
 }
 
 function resolvePlanSnapshotKwhPrice(
-  chargingPlan: ChargingPlan,
+  plan: ChargingPlan,
   pricingMode: SessionFormValues['pricing_mode'],
   chargingType: SessionFormValues['charging_type']
 ): number {
   if (pricingMode === 'roaming') {
     const roamingPrice = chargingType === 'AC'
-      ? chargingPlan.roaming_ac_price_per_kwh
-      : chargingPlan.roaming_dc_price_per_kwh;
+      ? plan.roaming_ac_price_per_kwh
+      : plan.roaming_dc_price_per_kwh;
     if (roamingPrice == null) {
       throw new Error(`No matching roaming ${chargingType} price for selected charging plan`);
     }
@@ -195,8 +195,8 @@ function resolvePlanSnapshotKwhPrice(
   }
 
   const domesticPrice = chargingType === 'AC'
-    ? chargingPlan.ac_price_per_kwh
-    : chargingPlan.dc_price_per_kwh;
+    ? plan.ac_price_per_kwh
+    : plan.dc_price_per_kwh;
   if (domesticPrice == null) {
     throw new Error(`No matching domestic ${chargingType} price for selected charging plan`);
   }
@@ -204,15 +204,15 @@ function resolvePlanSnapshotKwhPrice(
 }
 
 function buildTariffPriceSnapshot(
-  chargingPlan: ChargingPlan,
+  plan: ChargingPlan,
   providerName: string,
   pricingMode: SessionFormValues['pricing_mode'],
   chargingType: SessionFormValues['charging_type']
 ): TariffPriceSnapshot {
   return {
-    label: `${providerName} ${chargingPlan.plan_name}`,
-    kWhPrice: resolvePlanSnapshotKwhPrice(chargingPlan, pricingMode, chargingType),
-    sessionFee: chargingPlan.session_fee
+    label: `${providerName} ${plan.name}`,
+    kWhPrice: resolvePlanSnapshotKwhPrice(plan, pricingMode, chargingType),
+    sessionFee: plan.session_fee
   };
 }
 
@@ -236,7 +236,7 @@ interface SessionFormProps {
 export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, initialValues }) => {
   const legacyInitialValues = initialValues as LegacySessionInitialValues | undefined;
   const { user } = useAuth();
-  const { chargingPlans } = useChargingPlans();
+  const { plans } = useChargingPlans();
   const { providers } = useProviders();
   const hiddenDateInputRef = React.useRef<HTMLInputElement | null>(null);
 
@@ -254,12 +254,12 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         ? formatDateInputValue(initialValues.session_timestamp)
         : formatDateInputValue(new Date()),
       charging_type: (initialValues?.charging_type as SessionFormValues['charging_type']) || 'AC',
-      pricing_source: resolveInitialPricingSource(legacyInitialValues),
+      session_mode: resolveInitialPricingSource(legacyInitialValues),
       pricing_mode: resolveInitialPricingMode(legacyInitialValues),
       start_soc_percentage: initialValues?.start_soc_percentage?.toString() || '',
       end_soc_percentage: initialValues?.end_soc_percentage?.toString() || '',
       provider_id: initialValues?.provider_id || '',
-      charging_plan_id: resolveInitialPlanId(legacyInitialValues),
+      tariff_plan_id: resolveInitialPlanId(legacyInitialValues),
       kwh_billed: initialValues?.kwh_billed?.toString() || '',
       kwh_added: initialValues?.kwh_added?.toString() || '',
       odometer_km: initialValues?.odometer_km?.toString() || '',
@@ -279,29 +279,29 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   });
 
   const selectedProviderId = useWatch({ control, name: 'provider_id' });
-  const selectedPricingSource = useWatch({ control, name: 'pricing_source' });
-  const selectedPlanId = useWatch({ control, name: 'charging_plan_id' });
+  const selectedPricingSource = useWatch({ control, name: 'session_mode' });
+  const selectedPlanId = useWatch({ control, name: 'tariff_plan_id' });
   const selectedSessionDate = useWatch({ control, name: 'session_timestamp' });
-  const isChargingPlanPricing = selectedPricingSource === 'chargingPlan';
+  const isChargingPlanPricing = selectedPricingSource === 'plan';
   const providerPlans = React.useMemo(
-    () => chargingPlans.filter(plan => plan.provider_id === selectedProviderId),
-    [chargingPlans, selectedProviderId]
+    () => plans.filter(plan => plan.provider_id === selectedProviderId),
+    [plans, selectedProviderId]
   );
   const sessionDateField = register('session_timestamp');
 
   React.useEffect(() => {
-    if (selectedPricingSource === 'adHoc') {
-      if (getValues('charging_plan_id')) {
-        setValue('charging_plan_id', '');
+    if (selectedPricingSource === 'ad_hoc') {
+      if (getValues('tariff_plan_id')) {
+        setValue('tariff_plan_id', '');
       }
       return;
     }
 
-    const currentPlanId = getValues('charging_plan_id');
+    const currentPlanId = getValues('tariff_plan_id');
 
     if (!selectedProviderId) {
       if (currentPlanId) {
-        setValue('charging_plan_id', '');
+        setValue('tariff_plan_id', '');
       }
       return;
     }
@@ -312,11 +312,11 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     }
 
     if (providerPlans.length === 1) {
-      setValue('charging_plan_id', providerPlans[0].id, { shouldDirty: true });
+      setValue('tariff_plan_id', providerPlans[0].id, { shouldDirty: true });
       return;
     }
 
-    setValue('charging_plan_id', '');
+    setValue('tariff_plan_id', '');
   }, [selectedPricingSource, selectedProviderId, providerPlans, getValues, setValue]);
 
   const sessionDateLabel = React.useMemo(() => {
@@ -361,17 +361,17 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     const provider = providers.find(p => p.id === providerId);
     if (!provider) return;
 
-    if (values.pricing_source === 'chargingPlan') {
-      const chargingPlan = chargingPlans.find((plan) => plan.id === values.charging_plan_id);
-      if (!chargingPlan) return;
+    if (values.session_mode === 'plan') {
+      const plan = plans.find((plan) => plan.id === values.tariff_plan_id);
+      if (!plan) return;
       const sessionDate = parseDateInputAsUtc(values.session_timestamp);
-      const snapshot = buildTariffPriceSnapshot(chargingPlan, provider.name, values.pricing_mode, values.charging_type);
+      const snapshot = buildTariffPriceSnapshot(plan, provider.name, values.pricing_mode, values.charging_type);
       const activeSelection = await getActivePlanSelectionAt(providerId, sessionDate);
-      const planSelection = (!activeSelection || activeSelection.tariff_plan_id !== chargingPlan.id)
+      const planSelection = (!activeSelection || activeSelection.tariff_plan_id !== plan.id)
         ? await setActivePlanSelection({
           userId: user.id,
           providerId,
-          tariffPlanId: chargingPlan.id,
+          tariffPlanId: plan.id,
           validFrom: sessionDate,
           priceSnapshot: snapshot
         })
@@ -381,14 +381,14 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
           ...sessionBase,
           provider_id: providerId,
           session_mode: 'plan',
-          tariff_plan_id: chargingPlan.id,
+          tariff_plan_id: plan.id,
           plan_selection_id: planSelection.id,
           price_snapshot: snapshot,
-          pricing_source: 'chargingPlan',
+          session_mode: 'plan',
           pricing_context: values.pricing_mode,
-          charging_plan_id: chargingPlan.id,
+          tariff_plan_id: plan.id,
         },
-        chargingPlan,
+        plan,
         provider
       );
       await onSubmit(session);
@@ -405,7 +405,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     const session = prepareSession({
       ...sessionBase,
       provider_id: providerId,
-      session_mode: 'adHoc',
+      session_mode: 'ad_hoc',
       tariff_plan_id: null,
       plan_selection_id: null,
       price_snapshot: {
@@ -414,7 +414,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         sessionFee: sessionFee,
         blockingFee: otherFeesAmount
       },
-      pricing_source: 'adHoc',
+      session_mode: 'ad_hoc',
       pricing_context: 'ad_hoc',
       ad_hoc_pricing: {
         cpoName: values.cpo_name?.trim() || null,
@@ -494,7 +494,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Pricing source */}
           <Controller
-            name="pricing_source"
+            name="session_mode"
             control={control}
             render={({ field }) => (
               <TactileMatrix
@@ -502,8 +502,8 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                 value={field.value}
                 onChange={field.onChange}
                 options={[
-                  { label: 'Charging Plan', value: 'chargingPlan' },
-                  { label: 'Ad-Hoc', value: 'adHoc' },
+                  { label: 'Charging Plan', value: 'plan' },
+                  { label: 'Ad-Hoc', value: 'ad_hoc' },
                 ]}
               />
             )}
@@ -511,7 +511,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {selectedPricingSource === 'chargingPlan' ? (
+        {selectedPricingSource === 'plan' ? (
             <>
               {/* Provider */}
               <div className="flex flex-col">
@@ -539,12 +539,12 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
 
               {/* Plan */}
               <div className="flex flex-col">
-                <label htmlFor="charging_plan_id" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
+                <label htmlFor="tariff_plan_id" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
                   Plan <span className="text-primary" aria-hidden="true">*</span>
                 </label>
                 <select
-                  id="charging_plan_id"
-                  {...register('charging_plan_id')}
+                  id="tariff_plan_id"
+                  {...register('tariff_plan_id')}
                   required={isChargingPlanPricing}
                   aria-required={isChargingPlanPricing ? 'true' : 'false'}
                   disabled={!selectedProviderId || providerPlans.length === 0}
@@ -559,11 +559,11 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                     Select Plan
                   </option>
                   {providerPlans.map(plan => (
-                      <option key={plan.id} value={plan.id}>{plan.plan_name}</option>
+                      <option key={plan.id} value={plan.id}>{plan.name}</option>
                     ))}
                 </select>
-                {errors.charging_plan_id && (
-                  <p className="text-sm text-red-500 font-medium mt-1.5">{errors.charging_plan_id.message}</p>
+                {errors.tariff_plan_id && (
+                  <p className="text-sm text-red-500 font-medium mt-1.5">{errors.tariff_plan_id.message}</p>
                 )}
               </div>
 
@@ -621,7 +621,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
           )}
         </div>
 
-        {selectedPricingSource === 'adHoc' && (
+        {selectedPricingSource === 'ad_hoc' && (
           <div className="flex flex-col gap-8">
             <ThinInput
               label="Price per kWh"

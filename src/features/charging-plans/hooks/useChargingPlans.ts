@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { getChargingPlans, saveChargingPlan, deleteChargingPlan } from '../services/chargingPlanService';
+import { getChargingPlans, saveChargingPlan, deleteChargingPlan } from '../services/planService';
 import type { ChargingPlan } from '../../../infra/db';
 
 /**
@@ -9,11 +9,11 @@ import type { ChargingPlan } from '../../../infra/db';
  * feedback while the sync outbox handles remote persistence separately.
  */
 export function useChargingPlans() {
-  const chargingPlans = useLiveQuery(() => getChargingPlans(), []);
+  const plans = useLiveQuery(() => getChargingPlans(), []);
 
-  const addChargingPlan = async (chargingPlan: ChargingPlan) => {
+  const addChargingPlan = async (plan: ChargingPlan) => {
     // saveChargingPlan handles both new records and edits based on id.
-    await saveChargingPlan(chargingPlan);
+    await saveChargingPlan(plan);
   };
 
   const removeChargingPlan = async (id: string) => {
@@ -22,8 +22,8 @@ export function useChargingPlans() {
   };
 
   return {
-    chargingPlans: chargingPlans || [],
-    isLoading: chargingPlans === undefined,
+    plans: plans || [],
+    isLoading: plans === undefined,
     addChargingPlan,
     removeChargingPlan,
   };
