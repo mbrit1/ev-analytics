@@ -97,11 +97,30 @@ export async function saveChargingPlan(chargingPlan: ChargingPlan): Promise<void
   await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
     const existing = await db.charging_plans.get(chargingPlan.id);
     const now = new Date();
+    const normalizedPlanName = (chargingPlan.plan_name ?? '').trim();
+    const isUnnamedPlan = normalizedPlanName.length === 0;
+
+    if (isUnnamedPlan) {
+      const existingUnnamedPlan = await db.charging_plans
+        .where('provider_id')
+        .equals(chargingPlan.provider_id)
+        .filter((plan) => (
+          !plan.deleted_at
+          && plan.id !== chargingPlan.id
+          && (plan.plan_name ?? '').trim().length === 0
+        ))
+        .first();
+
+      if (existingUnnamedPlan) {
+        throw new Error('Only one unnamed tariff is allowed per provider');
+      }
+    }
     
     // Preserve the original creation timestamp on edits while refreshing the
     // modification timestamp for conflict/audit visibility.
     const chargingPlanToSave: ChargingPlan = {
       ...chargingPlan,
+      plan_name: normalizedPlanName,
       created_at: existing?.created_at || now,
       updated_at: now
     };
