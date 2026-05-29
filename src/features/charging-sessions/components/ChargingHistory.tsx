@@ -44,7 +44,7 @@ export const ChargingHistory: React.FC = () => {
         {sessions.map((session) => (
           <Slab
             key={session.id}
-            className="p-6 transition-all hover:border-accent/20"
+            className="p-6"
           >
             <div className="flex justify-between items-center">
               <div className="space-y-1.5">
