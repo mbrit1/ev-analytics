@@ -65,10 +65,8 @@ export const mockSessions = [
     kwh_billed: 45.2,
     total_cost: 2034,
     session_mode: 'plan',
-    tariff_plan_id: 'cp1',
     plan_selection_id: 'ps1',
     price_snapshot: { label: 'Tesla Supercharger', kWhPrice: 45, sessionFee: 0 },
-    session_mode: 'plan',
     start_soc_percentage: 15,
     end_soc_percentage: 80,
     applied_ac_price_per_kwh: 45,
@@ -89,10 +87,8 @@ export const mockSessions = [
     kwh_billed: 20,
     total_cost: 1020,
     session_mode: 'ad_hoc',
-    tariff_plan_id: null,
     plan_selection_id: null,
     price_snapshot: { label: 'Ad-Hoc', kWhPrice: 51, sessionFee: 0 },
-    session_mode: 'ad_hoc',
     ad_hoc_pricing: {
       cpoName: 'EnBW',
       pricePerKwh: 51
