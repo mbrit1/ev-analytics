@@ -46,40 +46,43 @@ function assertNonNegativeNullable(value: number | undefined, fieldName: string)
  * @param chargingPlan - Charging plan payload to validate before persistence.
  */
 function validateChargingPlan(chargingPlan: ChargingPlan): void {
-  assertNonNegativeNullable(chargingPlan.prices.domestic.ac, 'prices.domestic.ac');
-  assertNonNegativeNullable(chargingPlan.prices.domestic.dc, 'prices.domestic.dc');
-  assertNonNegativeNullable(chargingPlan.prices.roaming?.ac, 'prices.roaming.ac');
-  assertNonNegativeNullable(chargingPlan.prices.roaming?.dc, 'prices.roaming.dc');
-  assertNonNegativeNullable(chargingPlan.fees.subscriptionMonthly, 'fees.subscriptionMonthly');
-  assertNonNegativeNullable(chargingPlan.fees.activationOneTime, 'fees.activationOneTime');
-  assertNonNegativeNullable(chargingPlan.fees.sessionFixed, 'fees.sessionFixed');
-  assertNonNegativeNullable(chargingPlan.fees.cardFee, 'fees.cardFee');
-
-  if (chargingPlan.fees.other) {
-    for (const fee of chargingPlan.fees.other) {
-      if (!fee.label?.trim() || !fee.notes?.trim() || fee.amount == null) {
-        throw new Error('fees.other entries require label, amount, and notes');
-      }
-      assertIntegerCents(fee.amount, 'fees.other.amount');
-      assertNonNegative(fee.amount, 'fees.other.amount');
-    }
-  }
+  assertNonNegativeNullable(chargingPlan.ac_price_per_kwh, 'ac_price_per_kwh');
+  assertNonNegativeNullable(chargingPlan.dc_price_per_kwh, 'dc_price_per_kwh');
+  assertNonNegativeNullable(chargingPlan.roaming_ac_price_per_kwh, 'roaming_ac_price_per_kwh');
+  assertNonNegativeNullable(chargingPlan.roaming_dc_price_per_kwh, 'roaming_dc_price_per_kwh');
+  assertIntegerCents(chargingPlan.monthly_base_fee, 'monthly_base_fee');
+  assertNonNegative(chargingPlan.monthly_base_fee, 'monthly_base_fee');
+  assertIntegerCents(chargingPlan.session_fee, 'session_fee');
+  assertNonNegative(chargingPlan.session_fee, 'session_fee');
 
   const hasMeaningfulPricing = [
-    chargingPlan.prices.domestic.ac,
-    chargingPlan.prices.domestic.dc,
-    chargingPlan.prices.roaming?.ac,
-    chargingPlan.prices.roaming?.dc,
-    chargingPlan.fees.subscriptionMonthly,
-    chargingPlan.fees.activationOneTime,
-    chargingPlan.fees.sessionFixed,
-    chargingPlan.fees.cardFee
-  ].some((value) => value != null && value >= 0);
+    chargingPlan.ac_price_per_kwh,
+    chargingPlan.dc_price_per_kwh,
+    chargingPlan.roaming_ac_price_per_kwh,
+    chargingPlan.roaming_dc_price_per_kwh
+  ].some((value) => value != null)
+    || chargingPlan.monthly_base_fee > 0
+    || chargingPlan.session_fee > 0;
 
-  const hasMeaningfulOtherFee = chargingPlan.fees.other?.some((fee) => fee.amount >= 0) ?? false;
-  if (!hasMeaningfulPricing && !hasMeaningfulOtherFee) {
+  if (!hasMeaningfulPricing) {
     throw new Error('charging plan requires at least one price or fee value');
   }
+}
+
+function dateToComparableMs(value: Date | null | undefined): number {
+  if (value == null) return Number.POSITIVE_INFINITY;
+  return value.getTime();
+}
+
+function periodsOverlap(
+  leftStart: Date,
+  leftEnd: Date | null | undefined,
+  rightStart: Date,
+  rightEnd: Date | null | undefined
+): boolean {
+  // Half-open intervals [start, end) allow right.start === left.end.
+  return leftStart.getTime() < dateToComparableMs(rightEnd)
+    && rightStart.getTime() < dateToComparableMs(leftEnd);
 }
 
 /**
@@ -98,22 +101,22 @@ export async function saveChargingPlan(chargingPlan: ChargingPlan): Promise<void
     const existing = await db.charging_plans.get(chargingPlan.id);
     const now = new Date();
     const normalizedPlanName = (chargingPlan.plan_name ?? '').trim();
-    const isUnnamedPlan = normalizedPlanName.length === 0;
 
-    if (isUnnamedPlan) {
-      const existingUnnamedPlan = await db.charging_plans
-        .where('provider_id')
-        .equals(chargingPlan.provider_id)
-        .filter((plan) => (
-          !plan.deleted_at
-          && plan.id !== chargingPlan.id
-          && (plan.plan_name ?? '').trim().length === 0
-        ))
-        .first();
+    const normalizedPlanNameLower = normalizedPlanName.toLowerCase();
+    const overlappingTariffVersion = await db.charging_plans
+      .where('provider_id')
+      .equals(chargingPlan.provider_id)
+      .filter((plan) => (
+        !plan.deleted_at
+        && plan.id !== chargingPlan.id
+        && plan.user_id === chargingPlan.user_id
+        && (plan.plan_name ?? '').trim().toLowerCase() === normalizedPlanNameLower
+        && periodsOverlap(chargingPlan.valid_from, chargingPlan.valid_to, plan.valid_from, plan.valid_to)
+      ))
+      .first();
 
-      if (existingUnnamedPlan) {
-        throw new Error('Only one unnamed tariff is allowed per provider');
-      }
+    if (overlappingTariffVersion) {
+      throw new Error('Tariff validity overlaps with an existing active version for this provider and name');
     }
     
     // Preserve the original creation timestamp on edits while refreshing the

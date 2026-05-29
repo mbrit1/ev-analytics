@@ -23,9 +23,11 @@ function buildChargingPlan(overrides: Partial<ChargingPlan> = {}): ChargingPlan 
     user_id: 'user-1',
     provider_id: 'provider-default',
     plan_name: 'Default Plan',
-    validity: { from: new Date('2026-01-01T00:00:00.000Z') },
-    prices: { domestic: { ac: 49, dc: 79 } },
-    fees: {},
+    valid_from: new Date(),
+          valid_to: null,
+    ac_price_per_kwh: 49, dc_price_per_kwh: 79 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
     created_at: now,
     updated_at: now,
     ...overrides
@@ -39,9 +41,9 @@ function buildChargingSession(overrides: Partial<ChargingSession> = {}): Chargin
     user_id: 'user-1',
     session_timestamp: new Date('2026-05-21T12:00:00.000Z'),
     provider_id: 'provider-default',
-    provider_name: 'Ionity',
+    provider_name_snapshot: 'Ionity',
     charging_plan_id: 'plan-default',
-    charging_plan_name: 'Default Plan',
+    charging_plan_name_snapshot: 'Default Plan',
     charging_type: 'DC',
     kwh_billed: 10,
     total_cost: 790,
@@ -426,6 +428,66 @@ describe('syncEngine', () => {
       next_attempt_at: new Date('2026-05-21T12:01:00.000Z'),
       last_error: 'Unsupported sync table: unknown_table'
     })
+  })
+
+  it('should treat check-constraint violations as non-retryable validation failures', async () => {
+    // Arrange: Return a Supabase check violation for a session payload.
+    const now = new Date('2026-05-21T12:00:00.000Z')
+    const mockUpsert = vi.fn(() => Promise.resolve({
+      error: { code: '23514', message: 'new row for relation "charging_sessions" violates check constraint' }
+    }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+
+    await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'INSERT',
+      payload: buildChargingSession({ id: 'check-fail' }),
+      timestamp: new Date('2026-05-21T11:00:00.000Z')
+    })
+
+    // Act
+    await processOutbox({ now: () => now })
+
+    // Assert: item remains queued with no next retry and actionable error text.
+    const [outboxItem] = await db.sync_outbox.toArray()
+    expect(outboxItem.retry_count).toBe(1)
+    expect(outboxItem.last_attempt_at).toEqual(now)
+    expect(outboxItem.next_attempt_at).toBeUndefined()
+    expect(outboxItem.last_error).toContain('Validation failed for sessions:')
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      'Non-retryable sync validation error for table sessions:',
+      'new row for relation "charging_sessions" violates check constraint'
+    )
+  })
+
+  it('should treat charging-plan exclusion violations as non-retryable overlap conflicts', async () => {
+    // Arrange: Return a Supabase exclusion violation for charging plans.
+    const now = new Date('2026-05-21T12:00:00.000Z')
+    const mockUpsert = vi.fn(() => Promise.resolve({
+      error: { code: '23P01', message: 'conflicting key value violates exclusion constraint "charging_plans_no_overlapping_active_versions"' }
+    }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+
+    await db.sync_outbox.add({
+      table_name: 'charging_plans',
+      action: 'INSERT',
+      payload: buildChargingPlan({ id: 'overlap-conflict' }),
+      timestamp: new Date('2026-05-21T11:00:00.000Z')
+    })
+
+    // Act
+    await processOutbox({ now: () => now })
+
+    // Assert: item remains queued without retry scheduling and with domain error text.
+    const [outboxItem] = await db.sync_outbox.toArray()
+    expect(outboxItem.retry_count).toBe(1)
+    expect(outboxItem.last_attempt_at).toEqual(now)
+    expect(outboxItem.next_attempt_at).toBeUndefined()
+    expect(outboxItem.last_error).toBe('Tariff validity overlaps with an existing active version for this provider and name')
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      'Non-retryable sync validation error for table charging_plans:',
+      'conflicting key value violates exclusion constraint "charging_plans_no_overlapping_active_versions"'
+    )
   })
 
   it('should pull data from Supabase into Dexie during initialSync', async () => {

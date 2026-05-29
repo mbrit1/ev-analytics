@@ -3,8 +3,8 @@ import type { AdHocPricingSnapshot, ChargingSession } from '../../../infra/db';
 type SessionPreparationBaseInput = Omit<
   ChargingSession,
   | 'id'
-  | 'provider_name'
-  | 'charging_plan_name'
+  | 'provider_name_snapshot'
+  | 'charging_plan_name_snapshot'
   | 'total_cost'
   | 'applied_price_per_kwh'
   | 'applied_ac_price_per_kwh'

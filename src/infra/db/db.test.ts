@@ -67,7 +67,7 @@ describe('EVAnalyticsDB', () => {
       user_id: 'user-123',
       session_timestamp: new Date(),
       provider_id: 'provider-1',
-      provider_name: 'Ionity',
+      provider_name_snapshot: 'Ionity',
       tariff_id: 'legacy-tariff-1',
       tariff_name: 'Legacy Tariff',
       charging_type: 'DC',
@@ -145,9 +145,9 @@ describe('EVAnalyticsDB', () => {
       user_id: 'user-123',
       session_timestamp: new Date(),
       provider_id: 'provider-1',
-      provider_name: 'Ionity',
+      provider_name_snapshot: 'Ionity',
       charging_plan_id: 'plan-1',
-      charging_plan_name: 'Ionity Direct',
+      charging_plan_name_snapshot: 'Ionity Direct',
       charging_type: 'DC',
       kwh_billed: 50.5,
       total_cost: 3989, // 50.5 * 79
@@ -164,7 +164,7 @@ describe('EVAnalyticsDB', () => {
 
     // Assert: Stored session fields should round-trip through IndexedDB.
     expect(retrieved).toBeDefined()
-    expect(retrieved?.provider_name).toBe('Ionity')
+    expect(retrieved?.provider_name_snapshot).toBe('Ionity')
     expect(retrieved?.total_cost).toBe(3989)
     expect(retrieved?.start_soc_percentage).toBeUndefined()
     expect(retrieved?.end_soc_percentage).toBeUndefined()

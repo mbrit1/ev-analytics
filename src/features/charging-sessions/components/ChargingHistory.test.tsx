@@ -25,8 +25,8 @@ describe('ChargingHistory', () => {
         { 
           id: 's1', 
           session_timestamp: new Date('2024-05-14T10:00:00Z'),
-          provider_name: 'Tesla',
-          charging_plan_name: 'Supercharger',
+          provider_name_snapshot: 'Tesla',
+          charging_plan_name_snapshot: 'Supercharger',
           charging_type: 'DC',
           kwh_billed: 45.5,
           total_cost: 2275, // 22.75 EUR
@@ -57,8 +57,8 @@ describe('ChargingHistory', () => {
         {
           id: 's2',
           session_timestamp: new Date('2024-05-20T10:00:00Z'),
-          provider_name: 'Fast CPO',
-          charging_plan_name: null,
+          provider_name_snapshot: 'Fast CPO',
+          charging_plan_name_snapshot: null,
           charging_type: 'DC',
           kwh_billed: 20,
           total_cost: 1780,

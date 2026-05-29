@@ -96,46 +96,34 @@ export const TariffList: React.FC = () => {
           <div className="grid max-w-3xl grid-cols-1 gap-x-8 gap-y-2 text-sm md:grid-cols-2">
             <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
               <span>Domestic AC</span>
-              <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">{plan.prices.domestic.ac == null ? '—' : formatCurrency(plan.prices.domestic.ac)}</span>
+              <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">{plan.ac_price_per_kwh == null ? '—' : formatCurrency(plan.ac_price_per_kwh)}</span>
             </div>
             <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
               <span>Domestic DC</span>
-              <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">{plan.prices.domestic.dc == null ? '—' : formatCurrency(plan.prices.domestic.dc)}</span>
+              <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">{plan.dc_price_per_kwh == null ? '—' : formatCurrency(plan.dc_price_per_kwh)}</span>
             </div>
-            {shouldRenderOptionalAmount(plan.prices.roaming?.ac) && (
+            {shouldRenderOptionalAmount(plan.roaming_ac_price_per_kwh) && (
               <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
                 <span>Roaming AC</span>
-                <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums">{formatCurrency(plan.prices.roaming.ac)}</span>
+                <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums">{formatCurrency(plan.roaming_ac_price_per_kwh)}</span>
               </div>
             )}
-            {shouldRenderOptionalAmount(plan.prices.roaming?.dc) && (
+            {shouldRenderOptionalAmount(plan.roaming_dc_price_per_kwh) && (
               <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
                 <span>Roaming DC</span>
-                <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums">{formatCurrency(plan.prices.roaming.dc)}</span>
+                <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums">{formatCurrency(plan.roaming_dc_price_per_kwh)}</span>
               </div>
             )}
-            {shouldRenderOptionalAmount(plan.fees.subscriptionMonthly) && (
+            {shouldRenderOptionalAmount(plan.monthly_base_fee) && (
               <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
-                <span>Subscription</span>
-                <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums">{formatCurrency(plan.fees.subscriptionMonthly)}</span>
+                <span>Monthly Base Fee</span>
+                <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums">{formatCurrency(plan.monthly_base_fee)}</span>
               </div>
             )}
-            {shouldRenderOptionalAmount(plan.fees.activationOneTime) && (
-              <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
-                <span>Activation Fee</span>
-                <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums">{formatCurrency(plan.fees.activationOneTime)}</span>
-              </div>
-            )}
-            {shouldRenderOptionalAmount(plan.fees.sessionFixed) && (
+            {shouldRenderOptionalAmount(plan.session_fee) && (
               <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
                 <span>Session Fee</span>
-                <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums">{formatCurrency(plan.fees.sessionFixed)}</span>
-              </div>
-            )}
-            {shouldRenderOptionalAmount(plan.fees.cardFee) && (
-              <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
-                <span>Card Fee</span>
-                <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums">{formatCurrency(plan.fees.cardFee)}</span>
+                <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums">{formatCurrency(plan.session_fee)}</span>
               </div>
             )}
           </div>

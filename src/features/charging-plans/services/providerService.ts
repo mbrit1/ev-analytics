@@ -12,10 +12,26 @@ export async function saveProvider(provider: Provider): Promise<void> {
   await db.transaction('rw', db.providers, db.sync_outbox, async () => {
     const existing = await db.providers.get(provider.id);
     const now = new Date();
+    const normalizedProviderName = (provider.name ?? '').trim().toLowerCase();
+
+    const conflictingProvider = await db.providers
+      .where('user_id')
+      .equals(provider.user_id)
+      .filter((row) => (
+        !row.deleted_at
+        && row.id !== provider.id
+        && (row.name ?? '').trim().toLowerCase() === normalizedProviderName
+      ))
+      .first();
+
+    if (conflictingProvider) {
+      throw new Error('Provider name already exists (active, case-insensitive)');
+    }
     
     // Updates retain the original creation timestamp while refreshing updated_at.
     const providerToSave: Provider = {
       ...provider,
+      name: (provider.name ?? '').trim(),
       created_at: existing?.created_at || now,
       updated_at: now
     };

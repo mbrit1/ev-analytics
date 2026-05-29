@@ -35,16 +35,14 @@ describe('TariffList', () => {
           user_id: 'u1',
           provider_id: 'p1',
           plan_name: 'Primary Plan',
-          validity: { from: new Date('2026-01-01T00:00:00.000Z') },
-          prices: {
-            domestic: { ac: 39, dc: 59 },
-            roaming: { ac: 79, dc: 99 },
-          },
-          fees: {
-            subscriptionMonthly: 499,
-            activationOneTime: 999,
-            sessionFixed: 129,
-          },
+          valid_from: new Date(),
+          valid_to: null,
+          ac_price_per_kwh: 39,
+          dc_price_per_kwh: 59,
+          roaming_ac_price_per_kwh: 79,
+          roaming_dc_price_per_kwh: 99,
+          monthly_base_fee: 499,
+          session_fee: 129,
           created_at: new Date('2026-01-01T00:00:00.000Z'),
           updated_at: new Date('2026-01-01T00:00:00.000Z'),
         },
@@ -63,8 +61,8 @@ describe('TariffList', () => {
     expect(screen.getByText(/domestic dc/i)).toBeInTheDocument();
     expect(screen.getByText(/roaming ac/i)).toBeInTheDocument();
     expect(screen.getByText(/roaming dc/i)).toBeInTheDocument();
-    expect(screen.getByText(/subscription/i)).toBeInTheDocument();
-    expect(screen.getByText(/activation fee/i)).toBeInTheDocument();
+    expect(screen.getByText(/monthly base fee/i)).toBeInTheDocument();
+    expect(screen.getByText(/session fee/i)).toBeInTheDocument();
   });
 
   it('opens form with preloaded tariff when Edit is clicked', () => {
@@ -74,9 +72,12 @@ describe('TariffList', () => {
       user_id: 'u1',
       provider_id: 'p1',
       plan_name: 'Primary Plan',
-      validity: { from: new Date('2026-01-01T00:00:00.000Z') },
-      prices: { domestic: { ac: 39, dc: 59 } },
-      fees: { sessionFixed: 129 },
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 39,
+      dc_price_per_kwh: 59 ,
+      monthly_base_fee: 0,
+      session_fee: 129 ,
       created_at: new Date('2026-01-01T00:00:00.000Z'),
       updated_at: new Date('2026-01-01T00:00:00.000Z'),
     };
@@ -111,9 +112,12 @@ describe('TariffList', () => {
           user_id: 'u1',
           provider_id: 'p1',
           plan_name: 'Primary Plan',
-          validity: { from: new Date('2026-01-01T00:00:00.000Z') },
-          prices: { domestic: { ac: 39, dc: 59 } },
-          fees: { sessionFixed: 129 },
+          valid_from: new Date(),
+          valid_to: null,
+          ac_price_per_kwh: 39,
+      dc_price_per_kwh: 59 ,
+      monthly_base_fee: 0,
+      session_fee: 129 ,
           created_at: new Date('2026-01-01T00:00:00.000Z'),
           updated_at: new Date('2026-01-01T00:00:00.000Z'),
         },
@@ -142,17 +146,14 @@ describe('TariffList', () => {
           user_id: 'u1',
           provider_id: 'p1',
           plan_name: 'Zero Optional Plan',
-          validity: { from: new Date('2026-01-01T00:00:00.000Z') },
-          prices: {
-            domestic: { ac: 45, dc: 45 },
-            roaming: { ac: 0, dc: 0 },
-          },
-          fees: {
-            subscriptionMonthly: 0,
-            activationOneTime: 0,
-            sessionFixed: 0,
-            cardFee: 0,
-          },
+          valid_from: new Date(),
+          valid_to: null,
+          ac_price_per_kwh: 45,
+          dc_price_per_kwh: 45,
+          roaming_ac_price_per_kwh: 0,
+          roaming_dc_price_per_kwh: 0,
+          monthly_base_fee: 0,
+          session_fee: 0,
           created_at: new Date('2026-01-01T00:00:00.000Z'),
           updated_at: new Date('2026-01-01T00:00:00.000Z'),
         },
@@ -168,10 +169,8 @@ describe('TariffList', () => {
     // Assert: Optional rows are hidden when values are zero.
     expect(screen.queryByText(/roaming ac/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/roaming dc/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/subscription/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/activation fee/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/monthly base fee/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/session fee/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/card fee/i)).not.toBeInTheDocument();
   });
 
   it('renders provider name as card title and only shows non-empty variant subtitle', () => {
@@ -183,9 +182,11 @@ describe('TariffList', () => {
           user_id: 'u1',
           provider_id: 'p1',
           plan_name: '   ',
-          validity: { from: new Date('2026-01-01T00:00:00.000Z') },
-          prices: { domestic: { ac: 45, dc: 45 } },
-          fees: {},
+          valid_from: new Date(),
+          valid_to: null,
+          ac_price_per_kwh: 45, dc_price_per_kwh: 45 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
           created_at: new Date('2026-01-01T00:00:00.000Z'),
           updated_at: new Date('2026-01-01T00:00:00.000Z'),
         },
@@ -194,9 +195,11 @@ describe('TariffList', () => {
           user_id: 'u1',
           provider_id: 'p1',
           plan_name: 'Weekend Saver',
-          validity: { from: new Date('2026-01-01T00:00:00.000Z') },
-          prices: { domestic: { ac: 51, dc: 61 } },
-          fees: {},
+          valid_from: new Date(),
+          valid_to: null,
+          ac_price_per_kwh: 51, dc_price_per_kwh: 61 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
           created_at: new Date('2026-01-01T00:00:00.000Z'),
           updated_at: new Date('2026-01-01T00:00:00.000Z'),
         },
@@ -225,9 +228,11 @@ describe('TariffList', () => {
           user_id: 'u1',
           provider_id: 'p1',
           plan_name: '',
-          validity: { from: new Date('2026-01-01T00:00:00.000Z') },
-          prices: { domestic: { ac: 45, dc: 45 } },
-          fees: {},
+          valid_from: new Date(),
+          valid_to: null,
+          ac_price_per_kwh: 45, dc_price_per_kwh: 45 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
           created_at: new Date('2026-01-01T00:00:00.000Z'),
           updated_at: new Date('2026-01-01T00:00:00.000Z'),
         },
@@ -236,9 +241,11 @@ describe('TariffList', () => {
           user_id: 'u1',
           provider_id: 'p1',
           plan_name: '   ',
-          validity: { from: new Date('2026-01-01T00:00:00.000Z') },
-          prices: { domestic: { ac: 51, dc: 61 } },
-          fees: {},
+          valid_from: new Date(),
+          valid_to: null,
+          ac_price_per_kwh: 51, dc_price_per_kwh: 61 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
           created_at: new Date('2026-01-01T00:00:00.000Z'),
           updated_at: new Date('2026-01-01T00:00:00.000Z'),
         },
@@ -271,9 +278,11 @@ describe('TariffList', () => {
           user_id: 'u1',
           provider_id: 'provider-fallback',
           plan_name: 'Night Saver',
-          validity: { from: new Date('2026-01-01T00:00:00.000Z') },
-          prices: { domestic: { ac: 45, dc: 45 } },
-          fees: {},
+          valid_from: new Date(),
+          valid_to: null,
+          ac_price_per_kwh: 45, dc_price_per_kwh: 45 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
           created_at: new Date('2026-01-01T00:00:00.000Z'),
           updated_at: new Date('2026-01-01T00:00:00.000Z'),
         },

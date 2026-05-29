@@ -19,7 +19,7 @@ const sessionSchema = z.object({
   /** Date-only input; converted to a Date when the session is prepared. */
   session_timestamp: z.string().min(1, 'Date is required'),
   /** Selected provider determines the available tariff options in plan mode. */
-  provider_id: z.string().optional(),
+  provider_id: z.string().min(1, 'Provider is required'),
   pricing_source: z.enum(['chargingPlan', 'adHoc']),
   /** Selected plan supplies the price snapshots used for cost calculation. */
   charging_plan_id: z.string().optional(),
@@ -57,14 +57,47 @@ const sessionSchema = z.object({
   ad_hoc_receipt_url: z.string().url('Invalid URL').optional().or(z.literal('')),
   ad_hoc_other_fees: z.string().optional(),
 }).superRefine((values, ctx) => {
-  if (values.pricing_source === 'chargingPlan') {
-    if (!values.provider_id?.trim()) {
+  const billedKwh = Number.parseFloat(values.kwh_billed.replace(',', '.'));
+  if (!Number.isFinite(billedKwh) || billedKwh <= 0) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['kwh_billed'],
+      message: 'Must be greater than 0',
+    });
+  }
+
+  if (values.kwh_added) {
+    const addedKwh = Number.parseFloat(values.kwh_added.replace(',', '.'));
+    if (!Number.isFinite(addedKwh) || addedKwh < 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['provider_id'],
-        message: 'Charging provider is required',
+        path: ['kwh_added'],
+        message: 'Must be 0 or greater',
       });
     }
+  }
+
+  if (values.start_soc_percentage && values.end_soc_percentage) {
+    const startSoc = Number.parseInt(values.start_soc_percentage, 10);
+    const endSoc = Number.parseInt(values.end_soc_percentage, 10);
+    if (Number.isFinite(startSoc) && Number.isFinite(endSoc) && endSoc < startSoc) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['end_soc_percentage'],
+        message: 'End SoC must be greater than or equal to Start SoC',
+      });
+    }
+  }
+
+  if (!values.provider_id?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['provider_id'],
+      message: 'Provider is required',
+    });
+  }
+
+  if (values.pricing_source === 'chargingPlan') {
     if (!values.charging_plan_id) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -112,6 +145,9 @@ function parseDateInputAsUtc(dateInput: string): Date {
 }
 
 function resolveInitialPlanId(initialValues?: LegacySessionInitialValues): string {
+  if (resolveInitialPricingSource(initialValues) === 'adHoc') {
+    return '';
+  }
   return initialValues?.charging_plan_id ?? initialValues?.tariff_id ?? '';
 }
 
@@ -150,8 +186,8 @@ function resolvePlanSnapshotKwhPrice(
 ): number {
   if (pricingMode === 'roaming') {
     const roamingPrice = chargingType === 'AC'
-      ? chargingPlan.prices.roaming?.ac
-      : chargingPlan.prices.roaming?.dc;
+      ? chargingPlan.roaming_ac_price_per_kwh
+      : chargingPlan.roaming_dc_price_per_kwh;
     if (roamingPrice == null) {
       throw new Error(`No matching roaming ${chargingType} price for selected charging plan`);
     }
@@ -159,8 +195,8 @@ function resolvePlanSnapshotKwhPrice(
   }
 
   const domesticPrice = chargingType === 'AC'
-    ? chargingPlan.prices.domestic.ac
-    : chargingPlan.prices.domestic.dc;
+    ? chargingPlan.ac_price_per_kwh
+    : chargingPlan.dc_price_per_kwh;
   if (domesticPrice == null) {
     throw new Error(`No matching domestic ${chargingType} price for selected charging plan`);
   }
@@ -176,7 +212,7 @@ function buildTariffPriceSnapshot(
   return {
     label: `${providerName} ${chargingPlan.plan_name}`,
     kWhPrice: resolvePlanSnapshotKwhPrice(chargingPlan, pricingMode, chargingType),
-    sessionFee: chargingPlan.fees.sessionFixed ?? undefined
+    sessionFee: chargingPlan.session_fee
   };
 }
 
@@ -255,9 +291,6 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
 
   React.useEffect(() => {
     if (selectedPricingSource === 'adHoc') {
-      if (getValues('provider_id')) {
-        setValue('provider_id', '');
-      }
       if (getValues('charging_plan_id')) {
         setValue('charging_plan_id', '');
       }
@@ -323,11 +356,12 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       notes: values.notes,
     };
 
+    const providerId = values.provider_id;
+    if (!providerId) return;
+    const provider = providers.find(p => p.id === providerId);
+    if (!provider) return;
+
     if (values.pricing_source === 'chargingPlan') {
-      const providerId = values.provider_id;
-      if (!providerId) return;
-      const provider = providers.find(p => p.id === providerId);
-      if (!provider) return;
       const chargingPlan = chargingPlans.find((plan) => plan.id === values.charging_plan_id);
       if (!chargingPlan) return;
       const sessionDate = parseDateInputAsUtc(values.session_timestamp);
@@ -370,7 +404,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
 
     const session = prepareSession({
       ...sessionBase,
-      provider_id: null,
+      provider_id: providerId,
       session_mode: 'adHoc',
       tariff_plan_id: null,
       plan_selection_id: null,
@@ -477,23 +511,23 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {selectedPricingSource === 'chargingPlan' ? (
+        {selectedPricingSource === 'chargingPlan' ? (
             <>
-              {/* Charging Plan Provider */}
+              {/* Provider */}
               <div className="flex flex-col">
                 <label htmlFor="provider_id" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
-                  Charging Plan Provider <span className="text-primary" aria-hidden="true">*</span>
+                  Provider <span className="text-primary" aria-hidden="true">*</span>
                 </label>
                 <select
                   id="provider_id"
                   {...register('provider_id')}
-                  required={isChargingPlanPricing}
-                  aria-required={isChargingPlanPricing ? 'true' : 'false'}
+                  required
+                  aria-required="true"
                   className={`w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors ${
                     selectedProviderId ? 'text-primary' : 'text-primary/70'
                   }`}
                 >
-                  <option value="">Select Charging Provider</option>
+                  <option value="">Select Provider</option>
                   {providers.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
@@ -551,6 +585,28 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
             </>
           ) : (
             <>
+              <div className="flex flex-col">
+                <label htmlFor="provider_id" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
+                  Provider <span className="text-primary" aria-hidden="true">*</span>
+                </label>
+                <select
+                  id="provider_id"
+                  {...register('provider_id')}
+                  required
+                  aria-required="true"
+                  className={`w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors ${
+                    selectedProviderId ? 'text-primary' : 'text-primary/70'
+                  }`}
+                >
+                  <option value="">Select Provider</option>
+                  {providers.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+                {errors.provider_id && (
+                  <p className="text-sm text-red-500 font-medium mt-1.5">{errors.provider_id.message}</p>
+                )}
+              </div>
               <ThinInput
                 label="CPO/Operator"
                 requiredIndicator

@@ -64,24 +64,7 @@ describe('TariffForm', () => {
     expect(cancelButton?.className).toContain('min-h-[56px]');
   });
 
-  it('rejects other fees when label, amount, or notes are missing', async () => {
-    // Arrange: Render and fill minimum valid identity fields.
-    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/tariff name/i), { target: { value: 'Home Tariff' } });
-    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
-
-    // Act: Fill partial "other fee" and submit.
-    fireEvent.change(screen.getByLabelText(/other fee label/i), { target: { value: 'Parking' } });
-    fireEvent.change(screen.getByLabelText(/other fee amount/i), { target: { value: '1,50' } });
-    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
-
-    // Assert: Submission is blocked unless notes are also provided.
-    await waitFor(() => {
-      expect(mockOnSubmit).not.toHaveBeenCalled();
-    });
-  });
-
-  it('submits nested charging-plan payload', async () => {
+  it('submits flattened charging-plan payload', async () => {
     // Arrange: Render and enter tariff inputs across grouped sections.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.change(screen.getByLabelText(/tariff name/i), { target: { value: 'Travel Tariff' } });
@@ -90,32 +73,22 @@ describe('TariffForm', () => {
     fireEvent.change(screen.getByLabelText(/^dc price$/i), { target: { value: '0,59' } });
     fireEvent.change(screen.getByLabelText(/roaming ac price/i), { target: { value: '0,69' } });
     fireEvent.change(screen.getByLabelText(/roaming dc price/i), { target: { value: '0,79' } });
-    fireEvent.change(screen.getByLabelText(/subscription/i), { target: { value: '3,99' } });
-    fireEvent.change(screen.getByLabelText(/activation fee/i), { target: { value: '9,99' } });
+    fireEvent.change(screen.getByLabelText(/monthly base fee/i), { target: { value: '3,99' } });
     fireEvent.change(screen.getByLabelText(/session fee/i), { target: { value: '0,99' } });
-    fireEvent.change(screen.getByLabelText(/card fee/i), { target: { value: '2,99' } });
-    fireEvent.change(screen.getByLabelText(/other fee label/i), { target: { value: 'Parking' } });
-    fireEvent.change(screen.getByLabelText(/other fee amount/i), { target: { value: '1,50' } });
-    fireEvent.change(screen.getByLabelText(/other fee notes/i), { target: { value: 'Per charge' } });
     fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
 
-    // Assert: Form maps browser strings to nested charging-plan payload.
+    // Assert: Form maps browser strings to flat charging-plan payload.
     await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
     expect(mockOnSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         plan_name: 'Travel Tariff',
         provider_id: 'p1',
-        prices: expect.objectContaining({
-          domestic: { ac: 49, dc: 59 },
-          roaming: { ac: 69, dc: 79 },
-        }),
-        fees: expect.objectContaining({
-          subscriptionMonthly: 399,
-          activationOneTime: 999,
-          sessionFixed: 99,
-          cardFee: 299,
-          other: [{ label: 'Parking', amount: 150, notes: 'Per charge' }],
-        }),
+        ac_price_per_kwh: 49,
+        dc_price_per_kwh: 59,
+        roaming_ac_price_per_kwh: 69,
+        roaming_dc_price_per_kwh: 79,
+        monthly_base_fee: 399,
+        session_fee: 99,
       })
     );
   });
@@ -175,6 +148,22 @@ describe('TariffForm', () => {
     expect(screen.getByLabelText(/^notes$/i)).toHaveValue('my draft notes');
   });
 
+  it('shows specific overlapping-tariff-version error from service', async () => {
+    // Arrange: Service rejects an overlapping version for same provider and name.
+    mockOnSubmit.mockRejectedValueOnce(new Error('Tariff validity overlaps with an existing active version for this provider and name'));
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/tariff name/i), { target: { value: 'mobility+ m' } });
+    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,49' } });
+
+    // Act: Submit and surface service error.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Conflict message is shown to the user.
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Tariff validity overlaps with an existing active version for this provider and name');
+  });
+
   it('exposes provider validation with aria attributes', async () => {
     // Arrange: Make provider required fail while other required fields are present.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
@@ -200,10 +189,8 @@ describe('TariffForm', () => {
         initialValues={{
           plan_name: 'UTC Tariff',
           provider_id: 'p1',
-          validity: {
-            from: new Date('2026-01-01T00:00:00.000Z'),
-            to: new Date('2026-01-31T00:00:00.000Z'),
-          },
+          valid_from: new Date('2026-01-01T00:00:00.000Z'),
+          valid_to: new Date('2026-01-31T00:00:00.000Z'),
         }}
       />
     );

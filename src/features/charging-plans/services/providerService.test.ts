@@ -72,4 +72,77 @@ describe('providerService', () => {
     expect(providers).toHaveLength(1);
     expect(providers[0].id).toBe('active-provider');
   });
+
+  it('should reject duplicate active provider names case-insensitively', async () => {
+    // Arrange: Seed one active provider for the same user.
+    const existingProvider: Provider = {
+      id: 'provider-existing',
+      user_id: 'user-1',
+      name: 'EnBW',
+      created_at: new Date(),
+      updated_at: new Date()
+    };
+    await db.providers.add(existingProvider);
+
+    const duplicateProvider: Provider = {
+      id: 'provider-duplicate',
+      user_id: 'user-1',
+      name: '  enbw  ',
+      created_at: new Date(),
+      updated_at: new Date()
+    };
+
+    // Act/Assert: Case-insensitive duplicate is blocked.
+    await expect(saveProvider(duplicateProvider)).rejects.toThrow('Provider name already exists (active, case-insensitive)');
+  });
+
+  it('should allow provider name reuse when only soft-deleted matches exist', async () => {
+    // Arrange: Seed a soft-deleted provider with a matching name.
+    const softDeletedProvider: Provider = {
+      id: 'provider-deleted',
+      user_id: 'user-1',
+      name: 'Fastned',
+      created_at: new Date(),
+      updated_at: new Date(),
+      deleted_at: new Date()
+    };
+    await db.providers.add(softDeletedProvider);
+
+    const reusedNameProvider: Provider = {
+      id: 'provider-new',
+      user_id: 'user-1',
+      name: '  FASTNED ',
+      created_at: new Date(),
+      updated_at: new Date()
+    };
+
+    // Act: Save provider that reuses a soft-deleted name.
+    await saveProvider(reusedNameProvider);
+
+    // Assert: Save succeeds and a normalized name is persisted.
+    const savedProvider = await db.providers.get('provider-new');
+    expect(savedProvider?.name).toBe('FASTNED');
+  });
+
+  it('should allow editing same provider without changing effective name', async () => {
+    // Arrange: Seed provider to update in-place.
+    const provider: Provider = {
+      id: 'provider-edit',
+      user_id: 'user-1',
+      name: 'Ionity',
+      created_at: new Date(),
+      updated_at: new Date()
+    };
+    await db.providers.add(provider);
+
+    // Act: Update same provider id with only whitespace/case variation.
+    await saveProvider({
+      ...provider,
+      name: ' ionity '
+    });
+
+    // Assert: Update succeeds and trims persisted name.
+    const updated = await db.providers.get('provider-edit');
+    expect(updated?.name).toBe('ionity');
+  });
 });
