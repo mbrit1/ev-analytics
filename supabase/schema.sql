@@ -94,6 +94,8 @@ CREATE TABLE IF NOT EXISTS public.provider_plan_selections (
     FOREIGN KEY (user_id, provider_id) REFERENCES public.providers(user_id, id),
   CONSTRAINT provider_plan_selections_user_tariff_plan_fkey
     FOREIGN KEY (user_id, tariff_plan_id) REFERENCES public.charging_plans(user_id, id),
+  CONSTRAINT provider_plan_selections_user_id_id_key
+    UNIQUE (user_id, id),
   CONSTRAINT provider_plan_selections_price_snapshot_object_check
     CHECK (jsonb_typeof(price_snapshot) = 'object')
 );
