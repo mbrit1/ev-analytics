@@ -160,7 +160,7 @@
       cursor: pointer;
       font-variant-numeric: tabular-nums;
       min-height: 44px; /* Apple HIG: Minimum Touch Target */
-      transition: background 0.2s cubic-bezier(0.25, 1, 0.5, 1), color 0.2s ease;
+      transition: all 0.2s ease;
     }
 
     .matrix-node.active {
@@ -177,7 +177,7 @@
     }
 
     @media (hover: hover) and (pointer: fine) {
-      .matrix-node:hover:not(.active) { background: var(--edge-border); }
+      .matrix-node:hover:not(.active) { background: rgba(134, 134, 139, 0.2); }
     }
 
     /* ----------------------------------------------------
@@ -257,13 +257,61 @@
       margin-top: 24px;
       min-height: 44px; /* Apple HIG */
       box-shadow: 0 4px 15px rgba(0, 122, 255, 0.2);
-      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      opacity: 1;
+      transition: all 0.2s ease;
+    }
+
+    .btn-secondary {
+      width: 100%;
+      background: rgba(134, 134, 139, 0.12);
+      color: var(--primary-typography);
+      border: none;
+      padding: 16px;
+      border-radius: 14px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      min-height: 44px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-secondary:hover { background: rgba(134, 134, 139, 0.2); }
+
+    .actions-row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    @media (min-width: 640px) {
+      .actions-row { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    .meta-section-title {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--secondary-typography);
+      margin: 0 0 16px 0;
+    }
+
+    .form-section { margin-bottom: 32px; }
+
+    .policy-note {
+      padding: 16px;
+      border-radius: 12px;
+      border: var(--edge-border);
+      background: rgba(0, 122, 255, 0.06);
+      color: var(--primary-typography);
+      font-size: 14px;
+      line-height: 1.5;
     }
 
     @media (hover: hover) and (pointer: fine) {
       .btn-submit:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(0, 122, 255, 0.3);
+        opacity: 0.9;
       }
     }
   </style>
@@ -316,6 +364,7 @@
 
     <div>
       <span class="meta-label" id="matrix-label">Tactile Button Grid (Zero Typing)</span>
+      <p class="body-text" style="margin: 0 0 12px 0;">Hover on inactive buttons uses a subtle neutral tint increase. No lift animation is used.</p>
       <div class="button-matrix" role="group" aria-labelledby="matrix-label">
         <button class="matrix-node" aria-pressed="false">AC</button>
         <button class="matrix-node active" aria-pressed="true">DC</button>
@@ -352,6 +401,55 @@
       </article>
 
     </div>
+  </section>
+
+  <section class="sandbox-section">
+    <h2 class="sandbox-title">5. Production Patterns</h2>
+    <div class="component-grid">
+      <article class="floating-slab">
+        <div>
+          <h3 class="meta-section-title">Section Heading Hierarchy</h3>
+          <div class="form-section">
+            <label for="prod-provider" class="meta-label">Provider</label>
+            <div class="input-wrapper">
+              <select id="prod-provider" class="main-input" aria-label="Provider">
+                <option>Select Provider</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-section" style="margin-bottom: 0;">
+            <h4 class="meta-section-title">Dense Form Action Row</h4>
+            <div class="actions-row">
+              <button class="btn-submit">Save Tariff</button>
+              <button class="btn-secondary">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="floating-slab">
+        <div>
+          <h3 class="meta-section-title">Tactile Matrix Breakpoint Intent</h3>
+          <p class="body-text" style="margin-bottom: 12px;">Mobile: 2 columns. Small desktop and up: 3 columns. Use 4 columns only when option count and visual density require it.</p>
+          <p class="body-text" style="margin-bottom: 12px;">Hover behavior follows current app interaction model; avoid lift animations unless explicitly introduced in app first.</p>
+          <div>
+            <span class="meta-label" id="matrix-pattern-label">Matrix Pattern Example</span>
+            <div class="button-matrix" role="group" aria-labelledby="matrix-pattern-label" style="grid-template-columns: repeat(3, 1fr); max-width: none;">
+              <button class="matrix-node active" aria-pressed="true">Plan</button>
+              <button class="matrix-node" aria-pressed="false">Ad-Hoc</button>
+              <button class="matrix-node" aria-pressed="false">Roaming</button>
+            </div>
+          </div>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <section class="sandbox-section">
+    <h2 class="sandbox-title">6. Deviation Policy</h2>
+    <p class="policy-note">
+      When a screen-specific pattern improves UX but differs from this master, record the deviation in handoff/PR notes and classify it as either a local exception or a promote-to-master candidate.
+    </p>
   </section>
 
 </main>

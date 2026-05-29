@@ -62,6 +62,11 @@ PRs need a summary, verification results, linked issues/ADRs, and screenshots fo
 
 `AGENTS.md` is Codex’s source of truth. `GEMINI.md` remains legacy/reference guidance. Superpowers artifacts live in `docs/superpowers/specs/` and `docs/superpowers/plans/`; use them for planned work, but rely on the installed plugin for workflow mechanics.
 
+Design governance baseline:
+- `docs/superpowers/specs/2026-05-16-Design-System-Sandbox-v2.0.html` is the default UI baseline for tokens and component patterns.
+- Apply the checklist in `docs/superpowers/specs/2026-05-29-design-governance-checklist.md` for UI changes.
+- If a screen-specific change intentionally deviates and improves UX, note the deviation in handoff notes and classify it as `local exception` or `promote to master`.
+
 When changing project structure:
 - verify import boundary rules with lint checks,
 - verify behavior with tests/build,
