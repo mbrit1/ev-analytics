@@ -43,6 +43,25 @@ describe('TariffForm', () => {
     expect(screen.getByText('Roaming Prices')).toBeInTheDocument();
     expect(screen.getByText('Additional Fees')).toBeInTheDocument();
     expect(screen.getByText('Advanced')).toBeInTheDocument();
+    expect(screen.getByText(/required fields/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Identity' })).toHaveAttribute('id', 'tariff-section-identity');
+    expect(screen.getByRole('heading', { name: 'Charging Prices' })).toHaveAttribute('id', 'tariff-section-charging-prices');
+  });
+
+  it('uses polished action-row styling hooks for submit and cancel actions', () => {
+    // Arrange: Render the tariff form.
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Assert: Buttons expose shared visual contract classes used by session workflows.
+    const saveButton = screen.getByRole('button', { name: /save tariff/i });
+    const cancelButton = screen.getByText('Cancel').closest('button');
+    expect(cancelButton).toBeTruthy();
+    expect(saveButton.className).toContain('bg-accent');
+    expect(saveButton.className).toContain('rounded-xl');
+    expect(saveButton.className).toContain('min-h-[56px]');
+    expect(cancelButton?.className).toContain('bg-secondary/10');
+    expect(cancelButton?.className).toContain('rounded-xl');
+    expect(cancelButton?.className).toContain('min-h-[56px]');
   });
 
   it('rejects other fees when label, amount, or notes are missing', async () => {
@@ -99,6 +118,61 @@ describe('TariffForm', () => {
         }),
       })
     );
+  });
+
+  it('allows submit when tariff name is empty', async () => {
+    // Arrange: Fill only required fields without tariff name.
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+
+    // Act: Submit with empty tariff name.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Submission succeeds and persists empty plan_name.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+    expect(mockOnSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan_name: '',
+        provider_id: 'p1',
+      })
+    );
+  });
+
+  it('normalizes whitespace-only tariff name to empty string', async () => {
+    // Arrange: Enter whitespace tariff name with required provider.
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/tariff name \(optional\)/i), { target: { value: '   ' } });
+    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+
+    // Act: Submit form.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Whitespace is normalized before persistence.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+    expect(mockOnSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan_name: '',
+      })
+    );
+  });
+
+  it('shows invariant save error and preserves user input values', async () => {
+    // Arrange: Rejected save for duplicate unnamed tariff.
+    mockOnSubmit.mockRejectedValueOnce(new Error('Only one unnamed tariff is allowed per provider'));
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,45' } });
+    fireEvent.change(screen.getByLabelText(/^notes$/i), { target: { value: 'my draft notes' } });
+
+    // Act: Submit and let save reject.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Error is announced and form entries remain intact.
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Only one unnamed tariff is allowed per provider');
+    expect(screen.getByLabelText(/^provider$/i)).toHaveValue('p1');
+    expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,45');
+    expect(screen.getByLabelText(/^notes$/i)).toHaveValue('my draft notes');
   });
 
   it('exposes provider validation with aria attributes', async () => {

@@ -211,4 +211,127 @@ describe('chargingPlanService', () => {
     // Act/Assert: Other fee entries require label, amount, and notes.
     await expect(saveChargingPlan(chargingPlanData)).rejects.toThrow('fees.other entries require label, amount, and notes')
   })
+
+  it('should allow first unnamed tariff for a provider', async () => {
+    // Arrange: Build an unnamed tariff for a provider with no existing unnamed tariff.
+    const chargingPlanData: ChargingPlan = {
+      id: 'plan-unnamed-1',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      plan_name: '   ',
+      validity: { from: new Date() },
+      prices: { domestic: { ac: 45 } },
+      fees: {},
+      created_at: new Date(),
+      updated_at: new Date()
+    }
+
+    // Act: Save the first unnamed tariff.
+    await saveChargingPlan(chargingPlanData)
+
+    // Assert: Save succeeds and normalized name is persisted as empty string.
+    const saved = await db.charging_plans.get('plan-unnamed-1')
+    expect(saved?.plan_name).toBe('')
+  })
+
+  it('should reject second unnamed tariff for the same provider', async () => {
+    // Arrange: Seed an existing unnamed active tariff for the same provider.
+    const firstUnnamed: ChargingPlan = {
+      id: 'plan-unnamed-existing',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      plan_name: '',
+      validity: { from: new Date() },
+      prices: { domestic: { ac: 40 } },
+      fees: {},
+      created_at: new Date(),
+      updated_at: new Date()
+    }
+    await saveChargingPlan(firstUnnamed)
+
+    const secondUnnamed: ChargingPlan = {
+      id: 'plan-unnamed-new',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      plan_name: '   ',
+      validity: { from: new Date() },
+      prices: { domestic: { ac: 50 } },
+      fees: {},
+      created_at: new Date(),
+      updated_at: new Date()
+    }
+
+    // Act/Assert: A second unnamed tariff for the same provider is rejected.
+    await expect(saveChargingPlan(secondUnnamed)).rejects.toThrow('Only one unnamed tariff is allowed per provider')
+  })
+
+  it('should allow named and unnamed tariffs for the same provider', async () => {
+    // Arrange: Seed one unnamed tariff for the provider.
+    const unnamed: ChargingPlan = {
+      id: 'plan-mixed-unnamed',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      plan_name: '',
+      validity: { from: new Date() },
+      prices: { domestic: { ac: 40 } },
+      fees: {},
+      created_at: new Date(),
+      updated_at: new Date()
+    }
+    await saveChargingPlan(unnamed)
+
+    const named: ChargingPlan = {
+      id: 'plan-mixed-named',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      plan_name: 'Fast DC',
+      validity: { from: new Date() },
+      prices: { domestic: { ac: 55 } },
+      fees: {},
+      created_at: new Date(),
+      updated_at: new Date()
+    }
+
+    // Act: Save a named tariff for the same provider.
+    await saveChargingPlan(named)
+
+    // Assert: Named + unnamed combination is allowed.
+    const savedNamed = await db.charging_plans.get('plan-mixed-named')
+    expect(savedNamed?.plan_name).toBe('Fast DC')
+  })
+
+  it('should allow unnamed tariffs for different providers', async () => {
+    // Arrange: Save an unnamed tariff for provider-1.
+    const providerOneUnnamed: ChargingPlan = {
+      id: 'plan-provider-one-unnamed',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      plan_name: '',
+      validity: { from: new Date() },
+      prices: { domestic: { ac: 40 } },
+      fees: {},
+      created_at: new Date(),
+      updated_at: new Date()
+    }
+    await saveChargingPlan(providerOneUnnamed)
+
+    const providerTwoUnnamed: ChargingPlan = {
+      id: 'plan-provider-two-unnamed',
+      user_id: 'user-1',
+      provider_id: 'provider-2',
+      plan_name: '  ',
+      validity: { from: new Date() },
+      prices: { domestic: { ac: 60 } },
+      fees: {},
+      created_at: new Date(),
+      updated_at: new Date()
+    }
+
+    // Act: Save unnamed tariff for a different provider.
+    await saveChargingPlan(providerTwoUnnamed)
+
+    // Assert: Unnamed tariffs are allowed across different providers.
+    const saved = await db.charging_plans.get('plan-provider-two-unnamed')
+    expect(saved?.plan_name).toBe('')
+  })
 })
