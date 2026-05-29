@@ -384,9 +384,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
           tariff_plan_id: plan.id,
           plan_selection_id: planSelection.id,
           price_snapshot: snapshot,
-          session_mode: 'plan',
           pricing_context: values.pricing_mode,
-          tariff_plan_id: plan.id,
         },
         plan,
         provider
@@ -414,7 +412,6 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         sessionFee: sessionFee,
         blockingFee: otherFeesAmount
       },
-      session_mode: 'ad_hoc',
       pricing_context: 'ad_hoc',
       ad_hoc_pricing: {
         cpoName: values.cpo_name?.trim() || null,
