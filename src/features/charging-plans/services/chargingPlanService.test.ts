@@ -23,9 +23,12 @@ describe('chargingPlanService', () => {
       user_id: 'user-1',
       provider_id: 'provider-1',
       plan_name: 'Supercharger',
-      validity: { from: new Date() },
-      prices: { domestic: { ac: 45, dc: 45 } },
-      fees: { sessionFixed: 0 },
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 45,
+      dc_price_per_kwh: 45 ,
+      monthly_base_fee: 0,
+      session_fee: 0 ,
       created_at: new Date(),
       updated_at: new Date()
     }
@@ -53,16 +56,22 @@ describe('chargingPlanService', () => {
     // Arrange: Seed one active charging plan and one soft-deleted charging plan.
     const p1: ChargingPlan = {
       id: 'p1', user_id: 'u1', provider_id: 'provider-1', plan_name: 'Plan 1',
-      validity: { from: new Date() },
-      prices: { domestic: { ac: 50, dc: 50 } },
-      fees: { sessionFixed: 0 },
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 50,
+      dc_price_per_kwh: 50 ,
+      monthly_base_fee: 0,
+      session_fee: 0 ,
       created_at: new Date(), updated_at: new Date()
     }
     const p2: ChargingPlan = {
       id: 'p2', user_id: 'u1', provider_id: 'provider-1', plan_name: 'Plan 2',
-      validity: { from: new Date() },
-      prices: { domestic: { ac: 60, dc: 60 } },
-      fees: { sessionFixed: 0 },
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 60,
+      dc_price_per_kwh: 60 ,
+      monthly_base_fee: 0,
+      session_fee: 0 ,
       created_at: new Date(), updated_at: new Date(),
       deleted_at: new Date()
     }
@@ -80,9 +89,12 @@ describe('chargingPlanService', () => {
     // Arrange: Seed a charging plan that can be deleted.
     const chargingPlan: ChargingPlan = {
       id: 'plan-delete', user_id: 'u1', provider_id: 'provider-1', plan_name: 'To Delete',
-      validity: { from: new Date() },
-      prices: { domestic: { ac: 50, dc: 50 } },
-      fees: { sessionFixed: 0 },
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 50,
+      dc_price_per_kwh: 50 ,
+      monthly_base_fee: 0,
+      session_fee: 0 ,
       created_at: new Date(), updated_at: new Date()
     }
     await db.charging_plans.add(chargingPlan)
@@ -112,15 +124,12 @@ describe('chargingPlanService', () => {
       user_id: 'user-1',
       provider_id: 'provider-1',
       plan_name: 'Subscription Plan',
-      validity: { from: new Date() },
-      prices: {
-        domestic: {},
-        roaming: { ac: 89, dc: 99 }
-      },
-      fees: {
-        subscriptionMonthly: 1199,
-        sessionFixed: 0
-      },
+      valid_from: new Date(),
+          valid_to: null,
+      roaming_ac_price_per_kwh: 89,
+      roaming_dc_price_per_kwh: 99 ,
+      monthly_base_fee: 1199,
+      session_fee: 0,
       created_at: new Date(),
       updated_at: new Date()
     }
@@ -131,11 +140,11 @@ describe('chargingPlanService', () => {
 
     // Assert: Optional and new pricing fields are persisted.
     expect(saved).toBeDefined()
-    expect(saved?.prices.domestic.ac).toBeUndefined()
-    expect(saved?.prices.domestic.dc).toBeUndefined()
-    expect(saved?.prices.roaming?.ac).toBe(89)
-    expect(saved?.prices.roaming?.dc).toBe(99)
-    expect(saved?.fees.subscriptionMonthly).toBe(1199)
+    expect(saved?.ac_price_per_kwh).toBeUndefined()
+    expect(saved?.dc_price_per_kwh).toBeUndefined()
+    expect(saved?.roaming_ac_price_per_kwh).toBe(89)
+    expect(saved?.roaming_dc_price_per_kwh).toBe(99)
+    expect(saved?.monthly_base_fee).toBe(1199)
   })
 
   it('should reject negative monetary values', async () => {
@@ -145,15 +154,18 @@ describe('chargingPlanService', () => {
       user_id: 'user-1',
       provider_id: 'provider-1',
       plan_name: 'Invalid Plan',
-      validity: { from: new Date() },
-      prices: { domestic: { ac: 45, dc: 55 } },
-      fees: { sessionFixed: -1 },
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 45,
+      dc_price_per_kwh: 55 ,
+      monthly_base_fee: 0,
+      session_fee: -1 ,
       created_at: new Date(),
       updated_at: new Date()
     }
 
     // Act/Assert: Validation should reject negative cents values.
-    await expect(saveChargingPlan(chargingPlanData)).rejects.toThrow('fees.sessionFixed must be non-negative')
+    await expect(saveChargingPlan(chargingPlanData)).rejects.toThrow('session_fee must be non-negative')
   })
 
   it('should reject non-integer money values', async () => {
@@ -163,15 +175,17 @@ describe('chargingPlanService', () => {
       user_id: 'user-1',
       provider_id: 'provider-1',
       plan_name: 'Invalid Cents Plan',
-      validity: { from: new Date() },
-      prices: { domestic: { ac: 45.5 } },
-      fees: { sessionFixed: 0 },
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 45.5,
+      monthly_base_fee: 0,
+      session_fee: 0,
       created_at: new Date(),
       updated_at: new Date()
     }
 
     // Act/Assert: Validation should reject non-integer cents values.
-    await expect(saveChargingPlan(chargingPlanData)).rejects.toThrow('prices.domestic.ac must be an integer number of cents')
+    await expect(saveChargingPlan(chargingPlanData)).rejects.toThrow('ac_price_per_kwh must be an integer number of cents')
   })
 
   it('should reject plan without meaningful pricing or fees', async () => {
@@ -181,9 +195,10 @@ describe('chargingPlanService', () => {
       user_id: 'user-1',
       provider_id: 'provider-1',
       plan_name: 'Empty Plan',
-      validity: { from: new Date() },
-      prices: { domestic: {} },
-      fees: {},
+      valid_from: new Date(),
+          valid_to: null,
+      monthly_base_fee: 0,
+      session_fee: 0,
       created_at: new Date(),
       updated_at: new Date()
     }
@@ -192,24 +207,24 @@ describe('chargingPlanService', () => {
     await expect(saveChargingPlan(chargingPlanData)).rejects.toThrow('charging plan requires at least one price or fee value')
   })
 
-  it('should reject other fees missing required fields', async () => {
-    // Arrange: Build an other-fee entry without notes.
+  it('should allow plan payload without non-core fee fields', async () => {
+    // Arrange: Core pricing only payload.
     const chargingPlanData: ChargingPlan = {
       id: 'plan-other-fee-1',
       user_id: 'user-1',
       provider_id: 'provider-1',
       plan_name: 'Other Fee Plan',
-      validity: { from: new Date() },
-      prices: { domestic: { ac: 12 } },
-      fees: {
-        other: [{ label: 'Parking', amount: 100, notes: '' }]
-      },
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 12 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
       created_at: new Date(),
       updated_at: new Date()
     }
 
-    // Act/Assert: Other fee entries require label, amount, and notes.
-    await expect(saveChargingPlan(chargingPlanData)).rejects.toThrow('fees.other entries require label, amount, and notes')
+    // Act/Assert: Save succeeds with core fields only.
+    await expect(saveChargingPlan(chargingPlanData)).resolves.toBeUndefined()
   })
 
   it('should allow first unnamed tariff for a provider', async () => {
@@ -219,9 +234,11 @@ describe('chargingPlanService', () => {
       user_id: 'user-1',
       provider_id: 'provider-1',
       plan_name: '   ',
-      validity: { from: new Date() },
-      prices: { domestic: { ac: 45 } },
-      fees: {},
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 45 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
       created_at: new Date(),
       updated_at: new Date()
     }
@@ -234,16 +251,18 @@ describe('chargingPlanService', () => {
     expect(saved?.plan_name).toBe('')
   })
 
-  it('should reject second unnamed tariff for the same provider', async () => {
+  it('should reject overlapping unnamed tariff versions for the same provider', async () => {
     // Arrange: Seed an existing unnamed active tariff for the same provider.
     const firstUnnamed: ChargingPlan = {
       id: 'plan-unnamed-existing',
       user_id: 'user-1',
       provider_id: 'provider-1',
       plan_name: '',
-      validity: { from: new Date() },
-      prices: { domestic: { ac: 40 } },
-      fees: {},
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 40 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
       created_at: new Date(),
       updated_at: new Date()
     }
@@ -254,15 +273,17 @@ describe('chargingPlanService', () => {
       user_id: 'user-1',
       provider_id: 'provider-1',
       plan_name: '   ',
-      validity: { from: new Date() },
-      prices: { domestic: { ac: 50 } },
-      fees: {},
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 50 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
       created_at: new Date(),
       updated_at: new Date()
     }
 
-    // Act/Assert: A second unnamed tariff for the same provider is rejected.
-    await expect(saveChargingPlan(secondUnnamed)).rejects.toThrow('Only one unnamed tariff is allowed per provider')
+    // Act/Assert: Overlapping unnamed versions are rejected.
+    await expect(saveChargingPlan(secondUnnamed)).rejects.toThrow('Tariff validity overlaps with an existing active version for this provider and name')
   })
 
   it('should allow named and unnamed tariffs for the same provider', async () => {
@@ -272,9 +293,11 @@ describe('chargingPlanService', () => {
       user_id: 'user-1',
       provider_id: 'provider-1',
       plan_name: '',
-      validity: { from: new Date() },
-      prices: { domestic: { ac: 40 } },
-      fees: {},
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 40 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
       created_at: new Date(),
       updated_at: new Date()
     }
@@ -285,9 +308,11 @@ describe('chargingPlanService', () => {
       user_id: 'user-1',
       provider_id: 'provider-1',
       plan_name: 'Fast DC',
-      validity: { from: new Date() },
-      prices: { domestic: { ac: 55 } },
-      fees: {},
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 55 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
       created_at: new Date(),
       updated_at: new Date()
     }
@@ -307,9 +332,11 @@ describe('chargingPlanService', () => {
       user_id: 'user-1',
       provider_id: 'provider-1',
       plan_name: '',
-      validity: { from: new Date() },
-      prices: { domestic: { ac: 40 } },
-      fees: {},
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 40 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
       created_at: new Date(),
       updated_at: new Date()
     }
@@ -320,9 +347,11 @@ describe('chargingPlanService', () => {
       user_id: 'user-1',
       provider_id: 'provider-2',
       plan_name: '  ',
-      validity: { from: new Date() },
-      prices: { domestic: { ac: 60 } },
-      fees: {},
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 60 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
       created_at: new Date(),
       updated_at: new Date()
     }
@@ -333,5 +362,185 @@ describe('chargingPlanService', () => {
     // Assert: Unnamed tariffs are allowed across different providers.
     const saved = await db.charging_plans.get('plan-provider-two-unnamed')
     expect(saved?.plan_name).toBe('')
+  })
+
+  it('should reject overlapping named tariff versions case-insensitively for same user and provider', async () => {
+    // Arrange: Seed an active named tariff.
+    const existingNamed: ChargingPlan = {
+      id: 'plan-named-existing',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      plan_name: 'Mobility+ M',
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 45 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
+      created_at: new Date(),
+      updated_at: new Date()
+    }
+    await saveChargingPlan(existingNamed)
+
+    const duplicateNamed: ChargingPlan = {
+      id: 'plan-named-duplicate',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      plan_name: '  mobility+ m ',
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 49 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
+      created_at: new Date(),
+      updated_at: new Date()
+    }
+
+    // Act/Assert: Case-insensitive overlap is blocked.
+    await expect(saveChargingPlan(duplicateNamed)).rejects.toThrow('Tariff validity overlaps with an existing active version for this provider and name')
+  })
+
+  it('should allow same named tariff for different providers', async () => {
+    // Arrange: Seed named tariff for provider-1.
+    await saveChargingPlan({
+      id: 'plan-provider-a',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      plan_name: 'Eco Plan',
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 45 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
+      created_at: new Date(),
+      updated_at: new Date()
+    })
+
+    // Act: Save same effective name for different provider.
+    await saveChargingPlan({
+      id: 'plan-provider-b',
+      user_id: 'user-1',
+      provider_id: 'provider-2',
+      plan_name: '  eco plan ',
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 55 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
+      created_at: new Date(),
+      updated_at: new Date()
+    })
+
+    // Assert: Different providers can reuse the same name.
+    const saved = await db.charging_plans.get('plan-provider-b')
+    expect(saved?.plan_name).toBe('eco plan')
+  })
+
+  it('should allow non-overlapping versions for the same provider and name', async () => {
+    // Arrange: Save first bounded version.
+    await saveChargingPlan({
+      id: 'plan-version-1',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      plan_name: 'Flex',
+      valid_from: new Date('2026-01-01T00:00:00.000Z'),
+      valid_to: new Date('2026-02-01T00:00:00.000Z'),
+      ac_price_per_kwh: 45,
+      monthly_base_fee: 0,
+      session_fee: 0,
+      created_at: new Date(),
+      updated_at: new Date()
+    })
+
+    // Act: Save successor version starting exactly at previous end.
+    await saveChargingPlan({
+      id: 'plan-version-2',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      plan_name: ' flex ',
+      valid_from: new Date('2026-02-01T00:00:00.000Z'),
+      valid_to: null,
+      ac_price_per_kwh: 49,
+      monthly_base_fee: 0,
+      session_fee: 0,
+      created_at: new Date(),
+      updated_at: new Date()
+    })
+
+    // Assert: Boundary-touching versions are allowed.
+    const saved = await db.charging_plans.get('plan-version-2')
+    expect(saved?.plan_name).toBe('flex')
+  })
+
+  it('should allow overlapping periods for different names under the same provider', async () => {
+    // Arrange: Save first plan version.
+    await saveChargingPlan({
+      id: 'plan-overlap-a',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      plan_name: 'Mobility+',
+      valid_from: new Date('2026-01-01T00:00:00.000Z'),
+      valid_to: null,
+      ac_price_per_kwh: 45,
+      monthly_base_fee: 0,
+      session_fee: 0,
+      created_at: new Date(),
+      updated_at: new Date()
+    })
+
+    // Act: Save overlapping period with different name.
+    await saveChargingPlan({
+      id: 'plan-overlap-b',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      plan_name: 'Viellader',
+      valid_from: new Date('2026-01-15T00:00:00.000Z'),
+      valid_to: null,
+      ac_price_per_kwh: 55,
+      monthly_base_fee: 0,
+      session_fee: 0,
+      created_at: new Date(),
+      updated_at: new Date()
+    })
+
+    // Assert: Different logical tariffs may overlap.
+    const saved = await db.charging_plans.get('plan-overlap-b')
+    expect(saved?.plan_name).toBe('Viellader')
+  })
+
+  it('should allow reusing named tariff when conflicting record is soft-deleted', async () => {
+    // Arrange: Seed a soft-deleted named tariff.
+    await db.charging_plans.add({
+      id: 'plan-deleted',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      plan_name: 'Night Saver',
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 35 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
+      created_at: new Date(),
+      updated_at: new Date(),
+      deleted_at: new Date()
+    })
+
+    // Act: Save an active replacement with same effective name.
+    await saveChargingPlan({
+      id: 'plan-active-replacement',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      plan_name: '  night saver ',
+      valid_from: new Date(),
+          valid_to: null,
+      ac_price_per_kwh: 39 ,
+      monthly_base_fee: 0,
+      session_fee: 0,
+      created_at: new Date(),
+      updated_at: new Date()
+    })
+
+    // Assert: Soft-deleted rows are ignored by uniqueness checks.
+    const saved = await db.charging_plans.get('plan-active-replacement')
+    expect(saved?.plan_name).toBe('night saver')
   })
 })

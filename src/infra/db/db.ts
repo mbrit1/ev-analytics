@@ -33,30 +33,22 @@ export interface ChargingPlan {
   provider_id: string;
   /** Human-readable charging plan name shown in selectors and cards. */
   plan_name: string;
-  /** Plan validity boundaries. */
-  validity: {
-    from: Date;
-    to?: Date | null;
-  };
-  /** Domestic and optional roaming energy prices in cents. */
-  prices: {
-    domestic: {
-      ac?: number;
-      dc?: number;
-    };
-    roaming?: {
-      ac?: number;
-      dc?: number;
-    };
-  };
-  /** Optional fixed-fee pricing components in cents. */
-  fees: {
-    subscriptionMonthly?: number;
-    activationOneTime?: number;
-    sessionFixed?: number;
-    cardFee?: number;
-    other?: Array<{ label: string; amount: number; notes: string }>;
-  };
+  /** Plan validity start date in UTC. */
+  valid_from: Date;
+  /** Optional plan validity end date in UTC. */
+  valid_to?: Date | null;
+  /** Domestic AC price per kWh in cents. */
+  ac_price_per_kwh?: number;
+  /** Domestic DC price per kWh in cents. */
+  dc_price_per_kwh?: number;
+  /** Optional roaming AC price per kWh in cents. */
+  roaming_ac_price_per_kwh?: number;
+  /** Optional roaming DC price per kWh in cents. */
+  roaming_dc_price_per_kwh?: number;
+  /** Monthly base fee in cents. */
+  monthly_base_fee: number;
+  /** Per-session fee in cents. */
+  session_fee: number;
   /** Optional affiliation marker (for memberships/benefits). */
   affiliation?: string;
   /** Optional free-form notes. */
@@ -118,14 +110,14 @@ export interface ChargingSession {
   user_id: string;
   /** Date/time when the charging session occurred. */
   session_timestamp: Date;
-  /** Provider id selected for plan-based sessions. */
-  provider_id?: string | null;
+  /** Provider id selected for the session (plan and ad-hoc). */
+  provider_id: string;
   /** Provider name snapshot for stable history rendering. */
-  provider_name: string;
+  provider_name_snapshot: string;
   /** Optional charging plan id selected for this session. */
   charging_plan_id?: string | null;
   /** Optional charging plan name snapshot for stable history rendering. */
-  charging_plan_name?: string | null;
+  charging_plan_name_snapshot?: string | null;
   /** Electrical charging mode that selects AC or DC tariff pricing. */
   charging_type: 'AC' | 'DC';
   /** Energy billed by the provider in kWh. */

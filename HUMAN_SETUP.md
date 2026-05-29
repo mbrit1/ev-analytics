@@ -18,8 +18,14 @@ This document lists the manual steps required to set up the EV Analytics infrast
    * Go to **Authentication** > **Providers** > **Email**.
    * Disable "Allow new users to sign up".
    * This ensures the app remains single-user and private.
-3. **Database Setup:**
-   * The SQL schema will be generated during Phase 2. You will need to copy it and run it in the Supabase SQL Editor.
+3. **Database Setup (clean import baseline):**
+   * Open the Supabase SQL Editor.
+   * Ensure the target app tables are clean/empty (empty production project recommended).
+   * Run `supabase/schema.sql` in one execution.
+   * Verify the following tables exist: `providers`, `charging_plans`, `provider_plan_selections`, `charging_sessions`.
+   * Verify RLS and policies are enabled on all four tables.
+   * Verify domain tables are empty after import.
+   * Do not run `supabase/seed.sql` in production.
 4. **Environment Variables:**
    * Copy `Project URL` and the **Publishable key** (starts with `sb_publishable_`).
    * Create a `.env.local` file in the root of this project and add them:

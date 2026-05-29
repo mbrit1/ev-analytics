@@ -36,9 +36,14 @@ describe('sessionService', () => {
     user_id: 'u1',
     provider_id: 'p1',
     plan_name: 'Ionity Passport',
-    validity: { from: new Date('2024-01-01') },
-    prices: { domestic: { ac: 49, dc: 79 }, roaming: { ac: 59, dc: 89 } },
-    fees: { subscriptionMonthly: 1199, sessionFixed: 0 },
+    valid_from: new Date(),
+          valid_to: null,
+    ac_price_per_kwh: 49,
+    dc_price_per_kwh: 79 ,
+    roaming_ac_price_per_kwh: 59,
+    roaming_dc_price_per_kwh: 89 ,
+    monthly_base_fee: 1199,
+    session_fee: 0 ,
     created_at: new Date(),
     updated_at: new Date()
   };
@@ -56,9 +61,9 @@ describe('sessionService', () => {
       user_id: 'user-456',
       session_timestamp: new Date('2024-01-01'),
       provider_id: 'provider-1',
-      provider_name: 'Tesla',
+      provider_name_snapshot: 'Tesla',
       charging_plan_id: 'tariff-1',
-      charging_plan_name: 'Supercharger',
+      charging_plan_name_snapshot: 'Supercharger',
       charging_type: 'DC',
       kwh_billed: 40,
       total_cost: 1800,
@@ -96,6 +101,60 @@ describe('sessionService', () => {
     expect(() =>
       prepareSession({ ...input, charging_plan_id: 't1' }, undefined, mockProvider)
     ).toThrow('Charging plan is required for chargingPlan pricing');
+  });
+
+  it('rejects non-positive kwh_billed values', () => {
+    const input = {
+      user_id: 'u1',
+      session_timestamp: new Date(),
+      provider_id: 'p1',
+      charging_plan_id: 't1',
+      charging_type: 'AC' as const,
+      pricing_source: 'chargingPlan' as const,
+      pricing_context: 'standard' as const,
+      kwh_billed: 0,
+    };
+
+    expect(() => prepareSession(input, mockChargingPlan, mockProvider)).toThrow(
+      'kwh_billed must be greater than 0'
+    );
+  });
+
+  it('rejects negative kwh_added values', () => {
+    const input = {
+      user_id: 'u1',
+      session_timestamp: new Date(),
+      provider_id: 'p1',
+      charging_plan_id: 't1',
+      charging_type: 'AC' as const,
+      pricing_source: 'chargingPlan' as const,
+      pricing_context: 'standard' as const,
+      kwh_billed: 10,
+      kwh_added: -0.1,
+    };
+
+    expect(() => prepareSession(input, mockChargingPlan, mockProvider)).toThrow(
+      'kwh_added must be null or greater than or equal to 0'
+    );
+  });
+
+  it('rejects SoC where end is below start', () => {
+    const input = {
+      user_id: 'u1',
+      session_timestamp: new Date(),
+      provider_id: 'p1',
+      charging_plan_id: 't1',
+      charging_type: 'AC' as const,
+      pricing_source: 'chargingPlan' as const,
+      pricing_context: 'standard' as const,
+      kwh_billed: 10,
+      start_soc_percentage: 70,
+      end_soc_percentage: 60,
+    };
+
+    expect(() => prepareSession(input, mockChargingPlan, mockProvider)).toThrow(
+      'end_soc_percentage must be greater than or equal to start_soc_percentage'
+    );
   });
 
   it('requires plan_selection_id for plan mode sessions', () => {
@@ -158,16 +217,16 @@ describe('sessionService', () => {
     expect(session.applied_monthly_base_fee).toBe(1199);
     expect(session.applied_session_fee).toBe(0);
     expect(session.total_cost).toBe(1005);
-    expect(session.provider_name).toBe('Ionity');
-    expect(session.charging_plan_name).toBe('Ionity Passport');
+    expect(session.provider_name_snapshot).toBe('Ionity');
+    expect(session.charging_plan_name_snapshot).toBe('Ionity Passport');
     expect(session.pricing_source).toBe('chargingPlan');
   });
 
-  it('calculates chargingPlan roaming DC total and includes fees.sessionFixed', () => {
+  it('calculates chargingPlan roaming DC total and includes session_fee', () => {
     // Arrange: Use a DC tariff with a fixed session fee.
     const tariffWithFee: ChargingPlan = {
       ...mockChargingPlan,
-      fees: { ...mockChargingPlan.fees, sessionFixed: 150 } // 1.50 EUR
+      session_fee: 150 // 1.50 EUR
     };
 
     const input = {
@@ -197,7 +256,7 @@ describe('sessionService', () => {
     // Arrange: Remove roaming DC price and request roaming DC calculation.
     const planMissingRoamingDc: ChargingPlan = {
       ...mockChargingPlan,
-      prices: { ...mockChargingPlan.prices, roaming: { ...mockChargingPlan.prices.roaming, dc: undefined } }
+      roaming_dc_price_per_kwh: undefined
     };
 
     const input = {
@@ -221,7 +280,7 @@ describe('sessionService', () => {
     const input = {
       user_id: 'u1',
       session_timestamp: new Date(),
-      provider_id: null,
+      provider_id: 'p1',
       charging_plan_id: null,
       charging_type: 'AC' as const,
       pricing_source: 'adHoc' as const,
@@ -237,7 +296,7 @@ describe('sessionService', () => {
     const input = {
       user_id: 'u1',
       session_timestamp: new Date(),
-      provider_id: null,
+      provider_id: 'p1',
       charging_plan_id: null,
       charging_type: 'DC' as const,
       pricing_source: 'adHoc' as const,
@@ -251,10 +310,10 @@ describe('sessionService', () => {
     // Assert: 10*55 + 199 + 50 = 799 cents.
     expect(session.total_cost).toBe(799);
     expect(session.applied_price_per_kwh).toBe(55);
-    expect(session.provider_name).toBe('Guest CPO');
-    expect(session.provider_id).toBeNull();
+    expect(session.provider_name_snapshot).toBe('Guest CPO');
+    expect(session.provider_id).toBe('p1');
     expect(session.charging_plan_id).toBeNull();
-    expect(session.charging_plan_name).toBe('Ad-Hoc');
+    expect(session.charging_plan_name_snapshot).toBe('Ad-Hoc');
     expect(session.pricing_source).toBe('adHoc');
     expect(session.ad_hoc_pricing).toEqual(adHocPricing);
     expect(Number.isInteger(session.total_cost)).toBe(true);
@@ -265,7 +324,7 @@ describe('sessionService', () => {
     const input = {
       user_id: 'u1',
       session_timestamp: new Date(),
-      provider_id: null,
+      provider_id: 'p1',
       charging_plan_id: null,
       charging_type: 'DC' as const,
       pricing_source: 'adHoc' as const,
@@ -282,12 +341,12 @@ describe('sessionService', () => {
     expect(session.total_cost).toBe(414);
   });
 
-  it('ignores charging_plan_id on adHoc sessions', () => {
+  it('rejects charging_plan_id on adHoc sessions', () => {
     // Arrange: pass charging_plan_id alongside ad-hoc pricing.
     const input = {
       user_id: 'u1',
       session_timestamp: new Date(),
-      provider_id: null,
+      provider_id: 'p1',
       charging_plan_id: 'should-not-persist',
       charging_type: 'AC' as const,
       pricing_source: 'adHoc' as const,
@@ -295,12 +354,8 @@ describe('sessionService', () => {
       ad_hoc_pricing: adHocPricing
     };
 
-    // Act
-    const session = prepareSession(input);
-
-    // Assert
-    expect(session.charging_plan_id).toBeNull();
-    expect(session.charging_plan_name).toBe('Ad-Hoc');
+    // Act/Assert
+    expect(() => prepareSession(input)).toThrow('charging_plan_id must be null for adHoc pricing');
   });
 
   it('ignores ad_hoc_pricing on chargingPlan sessions', () => {
@@ -329,7 +384,7 @@ describe('sessionService', () => {
     const input = {
       user_id: 'u1',
       session_timestamp: new Date(),
-      provider_id: null,
+      provider_id: 'p1',
       charging_plan_id: null,
       charging_type: 'DC' as const,
       pricing_source: 'adHoc' as const,
@@ -349,7 +404,7 @@ describe('sessionService', () => {
     const input = {
       user_id: 'u1',
       session_timestamp: new Date(),
-      provider_id: null,
+      provider_id: 'p1',
       charging_plan_id: null,
       charging_type: 'DC' as const,
       pricing_source: 'adHoc' as const,
@@ -370,7 +425,7 @@ describe('sessionService', () => {
     const input = {
       user_id: 'u1',
       session_timestamp: new Date(),
-      provider_id: null,
+      provider_id: 'p1',
       charging_plan_id: null,
       charging_type: 'DC' as const,
       pricing_source: 'adHoc' as const,
@@ -384,14 +439,41 @@ describe('sessionService', () => {
     expect(() => prepareSession(input)).toThrow('ad_hoc_pricing.cpoName is required for adHoc pricing');
   });
 
+  it('requires provider_id when pricing_source is adHoc', () => {
+    const input = {
+      user_id: 'u1',
+      session_timestamp: new Date(),
+      provider_id: '',
+      charging_plan_id: null,
+      charging_type: 'DC' as const,
+      pricing_source: 'adHoc' as const,
+      kwh_billed: 4,
+      ad_hoc_pricing: adHocPricing
+    };
+
+    expect(() => prepareSession(input)).toThrow('provider_id is required for adHoc pricing');
+  });
+
+  it('requires charging_plan_id to be null when pricing_source is adHoc', () => {
+    const input = {
+      user_id: 'u1',
+      session_timestamp: new Date(),
+      provider_id: 'p1',
+      charging_plan_id: 'cp1',
+      charging_type: 'DC' as const,
+      pricing_source: 'adHoc' as const,
+      kwh_billed: 4,
+      ad_hoc_pricing: adHocPricing
+    };
+
+    expect(() => prepareSession(input)).toThrow('charging_plan_id must be null for adHoc pricing');
+  });
+
   it('throws when charging-plan snapped cents are non-integer', () => {
     // Arrange
     const nonIntegerPlan: ChargingPlan = {
       ...mockChargingPlan,
-      prices: {
-        ...mockChargingPlan.prices,
-        domestic: { ...mockChargingPlan.prices.domestic, ac: 49.5 }
-      }
+      ac_price_per_kwh: 49.5
     };
     const input = {
       user_id: 'u1',
@@ -406,7 +488,7 @@ describe('sessionService', () => {
 
     // Act/Assert
     expect(() => prepareSession(input, nonIntegerPlan, mockProvider)).toThrow(
-      'chargingPlan.prices.domestic.ac must be an integer cent amount'
+      'chargingPlan.ac_price_per_kwh must be an integer cent amount'
     );
   });
 
@@ -420,7 +502,7 @@ describe('sessionService', () => {
     // Assert: The local session and matching outbox item are both committed.
     const session = await db.sessions.get('session-123')
     expect(session).toBeDefined()
-    expect(session?.provider_name).toBe('Tesla')
+    expect(session?.provider_name_snapshot).toBe('Tesla')
 
     const outboxItems = await db.sync_outbox.toArray()
     expect(outboxItems).toHaveLength(1)
@@ -454,8 +536,8 @@ describe('sessionService', () => {
     const s1 = buildSessionFixture({
       id: 's1',
       session_timestamp: new Date('2024-01-01'),
-      provider_name: 'P1',
-      charging_plan_name: 'T1',
+      provider_name_snapshot: 'P1',
+      charging_plan_name_snapshot: 'T1',
       total_cost: 100,
       charging_type: 'AC',
       kwh_billed: 10,

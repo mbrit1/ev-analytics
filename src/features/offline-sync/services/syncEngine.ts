@@ -8,9 +8,21 @@ export interface ProcessOutboxOptions {
   now?: () => Date;
 }
 
+interface SyncFailure {
+  errorMessage: string;
+  nonRetryable?: boolean;
+}
+
 function getRetryDelayMs(retryCount: number): number {
   const exponentialDelay = BASE_RETRY_DELAY_MS * (2 ** Math.max(0, retryCount - 1));
   return Math.min(exponentialDelay, MAX_RETRY_DELAY_MS);
+}
+
+function isNonRetryableConstraintViolation(error: unknown): error is { code: string; message: string } {
+  if (!error || typeof error !== 'object') return false;
+  const maybeError = error as { code?: unknown; message?: unknown };
+  return (maybeError.code === '23514' || maybeError.code === '23P01')
+    && typeof maybeError.message === 'string';
 }
 
 /**
@@ -37,12 +49,21 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
       await db.sync_outbox.delete(item.id!);
     } else {
       const retryCount = (item.retry_count ?? 0) + 1;
-      await db.sync_outbox.update(item.id!, {
-        retry_count: retryCount,
-        last_attempt_at: currentTime,
-        next_attempt_at: new Date(currentTime.getTime() + getRetryDelayMs(retryCount)),
-        last_error: result.errorMessage ?? 'Unknown sync error'
-      });
+      if (result.nonRetryable) {
+        await db.sync_outbox.update(item.id!, {
+          retry_count: retryCount,
+          last_attempt_at: currentTime,
+          next_attempt_at: undefined,
+          last_error: result.errorMessage ?? 'Unknown sync error'
+        });
+      } else {
+        await db.sync_outbox.update(item.id!, {
+          retry_count: retryCount,
+          last_attempt_at: currentTime,
+          next_attempt_at: new Date(currentTime.getTime() + getRetryDelayMs(retryCount)),
+          last_error: result.errorMessage ?? 'Unknown sync error'
+        });
+      }
 
       // Later writes may depend on earlier ones, so stop at the first failure
       // rather than skipping ahead and risking out-of-order remote state.
@@ -60,19 +81,19 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
  * @param item - Outbox entry created by a local write operation.
  * @returns Success state and optional error message for retry bookkeeping.
  */
-async function syncItem(item: SyncOutbox): Promise<{ success: boolean; errorMessage?: string }> {
+async function syncItem(item: SyncOutbox): Promise<{ success: true } | ({ success: false } & SyncFailure)> {
   try {
-    let error;
+    let error: { message: string; code?: string } | null = null;
 
     if (item.table_name === 'providers') {
       const result = await supabase.from('providers').upsert(item.payload as Provider);
-      error = result.error;
+      error = result.error as { message: string; code?: string } | null;
     } else if (item.table_name === 'charging_plans') {
       const result = await supabase.from('charging_plans').upsert(item.payload as ChargingPlan);
-      error = result.error;
+      error = result.error as { message: string; code?: string } | null;
     } else if (item.table_name === 'sessions') {
       const result = await supabase.from('charging_sessions').upsert(item.payload as ChargingSession);
-      error = result.error;
+      error = result.error as { message: string; code?: string } | null;
     } else {
       const message = `Unsupported sync table: ${item.table_name}`;
       console.error(message);
@@ -80,6 +101,13 @@ async function syncItem(item: SyncOutbox): Promise<{ success: boolean; errorMess
     }
 
     if (error) {
+      if (isNonRetryableConstraintViolation(error)) {
+        const message = item.table_name === 'charging_plans'
+          ? 'Tariff validity overlaps with an existing active version for this provider and name'
+          : `Validation failed for ${item.table_name}: ${error.message}`;
+        console.error(`Non-retryable sync validation error for table ${item.table_name}:`, error.message);
+        return { success: false, errorMessage: message, nonRetryable: true };
+      }
       console.error(`Sync error for table ${item.table_name}:`, error.message);
       return { success: false, errorMessage: error.message };
     }

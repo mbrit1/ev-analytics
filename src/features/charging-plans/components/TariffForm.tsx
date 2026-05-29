@@ -23,28 +23,10 @@ const tariffFormSchema = z.object({
   dc_price: z.string().optional(),
   roaming_ac_price: z.string().optional(),
   roaming_dc_price: z.string().optional(),
-  subscription_monthly: z.string().optional(),
-  activation_fee: z.string().optional(),
+  monthly_base_fee: z.string().optional(),
   session_fee: z.string().optional(),
-  card_fee: z.string().optional(),
   affiliation: z.string().optional(),
-  other_fee_label: z.string().optional(),
-  other_fee_amount: z.string().optional(),
-  other_fee_notes: z.string().optional(),
   notes: z.string().optional(),
-}).superRefine((values, ctx) => {
-  const hasOtherLabel = (values.other_fee_label ?? '').trim().length > 0;
-  const hasOtherAmount = (values.other_fee_amount ?? '').trim().length > 0;
-  const hasOtherNotes = (values.other_fee_notes ?? '').trim().length > 0;
-  const hasAnyOtherFee = hasOtherLabel || hasOtherAmount || hasOtherNotes;
-
-  if (hasAnyOtherFee && !(hasOtherLabel && hasOtherAmount && hasOtherNotes)) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'Other fee requires label, amount, and notes',
-      path: ['other_fee_label'],
-    });
-  }
 });
 
 type TariffFormSchemaValues = z.infer<typeof tariffFormSchema>;
@@ -71,20 +53,15 @@ export const TariffForm: React.FC<TariffFormProps> = ({ onSubmit, onCancel, init
     defaultValues: {
       plan_name: initialValues?.plan_name ?? '',
       provider_id: initialValues?.provider_id ?? '',
-      valid_from: initialValues?.validity?.from ? formatDateInputValue(initialValues.validity.from) : formatDateInputValue(new Date()),
-      valid_to: initialValues?.validity?.to ? formatDateInputValue(initialValues.validity.to) : '',
-      ac_price: initialValues?.prices?.domestic.ac != null ? formatCentsToDecimal(initialValues.prices.domestic.ac) : '',
-      dc_price: initialValues?.prices?.domestic.dc != null ? formatCentsToDecimal(initialValues.prices.domestic.dc) : '',
-      roaming_ac_price: initialValues?.prices?.roaming?.ac != null ? formatCentsToDecimal(initialValues.prices.roaming.ac) : '',
-      roaming_dc_price: initialValues?.prices?.roaming?.dc != null ? formatCentsToDecimal(initialValues.prices.roaming.dc) : '',
-      subscription_monthly: initialValues?.fees?.subscriptionMonthly != null ? formatCentsToDecimal(initialValues.fees.subscriptionMonthly) : '',
-      activation_fee: initialValues?.fees?.activationOneTime != null ? formatCentsToDecimal(initialValues.fees.activationOneTime) : '',
-      session_fee: initialValues?.fees?.sessionFixed != null ? formatCentsToDecimal(initialValues.fees.sessionFixed) : '',
-      card_fee: initialValues?.fees?.cardFee != null ? formatCentsToDecimal(initialValues.fees.cardFee) : '',
+      valid_from: initialValues?.valid_from ? formatDateInputValue(initialValues.valid_from) : formatDateInputValue(new Date()),
+      valid_to: initialValues?.valid_to ? formatDateInputValue(initialValues.valid_to) : '',
+      ac_price: initialValues?.ac_price_per_kwh != null ? formatCentsToDecimal(initialValues.ac_price_per_kwh) : '',
+      dc_price: initialValues?.dc_price_per_kwh != null ? formatCentsToDecimal(initialValues.dc_price_per_kwh) : '',
+      roaming_ac_price: initialValues?.roaming_ac_price_per_kwh != null ? formatCentsToDecimal(initialValues.roaming_ac_price_per_kwh) : '',
+      roaming_dc_price: initialValues?.roaming_dc_price_per_kwh != null ? formatCentsToDecimal(initialValues.roaming_dc_price_per_kwh) : '',
+      monthly_base_fee: initialValues?.monthly_base_fee != null ? formatCentsToDecimal(initialValues.monthly_base_fee) : '0,00',
+      session_fee: initialValues?.session_fee != null ? formatCentsToDecimal(initialValues.session_fee) : '0,00',
       affiliation: initialValues?.affiliation ?? '',
-      other_fee_label: initialValues?.fees?.other?.[0]?.label ?? '',
-      other_fee_amount: initialValues?.fees?.other?.[0]?.amount != null ? formatCentsToDecimal(initialValues.fees.other[0].amount) : '',
-      other_fee_notes: initialValues?.fees?.other?.[0]?.notes ?? '',
       notes: initialValues?.notes ?? '',
     }
   });
@@ -99,33 +76,14 @@ export const TariffForm: React.FC<TariffFormProps> = ({ onSubmit, onCancel, init
         user_id: initialValues?.user_id ?? '',
         provider_id: values.provider_id,
         plan_name: normalizedPlanName,
-        validity: {
-          from: parseDateInputAsUtc(values.valid_from),
-          to: values.valid_to ? parseDateInputAsUtc(values.valid_to) : undefined
-        },
-        prices: {
-          domestic: {
-            ac: values.ac_price ? parseDecimalToCents(values.ac_price) : undefined,
-            dc: values.dc_price ? parseDecimalToCents(values.dc_price) : undefined,
-          },
-          roaming: {
-            ac: values.roaming_ac_price ? parseDecimalToCents(values.roaming_ac_price) : undefined,
-            dc: values.roaming_dc_price ? parseDecimalToCents(values.roaming_dc_price) : undefined,
-          },
-        },
-        fees: {
-          subscriptionMonthly: values.subscription_monthly ? parseDecimalToCents(values.subscription_monthly) : undefined,
-          activationOneTime: values.activation_fee ? parseDecimalToCents(values.activation_fee) : undefined,
-          sessionFixed: values.session_fee ? parseDecimalToCents(values.session_fee) : undefined,
-          cardFee: values.card_fee ? parseDecimalToCents(values.card_fee) : undefined,
-          other: values.other_fee_label && values.other_fee_amount && values.other_fee_notes
-            ? [{
-              label: values.other_fee_label.trim(),
-              amount: parseDecimalToCents(values.other_fee_amount),
-              notes: values.other_fee_notes.trim(),
-            }]
-            : undefined,
-        },
+        valid_from: parseDateInputAsUtc(values.valid_from),
+        valid_to: values.valid_to ? parseDateInputAsUtc(values.valid_to) : null,
+        ac_price_per_kwh: values.ac_price ? parseDecimalToCents(values.ac_price) : undefined,
+        dc_price_per_kwh: values.dc_price ? parseDecimalToCents(values.dc_price) : undefined,
+        roaming_ac_price_per_kwh: values.roaming_ac_price ? parseDecimalToCents(values.roaming_ac_price) : undefined,
+        roaming_dc_price_per_kwh: values.roaming_dc_price ? parseDecimalToCents(values.roaming_dc_price) : undefined,
+        monthly_base_fee: values.monthly_base_fee ? parseDecimalToCents(values.monthly_base_fee) : 0,
+        session_fee: values.session_fee ? parseDecimalToCents(values.session_fee) : 0,
         affiliation: values.affiliation || undefined,
         notes: values.notes || undefined,
         created_at: initialValues?.created_at ?? now,
@@ -211,18 +169,13 @@ export const TariffForm: React.FC<TariffFormProps> = ({ onSubmit, onCancel, init
 
         <section className="space-y-6" aria-labelledby="tariff-section-additional-fees">
           <h3 id="tariff-section-additional-fees" className="text-[13px] font-semibold text-secondary uppercase tracking-wider">Additional Fees</h3>
-          <ThinInput label="Subscription" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('subscription_monthly')} />
-          <ThinInput label="Activation Fee" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('activation_fee')} />
+          <ThinInput label="Monthly Base Fee" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('monthly_base_fee')} />
           <ThinInput label="Session Fee" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('session_fee')} />
-          <ThinInput label="Card Fee" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('card_fee')} />
         </section>
 
         <section className="space-y-6" aria-labelledby="tariff-section-advanced">
           <h3 id="tariff-section-advanced" className="text-[13px] font-semibold text-secondary uppercase tracking-wider">Advanced</h3>
           <ThinInput label="Affiliation" type="text" {...register('affiliation')} />
-          <ThinInput label="Other Fee Label" type="text" {...register('other_fee_label')} error={errors.other_fee_label?.message} />
-          <ThinInput label="Other Fee Amount" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('other_fee_amount')} />
-          <ThinInput label="Other Fee Notes" type="text" {...register('other_fee_notes')} />
           <ThinInput label="Notes" type="text" {...register('notes')} />
         </section>
 

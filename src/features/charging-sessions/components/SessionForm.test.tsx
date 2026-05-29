@@ -31,22 +31,34 @@ describe('SessionForm', () => {
           id: 't1',
           plan_name: 'P1 Home',
           provider_id: 'p1',
-          prices: { domestic: { ac: 40, dc: 60 }, roaming: { ac: 50, dc: 70 } },
-          fees: { sessionFixed: 0 }
+          ac_price_per_kwh: 40,
+          dc_price_per_kwh: 60,
+          roaming_ac_price_per_kwh: 50,
+          roaming_dc_price_per_kwh: 70,
+          monthly_base_fee: 0,
+          session_fee: 0
         },
         {
           id: 't2',
           plan_name: 'P1 Flex',
           provider_id: 'p1',
-          prices: { domestic: { ac: 44, dc: 64 }, roaming: { ac: 54, dc: 74 } },
-          fees: { sessionFixed: 0 }
+          ac_price_per_kwh: 44,
+          dc_price_per_kwh: 64,
+          roaming_ac_price_per_kwh: 54,
+          roaming_dc_price_per_kwh: 74,
+          monthly_base_fee: 0,
+          session_fee: 0
         },
         {
           id: 't3',
           plan_name: 'P2 Solo',
           provider_id: 'p2',
-          prices: { domestic: { ac: 39, dc: 59 }, roaming: { ac: 49, dc: 69 } },
-          fees: { sessionFixed: 0 }
+          ac_price_per_kwh: 39,
+          dc_price_per_kwh: 59,
+          roaming_ac_price_per_kwh: 49,
+          roaming_dc_price_per_kwh: 69,
+          monthly_base_fee: 0,
+          session_fee: 0
         }
       ] as unknown as ChargingPlan[],
       isLoading: false,
@@ -81,7 +93,7 @@ describe('SessionForm', () => {
     
     // Assert: Core data-entry controls are present.
     expect(screen.getByLabelText(/date/i)).toBeDefined();
-    expect(screen.getByLabelText(/charging plan provider/i)).toBeDefined();
+    expect(screen.getByLabelText(/provider/i)).toBeDefined();
     expect(screen.getByText(/pricing source/i)).toBeDefined();
     expect(screen.getByLabelText(/^plan\s*\*?$/i)).toBeDefined();
     expect(screen.getByText(/charging type/i)).toBeDefined();
@@ -97,7 +109,7 @@ describe('SessionForm', () => {
     // Assert: Charging plan mode controls are visible.
     expect(screen.getByRole('radio', { name: /charging plan/i })).toBeDefined();
     expect(screen.getByRole('radio', { name: /ad-hoc/i })).toBeDefined();
-    expect(screen.getByLabelText(/charging plan provider/i)).toBeDefined();
+    expect(screen.getByLabelText(/provider/i)).toBeDefined();
     expect(screen.getByLabelText(/^plan\s*\*?$/i)).toBeDefined();
     expect(screen.getByText(/pricing mode/i)).toBeDefined();
   });
@@ -110,7 +122,7 @@ describe('SessionForm', () => {
     fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
 
     // Assert: Provider and plan selectors are hidden and ad-hoc fields appear.
-    expect(screen.queryByLabelText(/charging plan provider/i)).toBeNull();
+    expect(screen.getByLabelText(/provider/i)).toBeDefined();
     expect(screen.queryByLabelText(/^plan\s*\*?$/i)).toBeNull();
     expect(screen.getByLabelText(/cpo\/operator/i)).toBeDefined();
     expect(screen.getByLabelText(/price per kwh/i)).toBeDefined();
@@ -125,7 +137,7 @@ describe('SessionForm', () => {
 
     // Assert: Required labels include textual marker.
     expect(getLabelByTextContent('Date *')).toBeDefined();
-    expect(getLabelByTextContent('Charging Plan Provider *')).toBeDefined();
+    expect(getLabelByTextContent('Provider *')).toBeDefined();
     expect(getLabelByTextContent('Plan *')).toBeDefined();
     expect(getLabelByTextContent('kWh Billed *')).toBeDefined();
   });
@@ -140,7 +152,7 @@ describe('SessionForm', () => {
     expect(getLabelByTextContent('CPO/Operator *')).toBeDefined();
     expect(getLabelByTextContent('Price per kWh *')).toBeDefined();
     expect(getLabelByTextContent('kWh Billed *')).toBeDefined();
-    expect(screen.queryByLabelText(/charging plan provider/i)).toBeNull();
+    expect(screen.getByLabelText(/provider/i)).toBeDefined();
     expect(screen.queryByLabelText(/^plan\s*\*?$/i)).toBeNull();
   });
 
@@ -151,8 +163,8 @@ describe('SessionForm', () => {
     // Assert: Native required controls are explicitly marked.
     expect(screen.getByLabelText(/date/i)).toHaveAttribute('required');
     expect(screen.getByLabelText(/date/i)).toHaveAttribute('aria-required', 'true');
-    expect(screen.getByLabelText(/charging plan provider/i)).toHaveAttribute('required');
-    expect(screen.getByLabelText(/charging plan provider/i)).toHaveAttribute('aria-required', 'true');
+    expect(screen.getByLabelText(/provider/i)).toHaveAttribute('required');
+    expect(screen.getByLabelText(/provider/i)).toHaveAttribute('aria-required', 'true');
     expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveAttribute('required');
     expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveAttribute('aria-required', 'true');
     expect(screen.getByLabelText(/kwh billed/i)).toHaveAttribute('required');
@@ -238,7 +250,7 @@ describe('SessionForm', () => {
     });
   });
 
-  it('opens in ad-hoc mode when initial values use pricing_source adHoc', () => {
+  it('opens in ad-hoc mode and clears stale charging_plan_id from legacy initial values', async () => {
     // Arrange: newer payload without compatibility field should map mode on load.
     const initialValues = {
       session_timestamp: new Date('2024-05-15'),
@@ -247,20 +259,37 @@ describe('SessionForm', () => {
       kwh_billed: 25.5,
       charging_type: 'AC' as const,
       pricing_source: 'adHoc' as const,
+      ad_hoc_pricing: {
+        cpoName: 'FastNet',
+        pricePerKwh: 59
+      },
     } as unknown as Partial<import('../../../infra/db').ChargingSession>;
 
     // Act: Render with ad-hoc initial values.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
     // Assert: ad-hoc fields are visible.
     expect(screen.getByLabelText(/cpo\/operator/i)).toBeDefined();
-    expect(screen.queryByLabelText(/charging plan provider/i)).toBeNull();
+    expect(screen.getByLabelText(/provider/i)).toBeDefined();
     expect(screen.queryByLabelText(/^plan\s*\*?$/i)).toBeNull();
+
+    // Act: submit without touching pricing source fields.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: stale plan id is normalized away for ad-hoc submissions.
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pricing_source: 'adHoc',
+          charging_plan_id: null
+        })
+      );
+    });
   });
 
   it('submits with optional SoC left empty', async () => {
     // Arrange: Render form with required provider/tariff defaults.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/charging plan provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
     fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't1' } });
     fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10,0' } });
     fireEvent.change(screen.getByLabelText(/start soc/i), { target: { value: '' } });
@@ -279,6 +308,7 @@ describe('SessionForm', () => {
     // Arrange: Fill required session fields in ad-hoc mode.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
     fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10,5' } });
     fireEvent.change(screen.getByLabelText(/cpo\/operator/i), { target: { value: 'FastNet' } });
     fireEvent.change(screen.getByLabelText(/price per kwh/i), { target: { value: '0,59' } });
@@ -295,7 +325,7 @@ describe('SessionForm', () => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           pricing_source: 'adHoc',
-          provider_id: null,
+          provider_id: 'p1',
           charging_plan_id: null,
           ad_hoc_pricing: expect.objectContaining({
             cpoName: 'FastNet',
@@ -319,14 +349,14 @@ describe('SessionForm', () => {
 
     // Assert: plan is disabled until provider is selected.
     expect(planSelect).toBeDisabled();
-    fireEvent.change(screen.getByLabelText(/charging plan provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
     expect(planSelect).not.toBeDisabled();
   });
 
   it('shows only plans belonging to the selected provider', () => {
     // Arrange: render and choose provider p1.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/charging plan provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
 
     // Act: read displayed plan option labels.
     const optionLabels = Array.from(screen.getByLabelText(/^plan\s*\*?$/i).querySelectorAll('option'))
@@ -343,7 +373,7 @@ describe('SessionForm', () => {
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
 
     // Act: choose provider p2, which has a single available plan.
-    fireEvent.change(screen.getByLabelText(/charging plan provider/i), { target: { value: 'p2' } });
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p2' } });
 
     // Assert: the single matching plan is selected automatically.
     expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('t3');
@@ -352,11 +382,11 @@ describe('SessionForm', () => {
   it('clears stale plan when provider changes to one that does not own it', () => {
     // Arrange: choose provider p1 and its plan first.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/charging plan provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
     fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't1' } });
 
     // Act: switch provider to p2.
-    fireEvent.change(screen.getByLabelText(/charging plan provider/i), { target: { value: 'p2' } });
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p2' } });
 
     // Assert: stale selection is replaced with the only valid p2 plan.
     expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('t3');
@@ -383,7 +413,7 @@ describe('SessionForm', () => {
   it('disables plan select when selected provider has no plans', () => {
     // Arrange: render form and select a provider without plans.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/charging plan provider/i), { target: { value: 'p3' } });
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p3' } });
 
     // Assert: plan select is disabled because there are no options to choose.
     expect(screen.getByLabelText(/^plan\s*\*?$/i)).toBeDisabled();
@@ -392,7 +422,7 @@ describe('SessionForm', () => {
   it('shows plan required validation when charging-plan mode has no selected plan', async () => {
     // Arrange: pick provider with multiple plans but do not select one.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/charging plan provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
     fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10,5' } });
 
     // Act: submit while plan remains empty.
@@ -401,6 +431,60 @@ describe('SessionForm', () => {
     // Assert: field-level validation blocks submit and explains missing plan.
     await waitFor(() => {
       expect(screen.getByText(/plan is required/i)).toBeDefined();
+    });
+    expect(mockOnSubmit).not.toHaveBeenCalled();
+  });
+
+  it('shows validation feedback when kwh billed is zero', async () => {
+    // Arrange: pick provider+plan and set invalid zero billed kWh.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't1' } });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '0' } });
+
+    // Act
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert
+    await waitFor(() => {
+      expect(screen.getByText(/must be greater than 0/i)).toBeDefined();
+    });
+    expect(mockOnSubmit).not.toHaveBeenCalled();
+  });
+
+  it('shows validation feedback when kwh added is negative', async () => {
+    // Arrange: pick provider+plan and set invalid negative added kWh.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't1' } });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText(/kwh added/i), { target: { value: '-1' } });
+
+    // Act
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert
+    await waitFor(() => {
+      expect(screen.getByText(/invalid kwh format/i)).toBeDefined();
+    });
+    expect(mockOnSubmit).not.toHaveBeenCalled();
+  });
+
+  it('shows validation feedback when end SoC is below start SoC', async () => {
+    // Arrange: pick provider+plan and set reversed SoC values.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't1' } });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText(/start soc/i), { target: { value: '80' } });
+    fireEvent.change(screen.getByLabelText(/end soc/i), { target: { value: '60' } });
+
+    // Act
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert
+    await waitFor(() => {
+      expect(screen.getByText(/end soc must be greater than or equal to start soc/i)).toBeDefined();
     });
     expect(mockOnSubmit).not.toHaveBeenCalled();
   });

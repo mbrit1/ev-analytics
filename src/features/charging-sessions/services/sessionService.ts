@@ -61,6 +61,29 @@ export function prepareSession(
     }
     return assertIntegerCents(value, label);
   };
+  const assertChargingSessionInvariants = (baseInput: SessionPreparationInput): void => {
+    if (!(baseInput.kwh_billed > 0)) {
+      throw new Error('kwh_billed must be greater than 0');
+    }
+    if (baseInput.kwh_added != null && baseInput.kwh_added < 0) {
+      throw new Error('kwh_added must be null or greater than or equal to 0');
+    }
+    if (
+      baseInput.start_soc_percentage != null
+      && baseInput.end_soc_percentage != null
+      && baseInput.end_soc_percentage < baseInput.start_soc_percentage
+    ) {
+      throw new Error('end_soc_percentage must be greater than or equal to start_soc_percentage');
+    }
+  };
+  const assertNonNegativeTotalCost = (totalCost: number): number => {
+    if (totalCost < 0) {
+      throw new Error('total_cost must be greater than or equal to 0');
+    }
+    return totalCost;
+  };
+
+  assertChargingSessionInvariants(input);
 
   if (input.pricing_source === 'chargingPlan') {
     if (!input.provider_id) {
@@ -79,8 +102,8 @@ export function prepareSession(
     const resolveAppliedPricePerKwh = (): number => {
       if (input.pricing_context === 'roaming') {
         const roamingPrice = input.charging_type === 'AC'
-          ? chargingPlan.prices.roaming?.ac
-          : chargingPlan.prices.roaming?.dc;
+          ? chargingPlan.roaming_ac_price_per_kwh
+          : chargingPlan.roaming_dc_price_per_kwh;
         if (roamingPrice == null) {
           throw new Error(`No matching roaming ${input.charging_type} price for selected charging plan`);
         }
@@ -88,8 +111,8 @@ export function prepareSession(
       }
 
       const domesticPrice = input.charging_type === 'AC'
-        ? chargingPlan.prices.domestic.ac
-        : chargingPlan.prices.domestic.dc;
+        ? chargingPlan.ac_price_per_kwh
+        : chargingPlan.dc_price_per_kwh;
       if (domesticPrice == null) {
         throw new Error(`No matching domestic ${input.charging_type} price for selected charging plan`);
       }
@@ -98,31 +121,33 @@ export function prepareSession(
 
     const appliedPricePerKwh = resolveAppliedPricePerKwh();
     const appliedDomesticAc = assertOptionalIntegerCents(
-      chargingPlan.prices.domestic.ac,
-      'chargingPlan.prices.domestic.ac'
+      chargingPlan.ac_price_per_kwh,
+      'chargingPlan.ac_price_per_kwh'
     );
     const appliedDomesticDc = assertOptionalIntegerCents(
-      chargingPlan.prices.domestic.dc,
-      'chargingPlan.prices.domestic.dc'
+      chargingPlan.dc_price_per_kwh,
+      'chargingPlan.dc_price_per_kwh'
     );
     const appliedRoamingAc = assertOptionalIntegerCents(
-      chargingPlan.prices.roaming?.ac,
-      'chargingPlan.prices.roaming.ac'
+      chargingPlan.roaming_ac_price_per_kwh,
+      'chargingPlan.roaming_ac_price_per_kwh'
     );
     const appliedRoamingDc = assertOptionalIntegerCents(
-      chargingPlan.prices.roaming?.dc,
-      'chargingPlan.prices.roaming.dc'
+      chargingPlan.roaming_dc_price_per_kwh,
+      'chargingPlan.roaming_dc_price_per_kwh'
     );
     const appliedMonthlyBaseFee = assertOptionalIntegerCents(
-      chargingPlan.fees.subscriptionMonthly,
-      'chargingPlan.fees.subscriptionMonthly'
+      chargingPlan.monthly_base_fee,
+      'chargingPlan.monthly_base_fee'
     );
     const appliedSessionFee = assertOptionalIntegerCents(
-      chargingPlan.fees.sessionFixed,
-      'chargingPlan.fees.sessionFixed'
+      chargingPlan.session_fee,
+      'chargingPlan.session_fee'
     ) ?? 0;
     const normalizedAppliedPricePerKwh = assertIntegerCents(appliedPricePerKwh, 'applied_price_per_kwh');
-    const totalCost = Math.round(input.kwh_billed * normalizedAppliedPricePerKwh) + appliedSessionFee;
+    const totalCost = assertNonNegativeTotalCost(
+      Math.round(input.kwh_billed * normalizedAppliedPricePerKwh) + appliedSessionFee
+    );
 
     return {
       ...input,
@@ -135,10 +160,10 @@ export function prepareSession(
         kWhPrice: normalizedAppliedPricePerKwh,
         sessionFee: appliedSessionFee
       },
-      provider_name: provider.name,
+      provider_name_snapshot: provider.name,
       provider_id: input.provider_id,
       charging_plan_id: input.charging_plan_id,
-      charging_plan_name: chargingPlan.plan_name,
+      charging_plan_name_snapshot: chargingPlan.plan_name,
       total_cost: totalCost,
       applied_price_per_kwh: normalizedAppliedPricePerKwh,
       applied_ac_price_per_kwh: appliedDomesticAc,
@@ -155,6 +180,12 @@ export function prepareSession(
 
   if (!input.ad_hoc_pricing) {
     throw new Error('ad_hoc_pricing is required for adHoc pricing');
+  }
+  if (!input.provider_id) {
+    throw new Error('provider_id is required for adHoc pricing');
+  }
+  if (input.charging_plan_id != null) {
+    throw new Error('charging_plan_id must be null for adHoc pricing');
   }
   if (!input.ad_hoc_pricing.cpoName?.trim()) {
     throw new Error('ad_hoc_pricing.cpoName is required for adHoc pricing');
@@ -184,6 +215,8 @@ export function prepareSession(
   }, 0) ?? 0;
   const cpoName = cpoNameRaw.trim();
 
+  const totalCost = assertNonNegativeTotalCost(perKwhCost + sessionCost + otherFeesTotal);
+
   return {
     ...input,
     id: crypto.randomUUID(),
@@ -196,11 +229,11 @@ export function prepareSession(
       sessionFee: sessionCost,
       blockingFee: otherFeesTotal > 0 ? otherFeesTotal : undefined
     },
-    provider_id: null,
-    provider_name: cpoName,
+    provider_id: input.provider_id,
+    provider_name_snapshot: cpoName,
     charging_plan_id: null,
-    charging_plan_name: 'Ad-Hoc',
-    total_cost: perKwhCost + sessionCost + otherFeesTotal,
+    charging_plan_name_snapshot: 'Ad-Hoc',
+    total_cost: totalCost,
     ad_hoc_pricing: adHocSnapshot,
     applied_price_per_kwh: pricePerKwh ?? undefined,
     applied_ac_price_per_kwh: undefined,
