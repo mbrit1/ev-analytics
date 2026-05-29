@@ -61,9 +61,9 @@ export const ChargingHistory: React.FC = () => {
                 </h3>
                 <div className="flex flex-wrap items-center gap-3">
                   <p className="text-sm text-secondary font-medium">
-                    {(session.session_mode === 'adHoc' ? 'Ad-Hoc' : (session.price_snapshot?.label ?? session.charging_plan_name_snapshot ?? 'Charging Plan'))} • {session.charging_type}
+                    {(session.session_mode === 'ad_hoc' ? 'Ad-Hoc' : (session.price_snapshot?.label ?? session.charging_plan_name_snapshot ?? 'Charging Plan'))} • {session.charging_type}
                   </p>
-                  {session.session_mode === 'adHoc' && (() => {
+                  {session.session_mode === 'ad_hoc' && (() => {
                     const cpoName = session.ad_hoc_pricing?.cpoName?.trim();
                     const providerName = session.provider_name_snapshot.trim().toLowerCase();
                     const shouldShowCpoName = cpoName != null && cpoName.toLowerCase() !== providerName;

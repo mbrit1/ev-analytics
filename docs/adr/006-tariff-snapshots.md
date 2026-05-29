@@ -9,14 +9,14 @@ Charging prices in Europe (and globally) are dynamic. Users may either charge ag
 ## Decision
 We will use a **Snapshot Strategy** for charging-session pricing.
 
-1. **Charging-plan sessions:** When a `ChargingSession` uses `pricing_source = chargingPlan`, we copy the effective plan price components and session fee into applied snapshot fields on the session row.
-2. **Ad-hoc sessions:** When `pricing_source = adHoc`, we store a full `ad_hoc_pricing` snapshot object on the session so no saved plan is required. In this mode, `charging_plan_name` remains `NULL` and the UI uses an `Ad-Hoc` fallback label.
+1. **Charging-plan sessions:** When a `ChargingSession` uses `session_mode = plan`, we copy the effective plan price components and session fee into applied snapshot fields on the session row.
+2. **Ad-hoc sessions:** When `session_mode = ad_hoc`, we store a full `ad_hoc_pricing` snapshot object on the session so no saved plan is required. In this mode, `charging_plan_name` remains `NULL` and the UI uses an `Ad-Hoc` fallback label.
 3. **Calculated cost:** `total_cost` is calculated during entry from the selected source and stored as a static integer (cents).
 4. **UI display:** History and analytics read session snapshots first, so historical rows remain stable even if plans are edited/deleted later.
 
 ## Snapshot Fields On `ChargingSession`
-- `pricing_source`: `'chargingPlan' | 'adHoc'`
-- `charging_plan_id` (nullable for ad-hoc)
+- `session_mode`: `'plan' | 'ad_hoc'`
+- `tariff_plan_id` (nullable for ad-hoc)
 - `charging_plan_name` (nullable for ad-hoc)
 - `ad_hoc_pricing` (JSON snapshot for ad-hoc sessions)
 - `applied_ac_price_per_kwh`: Integer (cents)

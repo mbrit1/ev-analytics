@@ -3,7 +3,7 @@
 ## Summary
 Perform a hard cutover from legacy session pricing semantics to a strict two-mode model:
 - `sessionMode = plan`
-- `sessionMode = adHoc`
+- `sessionMode = ad_hoc`
 
 `Ad-Hoc` remains an explicit exception path and must not be represented as a tariff/plan contract relationship.
 
@@ -12,7 +12,7 @@ Production currently has no data, so we can perform schema-level breaking change
 ## Locked Domain Model
 
 ```ts
-type SessionMode = 'plan' | 'adHoc';
+type SessionMode = 'plan' | 'ad_hoc';
 
 type PriceSnapshot = {
   label: string;      // "EnBW L" or "Ad-Hoc"
@@ -61,7 +61,7 @@ type ProviderPlanSelection = {
 2. If `sessionMode === 'plan'`:
 - `tariffPlanId` is required.
 - `priceSnapshot` is derived from selected plan pricing and stored as immutable snapshot.
-3. If `sessionMode === 'adHoc'`:
+3. If `sessionMode === 'ad_hoc'`:
 - `tariffPlanId` is forbidden.
 - `priceSnapshot` is required and user-provided (one-off public pricing evidence).
 4. Provider may exist without selected plan only in catalog/admin state.
@@ -87,8 +87,8 @@ Behavior:
 ## Hard Cutover Scope
 
 Replace legacy semantics across domain, form, service, DB, and sync layers in one release:
-- Remove `pricing_source` from session model.
-- Remove legacy compatibility branches that map `tariff_id`/`charging_plan_id` variants.
+- Remove `session_mode` from session model.
+- Remove legacy compatibility branches that map `tariff_id`/`tariff_plan_id` variants.
 - Canonical session fields become `session_mode`, `tariff_plan_id`, and `plan_selection_id` (DB snake_case).
 - Canonical domain naming uses `tariffPlanId` and `sessionMode`.
 
@@ -110,7 +110,7 @@ Because production has no persisted rows, no user-data backfill logic is require
 - Save is blocked unless snapshot requirements are satisfied.
 
 ### Mode Switching Rules
-- Switching to `adHoc` clears `tariffPlanId` immediately.
+- Switching to `ad_hoc` clears `tariffPlanId` immediately.
 - Switching to `plan` clears ad-hoc-only payload from submission path.
 - Field-level validation messages must be rendered (no silent submit returns).
 
@@ -125,7 +125,7 @@ For `sessionMode = plan`, sessions must reference the selected history period ro
 ```ts
 type ChargingSession = {
   providerId: string;
-  sessionMode: 'plan' | 'adHoc';
+  sessionMode: 'plan' | 'ad_hoc';
   tariffPlanId?: string;
   planSelectionId?: string;
   priceSnapshot: PriceSnapshot;
@@ -158,7 +158,7 @@ Ad-hoc mode requirements:
 - Update `charging_sessions` columns to canonical cutover fields.
 - Add DB constraints/checks for invariants:
   - `session_mode = 'plan'` requires `tariff_plan_id IS NOT NULL` and `plan_selection_id IS NOT NULL`.
-  - `session_mode = 'adHoc'` requires `tariff_plan_id IS NULL`, `plan_selection_id IS NULL`, and snapshot payload present.
+  - `session_mode = 'ad_hoc'` requires `tariff_plan_id IS NULL`, `plan_selection_id IS NULL`, and snapshot payload present.
   - `plan_selection_id` must reference a `provider_plan_selections.id` row with matching `provider_id` and `tariff_plan_id`.
 - Preserve default-deny RLS and authenticated single-user policy posture.
 
@@ -170,7 +170,7 @@ Ad-hoc mode requirements:
 ## Error Handling
 
 - Validation failures are surfaced as field errors in forms and explicit exceptions in domain service boundaries.
-- Illegal state transitions (e.g., persisting `adHoc` with `tariffPlanId` or `planSelectionId`) are rejected in service logic even if UI checks fail.
+- Illegal state transitions (e.g., persisting `ad_hoc` with `tariffPlanId` or `planSelectionId`) are rejected in service logic even if UI checks fail.
 - Plan-selection history writes must reject overlaps for same provider.
 
 ## Testing Strategy
@@ -178,7 +178,7 @@ Ad-hoc mode requirements:
 ### Unit / Service Tests
 - `plan` mode requires provider + tariffPlanId.
 - `plan` mode requires provider + tariffPlanId + planSelectionId.
-- `adHoc` mode forbids tariffPlanId/planSelectionId and requires priceSnapshot.
+- `ad_hoc` mode forbids tariffPlanId/planSelectionId and requires priceSnapshot.
 - Snapshot immutability preserved after session write.
 - Provider-plan switch closes old selection and opens new window.
 - Re-selecting an older plan creates a new `ProviderPlanSelection` row with a new `id` and fresh snapshot.
@@ -202,7 +202,7 @@ Ad-hoc mode requirements:
 
 ## Risks and Mitigations
 
-1. Naming churn risk (`chargingPlan` vs `tariffPlan` vocabulary drift).
+1. Naming churn risk (`plan` vs `tariffPlan` vocabulary drift).
 - Mitigation: enforce canonical type/field names in domain layer and map once at boundaries.
 
 2. Regression risk in existing ad-hoc path.

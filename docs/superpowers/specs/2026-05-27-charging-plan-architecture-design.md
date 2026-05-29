@@ -1,7 +1,7 @@
 # Charging Plan Architecture Design
 
 ## Summary
-Refactor the current Tariffs feature into an internal `ChargingPlan` domain while keeping the user-facing navigation label “Tariffs”. Persist plans in renamed `charging_plans` stores/tables, remove `planType`/`tariff_kind`, remove detached fixed tariff costs, and support v1 session pricing sources: `chargingPlan` and `adHoc`.
+Refactor the current Tariffs feature into an internal `ChargingPlan` domain while keeping the user-facing navigation label “Tariffs”. Persist plans in renamed `charging_plans` stores/tables, remove `planType`/`tariff_kind`, remove detached fixed tariff costs, and support v1 session pricing sources: `plan` and `ad_hoc`.
 
 Assumptions locked:
 - Production has no data, so breaking Supabase/Dexie migrations are acceptable.
@@ -18,8 +18,8 @@ Assumptions locked:
   - `fees.subscriptionMonthly`, `activationOneTime`, `sessionFixed`, `cardFee`, `other[]`
   - optional `affiliation` and `notes`
 - Replace session pricing context with:
-  - `pricing_source: 'chargingPlan' | 'adHoc'`
-  - `charging_plan_id?: string | null`
+  - `session_mode: 'plan' | 'ad_hoc'`
+  - `tariff_plan_id?: string | null`
   - `charging_plan_name?: string | null`
   - `ad_hoc_pricing?: AdHocPricingSnapshot | null`
 - Keep historical session snapshots for applied prices/fees, but rename tariff-specific snapshot fields to charging-plan terminology.
@@ -40,9 +40,9 @@ Assumptions locked:
   - `fees.other[]` entries require `label`, `amount`, and `notes`
   - `validity.from` is required, `validity.to` is nullable.
 - Update session preparation:
-  - for `pricing_source = 'chargingPlan'`, require `charging_plan_id`, provider, and selected plan; use domestic or roaming prices from the plan and add `fees.sessionFixed`.
-  - for `pricing_source = 'adHoc'`, require `ad_hoc_pricing`; compute from `pricePerKwh`, optional per-minute/session/other fees where provided; do not require a saved plan.
-  - ignore `ad_hoc_pricing` for plan sessions and ignore `charging_plan_id` for ad-hoc sessions.
+  - for `session_mode = 'plan'`, require `tariff_plan_id`, provider, and selected plan; use domestic or roaming prices from the plan and add `fees.sessionFixed`.
+  - for `session_mode = 'ad_hoc'`, require `ad_hoc_pricing`; compute from `pricePerKwh`, optional per-minute/session/other fees where provided; do not require a saved plan.
+  - ignore `ad_hoc_pricing` for plan sessions and ignore `tariff_plan_id` for ad-hoc sessions.
 - Redesign the Tariffs page cards:
   - primary: plan/provider name and domestic AC/DC prices with tabular numbers
   - secondary: roaming availability/prices
@@ -71,8 +71,8 @@ Assumptions locked:
   - charging-plan domestic AC/DC cost calculation
   - charging-plan roaming AC/DC cost calculation
   - ad-hoc cost calculation with kWh, session fee, and other fees
-  - missing plan for `chargingPlan` throws
-  - missing ad-hoc pricing for `adHoc` throws
+  - missing plan for `plan` throws
+  - missing ad-hoc pricing for `ad_hoc` throws
   - snapshots remain stable.
 - Sync tests:
   - uploads `charging_plans` to Supabase `charging_plans`

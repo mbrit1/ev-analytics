@@ -15,7 +15,7 @@ export interface TariffFormProps {
 }
 
 const tariffFormSchema = z.object({
-  plan_name: z.string().optional(),
+  name: z.string().optional(),
   provider_id: z.string().min(1, 'Provider is required'),
   valid_from: z.string().min(1, 'Valid from date is required'),
   valid_to: z.string().optional(),
@@ -51,7 +51,7 @@ export const TariffForm: React.FC<TariffFormProps> = ({ onSubmit, onCancel, init
   const { register, handleSubmit, control, setError, clearErrors, formState: { errors, isSubmitting } } = useForm<TariffFormSchemaValues>({
     resolver: zodResolver(tariffFormSchema),
     defaultValues: {
-      plan_name: initialValues?.plan_name ?? '',
+      name: initialValues?.name ?? '',
       provider_id: initialValues?.provider_id ?? '',
       valid_from: initialValues?.valid_from ? formatDateInputValue(initialValues.valid_from) : formatDateInputValue(new Date()),
       valid_to: initialValues?.valid_to ? formatDateInputValue(initialValues.valid_to) : '',
@@ -68,14 +68,14 @@ export const TariffForm: React.FC<TariffFormProps> = ({ onSubmit, onCancel, init
 
   const handleFormSubmit = async (values: TariffFormSchemaValues) => {
     const now = new Date();
-    const normalizedPlanName = (values.plan_name ?? '').trim();
+    const normalizedPlanName = (values.name ?? '').trim();
     clearErrors('root.submit');
     try {
       await onSubmit({
         id: initialValues?.id ?? crypto.randomUUID(),
         user_id: initialValues?.user_id ?? '',
         provider_id: values.provider_id,
-        plan_name: normalizedPlanName,
+        name: normalizedPlanName,
         valid_from: parseDateInputAsUtc(values.valid_from),
         valid_to: values.valid_to ? parseDateInputAsUtc(values.valid_to) : null,
         ac_price_per_kwh: values.ac_price ? parseDecimalToCents(values.ac_price) : undefined,
@@ -120,7 +120,7 @@ export const TariffForm: React.FC<TariffFormProps> = ({ onSubmit, onCancel, init
         )}
         <section className="space-y-6" aria-labelledby="tariff-section-identity">
           <h3 id="tariff-section-identity" className="text-[13px] font-semibold text-secondary uppercase tracking-wider">Identity</h3>
-          <ThinInput label="Tariff Name (Optional)" type="text" {...register('plan_name')} error={errors.plan_name?.message} />
+          <ThinInput label="Tariff Name (Optional)" type="text" {...register('name')} error={errors.name?.message} />
           <div className="flex flex-col">
             <label htmlFor="provider_id" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
               Provider <span className="text-primary" aria-hidden="true">*</span>

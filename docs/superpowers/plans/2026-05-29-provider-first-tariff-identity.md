@@ -127,8 +127,8 @@ git commit -m "refactor(tariffs): make tariff name optional and normalize blank 
 ### Task 3: Enforce one unnamed tariff per provider in save service
 
 **Files:**
-- Modify: `src/features/charging-plans/services/chargingPlanService.ts`
-- Create (if missing) or Modify: `src/features/charging-plans/services/chargingPlanService.test.ts`
+- Modify: `src/features/charging-plans/services/planService.ts`
+- Create (if missing) or Modify: `src/features/charging-plans/services/planService.test.ts`
 
 - [ ] **Step 1: Write failing service tests for unnamed-variant invariant**
 ```ts
@@ -154,19 +154,19 @@ it('allows unnamed tariffs on different providers', async () => {
 ```
 
 - [ ] **Step 2: Run service tests to verify failure first**
-Run: `npm run test -- --run src/features/charging-plans/services/chargingPlanService.test.ts`  
+Run: `npm run test -- --run src/features/charging-plans/services/planService.test.ts`  
 Expected: FAIL because invariant is not enforced.
 
 - [ ] **Step 3: Implement unnamed-variant validation in save path**
 ```ts
-const normalizedPlanName = (chargingPlan.plan_name ?? '').trim();
+const normalizedPlanName = (plan.plan_name ?? '').trim();
 const isUnnamed = normalizedPlanName.length === 0;
 
 if (isUnnamed) {
   const duplicateUnnamed = await db.charging_plans
     .where('provider_id')
-    .equals(chargingPlan.provider_id)
-    .filter((plan) => !plan.deleted_at && plan.id !== chargingPlan.id && (plan.plan_name ?? '').trim().length === 0)
+    .equals(plan.provider_id)
+    .filter((plan) => !plan.deleted_at && plan.id !== plan.id && (plan.plan_name ?? '').trim().length === 0)
     .first();
 
   if (duplicateUnnamed) {
@@ -179,12 +179,12 @@ plan_name: normalizedPlanName,
 ```
 
 - [ ] **Step 4: Re-run service tests to verify pass**
-Run: `npm run test -- --run src/features/charging-plans/services/chargingPlanService.test.ts`  
+Run: `npm run test -- --run src/features/charging-plans/services/planService.test.ts`  
 Expected: PASS.
 
 - [ ] **Step 5: Commit service invariant changes**
 ```bash
-git add src/features/charging-plans/services/chargingPlanService.ts src/features/charging-plans/services/chargingPlanService.test.ts
+git add src/features/charging-plans/services/planService.ts src/features/charging-plans/services/planService.test.ts
 git commit -m "feat(tariffs): enforce single unnamed tariff per provider"
 ```
 
@@ -242,7 +242,7 @@ git commit -m "feat(tariffs): surface unnamed variant validation errors in form"
 - Modify: none
 
 - [ ] **Step 1: Run targeted tariff suite**
-Run: `npm run test -- --run src/features/charging-plans/components/TariffList.test.tsx src/features/charging-plans/components/TariffForm.test.tsx src/features/charging-plans/services/chargingPlanService.test.ts`  
+Run: `npm run test -- --run src/features/charging-plans/components/TariffList.test.tsx src/features/charging-plans/components/TariffForm.test.tsx src/features/charging-plans/services/planService.test.ts`  
 Expected: PASS.
 
 - [ ] **Step 2: Run required project gates**
@@ -278,6 +278,6 @@ Expected: `dist/bundle-stats.json` generated; note meaningful deltas only.
 - Type consistency: `plan_name` normalization and invariant logic use the same trimmed-empty definition across form/service/list.
 
 ## Assumptions
-- `saveChargingPlan` in `chargingPlanService` is the canonical write path for tariff create/update.
+- `saveChargingPlan` in `planService` is the canonical write path for tariff create/update.
 - Active records are defined as records without `deleted_at`.
 - No schema migration is required for this change.

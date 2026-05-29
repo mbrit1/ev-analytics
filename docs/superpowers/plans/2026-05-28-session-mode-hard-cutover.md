@@ -39,12 +39,12 @@ it('requires planSelectionId for plan mode sessions', () => {
 - [ ] **Step 2: Add failing test for ad-hoc mode forbidding plan linkage**
 
 ```ts
-it('forbids tariffPlanId and planSelectionId for adHoc mode', () => {
+it('forbids tariffPlanId and planSelectionId for ad_hoc mode', () => {
   const input = {
     user_id: 'u1',
     session_timestamp: new Date('2026-05-28T00:00:00Z'),
     provider_id: 'p1',
-    session_mode: 'adHoc' as const,
+    session_mode: 'ad_hoc' as const,
     tariff_plan_id: 'tp1',
     plan_selection_id: 'ps1',
     charging_type: 'AC' as const,
@@ -53,7 +53,7 @@ it('forbids tariffPlanId and planSelectionId for adHoc mode', () => {
   };
 
   expect(() => prepareSession(input as never)).toThrow(
-    'tariff_plan_id and plan_selection_id are forbidden for adHoc mode'
+    'tariff_plan_id and plan_selection_id are forbidden for ad_hoc mode'
   );
 });
 ```
@@ -138,7 +138,7 @@ git commit -m "test(charging-plans): define provider plan selection history beha
 - [ ] **Step 1: Introduce canonical types and fields**
 
 ```ts
-export type SessionMode = 'plan' | 'adHoc';
+export type SessionMode = 'plan' | 'ad_hoc';
 
 export interface TariffPriceSnapshot {
   label: string;
@@ -173,7 +173,7 @@ price_snapshot: TariffPriceSnapshot;
 - [ ] **Step 3: Remove deprecated aliases from type-level APIs**
 
 ```ts
-// remove legacy pricing_source / charging_plan_id compatibility fields from domain-facing types
+// remove legacy session_mode / tariff_plan_id compatibility fields from domain-facing types
 ```
 
 - [ ] **Step 4: Run typecheck-oriented validation**
@@ -314,11 +314,11 @@ if (input.session_mode === 'plan') {
   // derive and persist price_snapshot from selected plan + context
 }
 
-if (input.session_mode === 'adHoc') {
+if (input.session_mode === 'ad_hoc') {
   if (input.tariff_plan_id || input.plan_selection_id) {
-    throw new Error('tariff_plan_id and plan_selection_id are forbidden for adHoc mode');
+    throw new Error('tariff_plan_id and plan_selection_id are forbidden for ad_hoc mode');
   }
-  if (!input.price_snapshot) throw new Error('price_snapshot is required for adHoc mode');
+  if (!input.price_snapshot) throw new Error('price_snapshot is required for ad_hoc mode');
 }
 ```
 
@@ -363,15 +363,15 @@ git commit -m "feat(sessions): enforce session mode invariants and plan selectio
 - [ ] **Step 1: Rename form state fields and enforce mode-aware constraints**
 
 ```ts
-session_mode: z.enum(['plan', 'adHoc']),
+session_mode: z.enum(['plan', 'ad_hoc']),
 tariff_plan_id: z.string().optional(),
 plan_selection_id: z.string().optional(),
 ```
 
-- [ ] **Step 2: Keep plan selector hidden/cleared in adHoc mode and required in plan mode**
+- [ ] **Step 2: Keep plan selector hidden/cleared in ad_hoc mode and required in plan mode**
 
 ```ts
-if (values.session_mode === 'adHoc') {
+if (values.session_mode === 'ad_hoc') {
   setValue('tariff_plan_id', '');
   setValue('plan_selection_id', '');
 }
@@ -490,14 +490,14 @@ alter table public.charging_sessions
 
 alter table public.charging_sessions
   add constraint charging_sessions_session_mode_check
-    check (session_mode in ('plan', 'adHoc'));
+    check (session_mode in ('plan', 'ad_hoc'));
 
 alter table public.charging_sessions
   add constraint charging_sessions_plan_mode_requirements
     check (
       (session_mode = 'plan' and tariff_plan_id is not null and plan_selection_id is not null)
       or
-      (session_mode = 'adHoc' and tariff_plan_id is null and plan_selection_id is null)
+      (session_mode = 'ad_hoc' and tariff_plan_id is null and plan_selection_id is null)
     );
 ```
 

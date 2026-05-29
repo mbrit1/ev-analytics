@@ -22,7 +22,7 @@ function buildChargingPlan(overrides: Partial<ChargingPlan> = {}): ChargingPlan 
     id: 'plan-default',
     user_id: 'user-1',
     provider_id: 'provider-default',
-    plan_name: 'Default Plan',
+    name: 'Default Plan',
     valid_from: new Date(),
           valid_to: null,
     ac_price_per_kwh: 49, dc_price_per_kwh: 79 ,
@@ -42,12 +42,12 @@ function buildChargingSession(overrides: Partial<ChargingSession> = {}): Chargin
     session_timestamp: new Date('2026-05-21T12:00:00.000Z'),
     provider_id: 'provider-default',
     provider_name_snapshot: 'Ionity',
-    charging_plan_id: 'plan-default',
+    tariff_plan_id: 'plan-default',
     charging_plan_name_snapshot: 'Default Plan',
     charging_type: 'DC',
     kwh_billed: 10,
     total_cost: 790,
-    pricing_source: 'chargingPlan',
+    session_mode: 'plan',
     applied_dc_price_per_kwh: 79,
     applied_session_fee: 0,
     created_at: now,
@@ -206,7 +206,7 @@ describe('syncEngine', () => {
 
   it('should upload charging plan outbox items to the charging_plans table', async () => {
     // Arrange: Queue a charging plan mutation for sync.
-    const plan = buildChargingPlan({ id: 'cp1', user_id: 'u1', provider_id: 'p1', plan_name: 'Drive Free' })
+    const plan = buildChargingPlan({ id: 'cp1', user_id: 'u1', provider_id: 'p1', name: 'Drive Free' })
     await db.sync_outbox.add({
       table_name: 'charging_plans',
       action: 'INSERT',
@@ -227,17 +227,17 @@ describe('syncEngine', () => {
     vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
 
     const deletedAt = new Date('2026-05-21T11:00:00.000Z')
-    const chargingPlan = buildChargingPlan({
+    const plan = buildChargingPlan({
       id: 'cp-deleted',
       user_id: 'u1',
       provider_id: 'p1',
-      plan_name: 'Old charging plan',
+      name: 'Old charging plan',
       deleted_at: deletedAt
     })
     await db.sync_outbox.add({
       table_name: 'charging_plans',
       action: 'DELETE',
-      payload: chargingPlan,
+      payload: plan,
       timestamp: new Date()
     })
 
@@ -513,10 +513,10 @@ describe('syncEngine', () => {
     // Arrange: Return table-specific rows from Supabase.
     const remoteProviders: Provider[] = [buildProvider({ id: 'p1', name: 'Ionity', user_id: 'u1' })]
     const remoteChargingPlans: ChargingPlan[] = [
-      buildChargingPlan({ id: 'cp1', provider_id: 'p1', plan_name: 'Ionity Passport', user_id: 'u1' })
+      buildChargingPlan({ id: 'cp1', provider_id: 'p1', name: 'Ionity Passport', user_id: 'u1' })
     ]
     const remoteSessions: ChargingSession[] = [
-      buildChargingSession({ id: 's1', provider_id: 'p1', charging_plan_id: 'cp1', user_id: 'u1', total_cost: 1500 })
+      buildChargingSession({ id: 's1', provider_id: 'p1', tariff_plan_id: 'cp1', user_id: 'u1', total_cost: 1500 })
     ]
 
     const mockSelect = vi.fn((tableName: string) => {
@@ -544,10 +544,10 @@ describe('syncEngine', () => {
   it('should continue initialSync when one remote table fails', async () => {
     // Arrange: Make providers fail while charging_plans and sessions still return data.
     const remoteChargingPlans: ChargingPlan[] = [
-      buildChargingPlan({ id: 'cp1', provider_id: 'p1', plan_name: 'Fallback plan', user_id: 'u1' })
+      buildChargingPlan({ id: 'cp1', provider_id: 'p1', name: 'Fallback plan', user_id: 'u1' })
     ]
     const remoteSessions: ChargingSession[] = [
-      buildChargingSession({ id: 's1', provider_id: 'p1', charging_plan_id: 'cp1', user_id: 'u1', total_cost: 1500 })
+      buildChargingSession({ id: 's1', provider_id: 'p1', tariff_plan_id: 'cp1', user_id: 'u1', total_cost: 1500 })
     ]
 
     vi.mocked(supabase.from).mockImplementation((tableName: string) => ({

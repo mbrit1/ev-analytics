@@ -8,7 +8,7 @@ Required behavior:
 - `Plan` options contain only plans belonging to the selected provider.
 - If the selected provider has exactly one plan, it is automatically selected.
 
-This applies to the `pricing_source = chargingPlan` path only and should preserve existing ad-hoc pricing behavior.
+This applies to the `session_mode = plan` path only and should preserve existing ad-hoc pricing behavior.
 
 ## Problem Statement
 Current behavior allows interacting with the `Plan` field before provider selection and can show a mixed plan list. This creates unnecessary user choices and weakens form guidance.
@@ -31,17 +31,17 @@ Out of scope:
 
 ## Functional Requirements
 1. **Provider-gated plan control**
-- In charging-plan mode, `charging_plan_id` select is disabled while `provider_id` is empty.
+- In charging-plan mode, `tariff_plan_id` select is disabled while `provider_id` is empty.
 - The field remains visible (for discoverability) but non-interactive.
 
 2. **Provider-scoped options**
-- Once a provider is selected, plan options include only `chargingPlans` where `plan.provider_id === selectedProviderId`.
+- Once a provider is selected, plan options include only `plans` where `plan.provider_id === selectedProviderId`.
 - Placeholder option (`Select Plan`) remains available when there are multiple matching plans.
 
 3. **Single-plan auto-selection**
-- If selected provider has exactly one matching plan, set `charging_plan_id` to that plan automatically.
+- If selected provider has exactly one matching plan, set `tariff_plan_id` to that plan automatically.
 - If provider changes from a valid plan to a different provider:
-  - clear `charging_plan_id` when multiple/no options exist,
+  - clear `tariff_plan_id` when multiple/no options exist,
   - auto-assign when exactly one option exists.
 
 4. **Stale selection handling**
@@ -62,7 +62,7 @@ Primary file:
 - `src/features/charging-sessions/components/SessionForm.tsx`
 
 Approach:
-- Derive `providerPlans` from `chargingPlans` + `selectedProviderId`.
+- Derive `providerPlans` from `plans` + `selectedProviderId`.
 - Add `react-hook-form` helpers (`setValue`, `getValues`) and a synchronization effect:
   - empty provider => clear plan,
   - invalid existing plan for selected provider => clear or auto-select,

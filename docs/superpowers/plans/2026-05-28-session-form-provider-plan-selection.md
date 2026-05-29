@@ -4,7 +4,7 @@
 
 **Goal:** Ensure the `Plan` field in session entry is gated by provider selection, filtered to provider-owned plans, and auto-selected when only one matching plan exists.
 
-**Architecture:** Implement this behavior inside `SessionForm` by deriving `providerPlans` from selected provider and synchronizing `charging_plan_id` via a focused effect that enforces validity on provider changes. Keep `react-hook-form` as the single source of truth and drive behavior through existing hooks (`useProviders`, `useChargingPlans`) without changing services or persistence.
+**Architecture:** Implement this behavior inside `SessionForm` by deriving `providerPlans` from selected provider and synchronizing `tariff_plan_id` via a focused effect that enforces validity on provider changes. Keep `react-hook-form` as the single source of truth and drive behavior through existing hooks (`useProviders`, `useChargingPlans`) without changing services or persistence.
 
 **Tech Stack:** React 19, TypeScript, react-hook-form, Vitest, React Testing Library.
 
@@ -22,7 +22,7 @@ beforeEach(() => {
   vi.clearAllMocks();
 
   vi.mocked(useChargingPlans).mockReturnValue({
-    chargingPlans: [
+    plans: [
       {
         id: 't1',
         plan_name: 'P1 Home',
@@ -165,8 +165,8 @@ const {
 const selectedProviderId = useWatch({ control, name: 'provider_id' });
 
 const providerPlans = React.useMemo(
-  () => chargingPlans.filter(plan => plan.provider_id === selectedProviderId),
-  [chargingPlans, selectedProviderId]
+  () => plans.filter(plan => plan.provider_id === selectedProviderId),
+  [plans, selectedProviderId]
 );
 ```
 
@@ -174,11 +174,11 @@ const providerPlans = React.useMemo(
 
 ```ts
 React.useEffect(() => {
-  const currentPlanId = getValues('charging_plan_id');
+  const currentPlanId = getValues('tariff_plan_id');
 
   if (!selectedProviderId) {
     if (currentPlanId) {
-      setValue('charging_plan_id', '');
+      setValue('tariff_plan_id', '');
     }
     return;
   }
@@ -189,11 +189,11 @@ React.useEffect(() => {
   }
 
   if (providerPlans.length === 1) {
-    setValue('charging_plan_id', providerPlans[0].id, { shouldDirty: true });
+    setValue('tariff_plan_id', providerPlans[0].id, { shouldDirty: true });
     return;
   }
 
-  setValue('charging_plan_id', '');
+  setValue('tariff_plan_id', '');
 }, [selectedProviderId, providerPlans, getValues, setValue]);
 ```
 
@@ -201,8 +201,8 @@ React.useEffect(() => {
 
 ```tsx
 <select
-  id="charging_plan_id"
-  {...register('charging_plan_id')}
+  id="tariff_plan_id"
+  {...register('tariff_plan_id')}
   disabled={!selectedProviderId}
   className="w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors disabled:text-secondary/40 disabled:cursor-not-allowed"
 >

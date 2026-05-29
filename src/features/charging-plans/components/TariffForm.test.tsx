@@ -81,7 +81,7 @@ describe('TariffForm', () => {
     await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
     expect(mockOnSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        plan_name: 'Travel Tariff',
+        name: 'Travel Tariff',
         provider_id: 'p1',
         ac_price_per_kwh: 49,
         dc_price_per_kwh: 59,
@@ -101,11 +101,11 @@ describe('TariffForm', () => {
     // Act: Submit with empty tariff name.
     fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
 
-    // Assert: Submission succeeds and persists empty plan_name.
+    // Assert: Submission succeeds and persists empty name.
     await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
     expect(mockOnSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        plan_name: '',
+        name: '',
         provider_id: 'p1',
       })
     );
@@ -124,7 +124,7 @@ describe('TariffForm', () => {
     await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
     expect(mockOnSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        plan_name: '',
+        name: '',
       })
     );
   });
@@ -187,7 +187,7 @@ describe('TariffForm', () => {
         onSubmit={mockOnSubmit}
         onCancel={mockOnCancel}
         initialValues={{
-          plan_name: 'UTC Tariff',
+          name: 'UTC Tariff',
           provider_id: 'p1',
           valid_from: new Date('2026-01-01T00:00:00.000Z'),
           valid_to: new Date('2026-01-31T00:00:00.000Z'),
@@ -242,7 +242,7 @@ describe('TariffFormLoader', () => {
     const { TariffFormLoader } = await import('./TariffFormLoader');
     const onSubmit = vi.fn();
     const onCancel = vi.fn();
-    const initialValues = { plan_name: 'Workday' };
+    const initialValues = { name: 'Workday' };
 
     // Act: Render lazy loader and wait for the deferred form.
     render(<TariffFormLoader onSubmit={onSubmit} onCancel={onCancel} initialValues={initialValues} />);

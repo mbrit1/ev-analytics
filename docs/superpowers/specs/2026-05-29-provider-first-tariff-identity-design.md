@@ -66,7 +66,7 @@ Out of scope:
 Primary areas:
 - `src/features/charging-plans/components/TariffList.tsx`
 - `src/features/charging-plans/components/TariffForm.tsx`
-- `src/features/charging-plans/services/chargingPlanService.ts`
+- `src/features/charging-plans/services/planService.ts`
 
 Approach:
 - In list rendering, resolve provider name from provider cache and render it as the card title.
@@ -95,13 +95,13 @@ Add/adjust tests to cover:
 Primary test targets:
 - `src/features/charging-plans/components/TariffList.test.tsx`
 - `src/features/charging-plans/components/TariffForm.test.tsx`
-- `src/features/charging-plans/services/chargingPlanService.test.ts`
+- `src/features/charging-plans/services/planService.test.ts`
 
 ## Verification
 Required commands:
 - `npm run test -- --run src/features/charging-plans/components/TariffList.test.tsx`
 - `npm run test -- --run src/features/charging-plans/components/TariffForm.test.tsx`
-- `npm run test -- --run src/features/charging-plans/services/chargingPlanService.test.ts`
+- `npm run test -- --run src/features/charging-plans/services/planService.test.ts`
 - `npm run lint && npm run test -- --run && npm run build`
 
 Manual browser checks (`http://localhost:5173/`):

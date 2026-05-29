@@ -26,10 +26,10 @@ describe('SessionForm', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useChargingPlans).mockReturnValue({
-      chargingPlans: [
+      plans: [
         {
           id: 't1',
-          plan_name: 'P1 Home',
+          name: 'P1 Home',
           provider_id: 'p1',
           ac_price_per_kwh: 40,
           dc_price_per_kwh: 60,
@@ -40,7 +40,7 @@ describe('SessionForm', () => {
         },
         {
           id: 't2',
-          plan_name: 'P1 Flex',
+          name: 'P1 Flex',
           provider_id: 'p1',
           ac_price_per_kwh: 44,
           dc_price_per_kwh: 64,
@@ -51,7 +51,7 @@ describe('SessionForm', () => {
         },
         {
           id: 't3',
-          plan_name: 'P2 Solo',
+          name: 'P2 Solo',
           provider_id: 'p2',
           ac_price_per_kwh: 39,
           dc_price_per_kwh: 59,
@@ -189,7 +189,7 @@ describe('SessionForm', () => {
     const initialValues = {
       session_timestamp: new Date('2024-05-15'),
       provider_id: 'p1',
-      charging_plan_id: 't1',
+      tariff_plan_id: 't1',
       kwh_billed: 25.5,
       start_soc_percentage: undefined,
       end_soc_percentage: undefined,
@@ -208,7 +208,7 @@ describe('SessionForm', () => {
     });
   });
 
-  it('prefills plan selector from legacy tariff_id when charging_plan_id is absent', () => {
+  it('prefills plan selector from legacy tariff_id when tariff_plan_id is absent', () => {
     // Arrange: legacy session shape where only tariff_id exists.
     const initialValues = {
       session_timestamp: new Date('2024-05-15'),
@@ -231,10 +231,10 @@ describe('SessionForm', () => {
     const initialValues = {
       session_timestamp: new Date('2024-05-15'),
       provider_id: 'p1',
-      charging_plan_id: 't1',
+      tariff_plan_id: 't1',
       kwh_billed: 25.5,
       charging_type: 'AC' as const,
-      pricing_source: 'chargingPlan' as const,
+      session_mode: 'plan' as const,
       pricing_context: 'roaming' as const,
     } as unknown as Partial<import('../../../infra/db').ChargingSession>;
 
@@ -245,20 +245,20 @@ describe('SessionForm', () => {
     // Assert: Stored roaming context is preserved through re-save.
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({ pricing_context: 'roaming', pricing_source: 'chargingPlan' })
+        expect.objectContaining({ pricing_context: 'roaming', session_mode: 'plan' })
       );
     });
   });
 
-  it('opens in ad-hoc mode and clears stale charging_plan_id from legacy initial values', async () => {
+  it('opens in ad-hoc mode and clears stale tariff_plan_id from legacy initial values', async () => {
     // Arrange: newer payload without compatibility field should map mode on load.
     const initialValues = {
       session_timestamp: new Date('2024-05-15'),
       provider_id: 'p1',
-      charging_plan_id: 't1',
+      tariff_plan_id: 't1',
       kwh_billed: 25.5,
       charging_type: 'AC' as const,
-      pricing_source: 'adHoc' as const,
+      session_mode: 'ad_hoc' as const,
       ad_hoc_pricing: {
         cpoName: 'FastNet',
         pricePerKwh: 59
@@ -279,8 +279,8 @@ describe('SessionForm', () => {
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
-          pricing_source: 'adHoc',
-          charging_plan_id: null
+          session_mode: 'ad_hoc',
+          tariff_plan_id: null
         })
       );
     });
@@ -304,7 +304,7 @@ describe('SessionForm', () => {
     });
   });
 
-  it('submits ad-hoc sessions with ad_hoc_pricing snapshot and pricing_source', async () => {
+  it('submits ad-hoc sessions with ad_hoc_pricing snapshot and session_mode', async () => {
     // Arrange: Fill required session fields in ad-hoc mode.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
@@ -320,13 +320,13 @@ describe('SessionForm', () => {
     // Act: Submit.
     fireEvent.click(screen.getByRole('button', { name: /save session/i }));
 
-    // Assert: Submission uses adHoc source and includes ad_hoc_pricing snapshot.
+    // Assert: Submission uses ad_hoc source and includes ad_hoc_pricing snapshot.
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
-          pricing_source: 'adHoc',
+          session_mode: 'ad_hoc',
           provider_id: 'p1',
-          charging_plan_id: null,
+          tariff_plan_id: null,
           ad_hoc_pricing: expect.objectContaining({
             cpoName: 'FastNet',
             pricePerKwh: 59,

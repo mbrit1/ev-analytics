@@ -32,7 +32,7 @@ export interface ChargingPlan {
   /** Provider this charging plan belongs to. */
   provider_id: string;
   /** Human-readable charging plan name shown in selectors and cards. */
-  plan_name: string;
+  name: string;
   /** Plan validity start date in UTC. */
   valid_from: Date;
   /** Optional plan validity end date in UTC. */
@@ -114,8 +114,6 @@ export interface ChargingSession {
   provider_id: string;
   /** Provider name snapshot for stable history rendering. */
   provider_name_snapshot: string;
-  /** Optional charging plan id selected for this session. */
-  charging_plan_id?: string | null;
   /** Optional charging plan name snapshot for stable history rendering. */
   charging_plan_name_snapshot?: string | null;
   /** Electrical charging mode that selects AC or DC tariff pricing. */
@@ -126,10 +124,8 @@ export interface ChargingSession {
   kwh_added?: number;
   /** Calculated total session cost in cents. */
   total_cost: number;
-  /** Pricing source used when computing this session's cost. */
-  pricing_source: 'chargingPlan' | 'adHoc';
   /** Canonical session mode for hard-cutover model. */
-  session_mode?: 'plan' | 'adHoc';
+  session_mode?: 'plan' | 'ad_hoc';
   /** Canonical tariff plan id in hard-cutover model. */
   tariff_plan_id?: string | null;
   /** Canonical plan selection history row id in hard-cutover model. */
@@ -278,8 +274,8 @@ export class EVAnalyticsDB extends Dexie {
     this.version(4)
       .stores({
         providers: 'id, user_id, name, deleted_at',
-        charging_plans: 'id, user_id, provider_id, plan_name, deleted_at',
-        sessions: 'id, user_id, session_timestamp, provider_id, charging_plan_id, pricing_source, charging_type, deleted_at',
+        charging_plans: 'id, user_id, provider_id, name, deleted_at',
+        sessions: 'id, user_id, session_timestamp, provider_id, tariff_plan_id, session_mode, charging_type, deleted_at',
         sync_outbox: '++id, table_name, action, timestamp, next_attempt_at'
       })
       .upgrade(async (tx) => {
@@ -296,7 +292,7 @@ export class EVAnalyticsDB extends Dexie {
       });
     this.version(5).stores({
       providers: 'id, user_id, name, deleted_at',
-      charging_plans: 'id, user_id, provider_id, plan_name, deleted_at',
+      charging_plans: 'id, user_id, provider_id, name, deleted_at',
       provider_plan_selections: 'id, user_id, provider_id, tariff_plan_id, valid_from, valid_to, deleted_at',
       sessions: 'id, user_id, session_timestamp, provider_id, session_mode, tariff_plan_id, plan_selection_id, charging_type, deleted_at',
       sync_outbox: '++id, table_name, action, timestamp, next_attempt_at'
