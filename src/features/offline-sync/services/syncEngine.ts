@@ -20,6 +20,10 @@ interface SyncFailure {
   nonRetryable?: boolean;
 }
 
+function shouldContinueAfterFailure(item: SyncOutbox, result: { success: false } & SyncFailure): boolean {
+  return item.table_name === 'charging_plans' && result.nonRetryable === true;
+}
+
 type RemoteChargingSessionPayload = Omit<ChargingSession, 'pricing_context'>;
 
 function getRetryDelayMs(retryCount: number): number {
@@ -80,8 +84,15 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
         });
       }
 
-      // Later writes may depend on earlier ones, so stop at the first failure
-      // rather than skipping ahead and risking out-of-order remote state.
+      if (shouldContinueAfterFailure(item, result)) {
+        // charging_plans overlap conflicts are non-retryable and item-local:
+        // keep the failed row for user resolution, but allow later ready rows
+        // to sync instead of permanently blocking the queue.
+        continue;
+      }
+
+      // Later writes may depend on earlier ones, so stop at retryable or other
+      // failures rather than skipping ahead and risking out-of-order state.
       break;
     }
   }
