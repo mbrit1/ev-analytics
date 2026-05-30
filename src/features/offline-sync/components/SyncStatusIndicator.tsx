@@ -26,7 +26,7 @@ export function SyncStatusIndicator() {
         className="flex items-center gap-1.5 text-xs font-bold text-amber-600"
       >
         <Clock3 aria-hidden="true" className="h-3.5 w-3.5" />
-        {status.queueLength} pending
+        Pending Sync
       </span>
     );
   }
