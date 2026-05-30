@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AuthError } from '@supabase/supabase-js';
 import App from './App';
 import { useAuth } from '../features/auth';
+import { useSyncStatus } from '../features/offline-sync';
 
 vi.mock('../features/auth', () => ({
   useAuth: vi.fn(),
@@ -45,6 +46,17 @@ vi.mock('../shared/ui', () => ({
 }));
 vi.mock('../features/offline-sync', () => ({
   SyncStatusIndicator: () => <div>Sync Status</div>,
+  useSyncStatus: vi.fn(() => ({
+    queueLength: 0,
+    hasPendingSync: false,
+    pendingByTable: { providers: 0, charging_plans: 0, sessions: 0, provider_plan_selections: 0 },
+    hasBlockingSyncError: false,
+    blockingErrorMessage: undefined,
+    retryCount: undefined,
+    nextRetryAt: undefined,
+    oldestPendingAt: undefined,
+    isLoading: false,
+  })),
   startSyncRuntime: vi.fn(() => vi.fn()),
 }));
 
@@ -60,6 +72,17 @@ describe('App auth gating', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSignOut.mockResolvedValue({ error: null });
+    vi.mocked(useSyncStatus).mockReturnValue({
+      queueLength: 0,
+      hasPendingSync: false,
+      pendingByTable: { providers: 0, charging_plans: 0, sessions: 0, provider_plan_selections: 0 },
+      hasBlockingSyncError: false,
+      blockingErrorMessage: undefined,
+      retryCount: undefined,
+      nextRetryAt: undefined,
+      oldestPendingAt: undefined,
+      isLoading: false,
+    });
   });
 
   it('renders login form when user is unauthenticated', () => {
@@ -221,5 +244,43 @@ describe('App auth gating', () => {
 
     // Assert: Tariff view resolves through the direct tariff module mock.
     expect(await screen.findByText('Tariff List')).toBeInTheDocument();
+  });
+
+  it('shows a sync issue alert when blocking sync error metadata is present', () => {
+    // Arrange: Authenticated user with a blocking sync error in outbox status.
+    vi.mocked(useAuth).mockReturnValue({
+      user: {
+        id: 'user-1',
+        email: 'driver@example.com',
+        app_metadata: {},
+        user_metadata: {},
+        aud: 'authenticated',
+        created_at: new Date().toISOString(),
+      },
+      session: null,
+      loading: false,
+      signIn: vi.fn(),
+      signOut: mockSignOut,
+    });
+    vi.mocked(useSyncStatus).mockReturnValue({
+      queueLength: 1,
+      hasPendingSync: true,
+      pendingByTable: { providers: 0, charging_plans: 0, sessions: 1, provider_plan_selections: 0 },
+      hasBlockingSyncError: true,
+      blockingErrorMessage: 'Unsupported sync table: provider_plan_selections',
+      retryCount: 1,
+      nextRetryAt: new Date('2026-05-30T10:15:00.000Z'),
+      oldestPendingAt: new Date('2026-05-30T10:00:00.000Z'),
+      isLoading: false,
+    });
+
+    // Act
+    render(<App />);
+
+    // Assert
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Sync issue');
+    expect(alert).toHaveTextContent('Unsupported sync table: provider_plan_selections');
+    expect(alert).toHaveTextContent('Data is saved locally and will retry automatically.');
   });
 });

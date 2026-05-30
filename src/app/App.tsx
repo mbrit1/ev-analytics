@@ -2,7 +2,7 @@ import { BatteryCharging, Loader2, LogOut, Plus } from 'lucide-react'
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { useAuth, LoginForm } from '../features/auth'
 import { ChargingHistory, SessionForm, saveSession } from '../features/charging-sessions'
-import { startSyncRuntime, SyncStatusIndicator } from '../features/offline-sync'
+import { startSyncRuntime, SyncStatusIndicator, useSyncStatus } from '../features/offline-sync'
 import { type ChargingSession } from '../infra/db'
 import { Navigation } from '../shared/ui'
 
@@ -20,6 +20,7 @@ const TariffList = lazy(async () => {
  */
 function App() {
   const { user, loading, signOut } = useAuth()
+  const syncStatus = useSyncStatus()
   const [activeTab, setActiveTab] = useState<'sessions' | 'tariffs'>('sessions')
   const [isSessionFormOpen, setIsSessionFormOpen] = useState(false)
   const [logoutError, setLogoutError] = useState<string | null>(null)
@@ -74,6 +75,10 @@ function App() {
     await saveSession(session);
     setIsSessionFormOpen(false);
   }
+
+  const blockingSyncRetryText = syncStatus.nextRetryAt != null
+    ? syncStatus.nextRetryAt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
+    : null;
 
   if (loading) {
     return (
@@ -150,6 +155,16 @@ function App() {
                 </Suspense>
               ) : (
                 <div className="space-y-6">
+                  {!syncStatus.isLoading && syncStatus.hasBlockingSyncError && (
+                    <div role="alert" className="mb-4 p-3 text-sm text-red-500 bg-red-500/10 rounded-lg">
+                      <p className="font-semibold">Sync issue</p>
+                      <p>{syncStatus.blockingErrorMessage || 'A sync error occurred.'}</p>
+                      <p>Data is saved locally and will retry automatically.</p>
+                      {blockingSyncRetryText && (
+                        <p>Next retry after {blockingSyncRetryText}.</p>
+                      )}
+                    </div>
+                  )}
                   <div className="flex items-center justify-between">
                     <h1 className="text-2xl font-bold tracking-tight text-primary">Sessions</h1>
                     {!isSessionFormOpen && (

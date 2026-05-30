@@ -1,4 +1,11 @@
-import { db, type SyncOutbox, type Provider, type ChargingPlan, type ChargingSession } from '../../../infra/db';
+import {
+  db,
+  type SyncOutbox,
+  type Provider,
+  type ChargingPlan,
+  type ChargingSession,
+  type ProviderPlanSelection
+} from '../../../infra/db';
 import { supabase } from '../../../infra/supabase';
 
 const BASE_RETRY_DELAY_MS = 60_000;
@@ -85,19 +92,33 @@ async function syncItem(item: SyncOutbox): Promise<{ success: true } | ({ succes
   try {
     let error: { message: string; code?: string } | null = null;
 
-    if (item.table_name === 'providers') {
-      const result = await supabase.from('providers').upsert(item.payload as Provider);
-      error = result.error as { message: string; code?: string } | null;
-    } else if (item.table_name === 'charging_plans') {
-      const result = await supabase.from('charging_plans').upsert(item.payload as ChargingPlan);
-      error = result.error as { message: string; code?: string } | null;
-    } else if (item.table_name === 'sessions') {
-      const result = await supabase.from('charging_sessions').upsert(item.payload as ChargingSession);
-      error = result.error as { message: string; code?: string } | null;
-    } else {
-      const message = `Unsupported sync table: ${item.table_name}`;
-      console.error(message);
-      return { success: false, errorMessage: message };
+    switch (item.table_name) {
+      case 'providers': {
+        const result = await supabase.from('providers').upsert(item.payload as Provider);
+        error = result.error as { message: string; code?: string } | null;
+        break;
+      }
+      case 'charging_plans': {
+        const result = await supabase.from('charging_plans').upsert(item.payload as ChargingPlan);
+        error = result.error as { message: string; code?: string } | null;
+        break;
+      }
+      case 'provider_plan_selections': {
+        const result = await supabase.from('provider_plan_selections').upsert(item.payload as ProviderPlanSelection);
+        error = result.error as { message: string; code?: string } | null;
+        break;
+      }
+      case 'sessions': {
+        const result = await supabase.from('charging_sessions').upsert(item.payload as ChargingSession);
+        error = result.error as { message: string; code?: string } | null;
+        break;
+      }
+      default: {
+        const unhandledTable: never = item.table_name;
+        const message = `Unsupported sync table: ${String(unhandledTable)}`;
+        console.error(message);
+        return { success: false, errorMessage: message };
+      }
     }
 
     if (error) {
