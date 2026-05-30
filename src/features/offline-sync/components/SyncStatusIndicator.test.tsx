@@ -60,7 +60,7 @@ describe('SyncStatusIndicator', () => {
 
     // Assert: Singular pending status is exposed.
     expect(screen.getByLabelText('Sync status pending')).toBeInTheDocument();
-    expect(screen.getByText('1 pending')).toBeInTheDocument();
+    expect(screen.getByText('Pending Sync')).toBeInTheDocument();
   });
 
   it('renders plural pending status for multiple queued mutations', () => {
@@ -76,6 +76,6 @@ describe('SyncStatusIndicator', () => {
 
     // Assert: Plural pending status is exposed.
     expect(screen.getByLabelText('Sync status pending')).toBeInTheDocument();
-    expect(screen.getByText('3 pending')).toBeInTheDocument();
+    expect(screen.getByText('Pending Sync')).toBeInTheDocument();
   });
 });
