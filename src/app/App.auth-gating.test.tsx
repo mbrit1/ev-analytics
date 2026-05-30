@@ -283,4 +283,39 @@ describe('App auth gating', () => {
     expect(alert).toHaveTextContent('Unsupported sync table: provider_plan_selections');
     expect(alert).toHaveTextContent('Data is saved locally and will retry automatically.');
   });
+
+  it('does not show sync issue alert for first-failure sync state', () => {
+    // Arrange: Authenticated user with first-failure sync metadata but no blocking flag.
+    vi.mocked(useAuth).mockReturnValue({
+      user: {
+        id: 'user-1',
+        email: 'driver@example.com',
+        app_metadata: {},
+        user_metadata: {},
+        aud: 'authenticated',
+        created_at: new Date().toISOString(),
+      },
+      session: null,
+      loading: false,
+      signIn: vi.fn(),
+      signOut: mockSignOut,
+    });
+    vi.mocked(useSyncStatus).mockReturnValue({
+      queueLength: 1,
+      hasPendingSync: true,
+      pendingByTable: { providers: 0, charging_plans: 0, sessions: 1, provider_plan_selections: 0 },
+      hasBlockingSyncError: false,
+      blockingErrorMessage: undefined,
+      retryCount: 1,
+      nextRetryAt: new Date('2026-05-30T10:15:00.000Z'),
+      oldestPendingAt: new Date('2026-05-30T10:00:00.000Z'),
+      isLoading: false,
+    });
+
+    // Act
+    render(<App />);
+
+    // Assert
+    expect(screen.queryByText('Sync issue')).not.toBeInTheDocument();
+  });
 });

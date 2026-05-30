@@ -173,9 +173,18 @@ describe('useSyncStatus', () => {
     expect(result.current.oldestPendingAt).toEqual(earliestTimestamp);
   });
 
-  it('surfaces a blocking error from the oldest actionable failed item', async () => {
-    // Arrange: Add two failed rows where the older actionable row should drive UI messaging.
+  it('surfaces a blocking error only after retry threshold from the oldest actionable failed item', async () => {
+    // Arrange: Add one first-failure row and two threshold-qualified failed rows.
     await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: buildChargingSession({ id: 'session-first-failure' }),
+        timestamp: new Date('2026-05-21T07:00:00.000Z'),
+        retry_count: 1,
+        next_attempt_at: new Date('2026-05-21T07:01:00.000Z'),
+        last_error: 'First failure should not be user-visible yet'
+      },
       {
         table_name: 'sessions',
         action: 'INSERT',
@@ -209,14 +218,50 @@ describe('useSyncStatus', () => {
     expect(result.current.nextRetryAt).toEqual(new Date('2026-05-21T08:01:00.000Z'));
   });
 
-  it('does not surface blocking error when failures are deferred to future retry windows', async () => {
-    // Arrange: Add a failed row that is not actionable yet.
+  it('does not surface blocking error for first-failure rows', async () => {
+    // Arrange: Add only first-failure rows, which should stay silent for users.
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: buildChargingSession({ id: 'session-failure-1' }),
+        timestamp: new Date('2026-05-21T08:00:00.000Z'),
+        retry_count: 1,
+        next_attempt_at: new Date('2026-05-21T08:01:00.000Z'),
+        last_error: 'First failure'
+      },
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: buildChargingSession({ id: 'session-failure-2' }),
+        timestamp: new Date('2026-05-21T09:00:00.000Z'),
+        retry_count: 1,
+        next_attempt_at: new Date('2026-05-21T09:01:00.000Z'),
+        last_error: 'Another first failure'
+      }
+    ]);
+
+    // Act
+    const { result } = renderHook(() => useSyncStatus());
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    // Assert
+    expect(result.current.hasBlockingSyncError).toBe(false);
+    expect(result.current.blockingErrorMessage).toBeUndefined();
+    expect(result.current.retryCount).toBeUndefined();
+    expect(result.current.nextRetryAt).toBeUndefined();
+  });
+
+  it('does not surface blocking error when threshold-qualified failures are deferred to future retry windows', async () => {
+    // Arrange: Add a threshold-qualified failed row that is not actionable yet.
     await db.sync_outbox.add({
       table_name: 'sessions',
       action: 'INSERT',
       payload: buildChargingSession({ id: 'session-future-retry' }),
       timestamp: new Date('2026-05-21T08:00:00.000Z'),
-      retry_count: 1,
+      retry_count: 2,
       next_attempt_at: new Date('2999-01-01T00:00:00.000Z'),
       last_error: 'Deferred retry error'
     });

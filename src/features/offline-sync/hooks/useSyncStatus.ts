@@ -85,7 +85,8 @@ export function useSyncStatus(): SyncStatus {
     }
 
     const isActionableNow = item.next_attempt_at == null || item.next_attempt_at <= now;
-    if (!isActionableNow || !item.last_error) {
+    const hasExceededRetryThreshold = (item.retry_count ?? 0) >= 2;
+    if (!isActionableNow || !item.last_error || !hasExceededRetryThreshold) {
       continue;
     }
 
