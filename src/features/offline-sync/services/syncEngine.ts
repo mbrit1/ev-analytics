@@ -35,7 +35,8 @@ function isNonRetryableConstraintViolation(error: unknown): error is { code: str
 }
 
 function toRemoteChargingSessionPayload(session: ChargingSession): RemoteChargingSessionPayload {
-  const { pricing_context: _ignoredLegacyPricingContext, ...remotePayload } = session;
+  const remotePayload = { ...session };
+  delete remotePayload.pricing_context;
   return remotePayload;
 }
 
