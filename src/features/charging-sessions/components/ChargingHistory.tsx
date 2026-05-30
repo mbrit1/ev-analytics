@@ -57,7 +57,7 @@ export const ChargingHistory: React.FC = () => {
                   })}
                 </div>
                 <h3 className="text-lg font-bold text-primary leading-tight">
-                  {session.provider_name_snapshot}
+                  {session.provider_name_snapshot || 'Unknown Provider'}
                 </h3>
                 <div className="flex flex-wrap items-center gap-3">
                   <p className="text-sm text-secondary font-medium">
@@ -65,7 +65,7 @@ export const ChargingHistory: React.FC = () => {
                   </p>
                   {session.session_mode === 'ad_hoc' && (() => {
                     const cpoName = session.ad_hoc_pricing?.cpoName?.trim();
-                    const providerName = session.provider_name_snapshot.trim().toLowerCase();
+                    const providerName = (session.provider_name_snapshot || '').trim().toLowerCase();
                     const shouldShowCpoName = cpoName != null && cpoName.toLowerCase() !== providerName;
                     const metadataParts = [shouldShowCpoName ? cpoName : null].filter(Boolean);
 
