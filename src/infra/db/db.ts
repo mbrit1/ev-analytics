@@ -304,3 +304,17 @@ export class EVAnalyticsDB extends Dexie {
  * Shared application database instance.
  */
 export const db = new EVAnalyticsDB();
+
+/**
+ * Clears all locally cached user-domain data and pending sync queue entries.
+ *
+ * This is used during sign-out to prevent cross-account data exposure when
+ * multiple users share the same browser profile.
+ */
+export async function clearLocalUserData(): Promise<void> {
+  await db.providers.clear();
+  await db.charging_plans.clear();
+  await db.provider_plan_selections.clear();
+  await db.sessions.clear();
+  await db.sync_outbox.clear();
+}

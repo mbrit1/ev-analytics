@@ -103,9 +103,9 @@ export async function saveChargingPlan(plan: ChargingPlan): Promise<void> {
   });
 }
 
-export async function getChargingPlans(): Promise<ChargingPlan[]> {
+export async function getChargingPlans(userId: string): Promise<ChargingPlan[]> {
   return db.charging_plans
-    .filter((plan) => !plan.deleted_at)
+    .filter((plan) => plan.user_id === userId && !plan.deleted_at)
     .toArray();
 }
 

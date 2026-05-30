@@ -31,7 +31,7 @@ describe('providerPlanSelectionService', () => {
       priceSnapshot: { label: 'EnBW M', kWhPrice: 69 }
     });
 
-    const rows = await getProviderPlanSelections('p1');
+    const rows = await getProviderPlanSelections('p1', 'u1');
     expect(rows).toHaveLength(2);
     expect(rows[0].id).not.toBe(rows[1].id);
     expect(rows[0].valid_to).toEqual(new Date('2026-05-28T00:00:00.000Z'));
@@ -61,9 +61,30 @@ describe('providerPlanSelectionService', () => {
       priceSnapshot: { label: 'EnBW L', kWhPrice: 64 }
     });
 
-    const rows = await getProviderPlanSelections('p1');
+    const rows = await getProviderPlanSelections('p1', 'u1');
     expect(rows).toHaveLength(3);
     expect(rows[2].tariff_plan_id).toBe('t-l');
     expect(rows[2].price_snapshot).toEqual({ label: 'EnBW L', kWhPrice: 64 });
+  });
+
+  it('returns only rows for the requested user', async () => {
+    await setActivePlanSelection({
+      userId: 'u1',
+      providerId: 'p1',
+      tariffPlanId: 't-a',
+      validFrom: new Date('2026-01-01T00:00:00.000Z'),
+      priceSnapshot: { label: 'Plan A', kWhPrice: 59 }
+    });
+    await setActivePlanSelection({
+      userId: 'u2',
+      providerId: 'p1',
+      tariffPlanId: 't-b',
+      validFrom: new Date('2026-01-02T00:00:00.000Z'),
+      priceSnapshot: { label: 'Plan B', kWhPrice: 69 }
+    });
+
+    const rows = await getProviderPlanSelections('p1', 'u1');
+    expect(rows).toHaveLength(1);
+    expect(rows[0].user_id).toBe('u1');
   });
 });

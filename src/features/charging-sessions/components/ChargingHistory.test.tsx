@@ -1,8 +1,12 @@
 import { render, screen, waitFor } from '@testing-library/react';
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ChargingHistory } from './ChargingHistory';
 import { db, type ChargingSession } from '../../../infra/db';
 import { saveSession } from '../services/sessionService';
+
+vi.mock('../../auth', () => ({
+  useAuth: () => ({ user: { id: 'user-1' } }),
+}));
 
 /**
  * Test suite for the charging history UI.

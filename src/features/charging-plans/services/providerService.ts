@@ -57,6 +57,6 @@ export async function saveProvider(provider: Provider): Promise<void> {
  *
  * @returns Providers that have not been soft-deleted.
  */
-export async function getProviders(): Promise<Provider[]> {
-  return db.providers.filter(p => !p.deleted_at).toArray();
+export async function getProviders(userId: string): Promise<Provider[]> {
+  return db.providers.filter((provider) => provider.user_id === userId && !provider.deleted_at).toArray();
 }

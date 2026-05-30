@@ -10,6 +10,7 @@ const mockSignOut = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn());
 const mockOnAuthStateChange = vi.hoisted(() => vi.fn());
 const mockUnsubscribe = vi.hoisted(() => vi.fn());
+const mockClearLocalUserData = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../infra/mocks', () => ({
   isMockMode: mockIsMockMode,
@@ -24,6 +25,10 @@ vi.mock('../../../infra/supabase', () => ({
       onAuthStateChange: mockOnAuthStateChange,
     },
   },
+}));
+
+vi.mock('../../../infra/db', () => ({
+  clearLocalUserData: mockClearLocalUserData,
 }));
 
 /**
@@ -48,6 +53,7 @@ describe('useAuth', () => {
     });
     mockSignInWithPassword.mockResolvedValue({ error: null });
     mockSignOut.mockResolvedValue({ error: null });
+    mockClearLocalUserData.mockResolvedValue(undefined);
   });
 
   it('exposes signIn and signOut functions from context', async () => {
@@ -118,7 +124,27 @@ describe('useAuth', () => {
 
     // Assert: Supabase signOut is invoked and succeeds.
     expect(mockSignOut).toHaveBeenCalledTimes(1);
+    expect(mockClearLocalUserData).toHaveBeenCalledTimes(1);
     expect(response.error).toBeNull();
+  });
+
+  it('does not clear local data when Supabase signOut fails', async () => {
+    // Arrange: Enable normal mode and fail remote sign-out.
+    mockIsMockMode.mockReturnValue(false);
+    const authError = { message: 'Remote sign-out failed' } as AuthError;
+    mockSignOut.mockResolvedValue({ error: authError });
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    // Act
+    const response = await result.current.signOut();
+
+    // Assert
+    expect(response.error).toBe(authError);
+    expect(mockClearLocalUserData).not.toHaveBeenCalled();
   });
 
   it('returns successful no-op auth actions in mock mode', async () => {
@@ -135,6 +161,7 @@ describe('useAuth', () => {
     expect(signOutResponse.error).toBeNull();
     expect(mockSignInWithPassword).not.toHaveBeenCalled();
     expect(mockSignOut).not.toHaveBeenCalled();
+    expect(mockClearLocalUserData).toHaveBeenCalledTimes(1);
   });
 
   it('unsubscribes auth state listener on unmount', async () => {

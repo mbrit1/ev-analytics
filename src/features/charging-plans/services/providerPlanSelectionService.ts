@@ -13,7 +13,7 @@ export async function setActivePlanSelection(input: SetActivePlanSelectionInput)
     const current = await db.provider_plan_selections
       .where('provider_id')
       .equals(input.providerId)
-      .filter((row) => !row.deleted_at && row.valid_to == null)
+      .filter((row) => row.user_id === input.userId && !row.deleted_at && row.valid_to == null)
       .first();
 
     const now = new Date();
@@ -62,19 +62,19 @@ export async function setActivePlanSelection(input: SetActivePlanSelectionInput)
   });
 }
 
-export async function getProviderPlanSelections(providerId: string): Promise<ProviderPlanSelection[]> {
+export async function getProviderPlanSelections(providerId: string, userId: string): Promise<ProviderPlanSelection[]> {
   return db.provider_plan_selections
     .where('provider_id')
     .equals(providerId)
-    .filter((row) => !row.deleted_at)
+    .filter((row) => row.user_id === userId && !row.deleted_at)
     .sortBy('valid_from');
 }
 
-export async function getActivePlanSelectionAt(providerId: string, at: Date): Promise<ProviderPlanSelection | null> {
+export async function getActivePlanSelectionAt(providerId: string, userId: string, at: Date): Promise<ProviderPlanSelection | null> {
   const rows = await db.provider_plan_selections
     .where('provider_id')
     .equals(providerId)
-    .filter((row) => !row.deleted_at && row.valid_from <= at && (row.valid_to == null || row.valid_to > at))
+    .filter((row) => row.user_id === userId && !row.deleted_at && row.valid_from <= at && (row.valid_to == null || row.valid_to > at))
     .toArray();
 
   return rows[0] ?? null;
