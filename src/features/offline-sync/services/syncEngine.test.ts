@@ -133,6 +133,31 @@ describe('syncEngine', () => {
     expect(outboxItems).toHaveLength(0)
   })
 
+  it('strips legacy pricing_context before uploading sessions', async () => {
+    // Arrange: Queue a legacy session payload that still contains pricing_context.
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+
+    await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'INSERT',
+      payload: buildChargingSession({
+        id: 'legacy-session',
+        pricing_context: 'roaming'
+      }),
+      timestamp: new Date()
+    })
+
+    // Act: Process the outbox.
+    await processOutbox()
+
+    // Assert: Remote payload omits local-only legacy compatibility columns.
+    expect(mockUpsert).toHaveBeenCalledWith(
+      expect.not.objectContaining({ pricing_context: expect.anything() })
+    )
+    expect(await db.sync_outbox.count()).toBe(0)
+  })
+
   it('should process outbox items from oldest to newest', async () => {
     // Arrange: Queue items in insertion order that differs from timestamp order.
     const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))

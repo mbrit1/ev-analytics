@@ -20,6 +20,8 @@ interface SyncFailure {
   nonRetryable?: boolean;
 }
 
+type RemoteChargingSessionPayload = Omit<ChargingSession, 'pricing_context'>;
+
 function getRetryDelayMs(retryCount: number): number {
   const exponentialDelay = BASE_RETRY_DELAY_MS * (2 ** Math.max(0, retryCount - 1));
   return Math.min(exponentialDelay, MAX_RETRY_DELAY_MS);
@@ -30,6 +32,11 @@ function isNonRetryableConstraintViolation(error: unknown): error is { code: str
   const maybeError = error as { code?: unknown; message?: unknown };
   return (maybeError.code === '23514' || maybeError.code === '23P01')
     && typeof maybeError.message === 'string';
+}
+
+function toRemoteChargingSessionPayload(session: ChargingSession): RemoteChargingSessionPayload {
+  const { pricing_context: _ignoredLegacyPricingContext, ...remotePayload } = session;
+  return remotePayload;
 }
 
 /**
@@ -109,7 +116,9 @@ async function syncItem(item: SyncOutbox): Promise<{ success: true } | ({ succes
         break;
       }
       case 'sessions': {
-        const result = await supabase.from('charging_sessions').upsert(item.payload as ChargingSession);
+        const result = await supabase
+          .from('charging_sessions')
+          .upsert(toRemoteChargingSessionPayload(item.payload as ChargingSession));
         error = result.error as { message: string; code?: string } | null;
         break;
       }
