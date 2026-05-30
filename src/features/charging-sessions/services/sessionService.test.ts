@@ -529,8 +529,8 @@ describe('sessionService', () => {
     expect(session).toBeUndefined();
   })
 
-  it('should fetch sessions ordered by timestamp desc', async () => {
-    // Arrange: Seed two sessions with different timestamps.
+  it('should fetch sessions for requested user ordered by timestamp desc', async () => {
+    // Arrange: Seed two sessions for user-456 with different timestamps and one for another user.
     const s1 = buildSessionFixture({
       id: 's1',
       session_timestamp: new Date('2024-01-01'),
@@ -544,12 +544,13 @@ describe('sessionService', () => {
       applied_dc_price_per_kwh: 10
     });
     const s2 = buildSessionFixture({ ...s1, id: 's2', session_timestamp: new Date('2024-01-02') });
+    const otherUserSession = buildSessionFixture({ ...s1, id: 's3', user_id: 'user-999' });
 
-    await db.sessions.bulkAdd([s1, s2]);
+    await db.sessions.bulkAdd([s1, s2, otherUserSession]);
 
     // Act: Fetch active sessions through the service.
-    const sessions = await (await import('./sessionService')).getSessions();
-    // Assert: Newer sessions should appear first.
+    const sessions = await (await import('./sessionService')).getSessions('user-456');
+    // Assert: Foreign-user rows are excluded and newer sessions appear first.
     expect(sessions).toHaveLength(2);
     expect(sessions[0].id).toBe('s2');
     expect(sessions[1].id).toBe('s1');

@@ -277,9 +277,9 @@ export async function saveSession(session: ChargingSession): Promise<void> {
  *
  * @returns Active charging sessions sorted from newest to oldest.
  */
-export async function getSessions(): Promise<ChargingSession[]> {
+export async function getSessions(userId: string): Promise<ChargingSession[]> {
   const sessions = await db.sessions
-    .filter((session) => !session.deleted_at)
+    .filter((session) => session.user_id === userId && !session.deleted_at)
     .toArray();
 
   const toEpoch = (value: Date | string | number | undefined): number => {

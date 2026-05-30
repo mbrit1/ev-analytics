@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { getChargingPlans, saveChargingPlan, deleteChargingPlan } from '../services/planService';
 import type { ChargingPlan } from '../../../infra/db';
+import { useAuth } from '../../auth';
 
 /**
  * Subscribes components to active charging plans and exposes write operations.
@@ -9,7 +10,11 @@ import type { ChargingPlan } from '../../../infra/db';
  * feedback while the sync outbox handles remote persistence separately.
  */
 export function useChargingPlans() {
-  const plans = useLiveQuery(() => getChargingPlans(), []);
+  const { user } = useAuth();
+  const plans = useLiveQuery(async () => {
+    if (!user) return [];
+    return getChargingPlans(user.id);
+  }, [user?.id]);
 
   const addChargingPlan = async (plan: ChargingPlan) => {
     // saveChargingPlan handles both new records and edits based on id.

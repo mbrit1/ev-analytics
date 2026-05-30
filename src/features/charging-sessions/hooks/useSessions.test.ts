@@ -6,6 +6,9 @@ import { type ChargingSession } from '../../../infra/db';
 
 // Mock the service so the hook test can focus on live-query state transitions.
 vi.mock('../services/sessionService');
+vi.mock('../../auth', () => ({
+  useAuth: () => ({ user: { id: 'user-1' } }),
+}));
 
 /**
  * Test suite for the charging-session live query hook.
@@ -37,5 +40,6 @@ describe('useSessions', () => {
     // Assert: Resolved sessions are exposed as a normalized array.
     expect(result.current.sessions).toHaveLength(1);
     expect(result.current.sessions[0].id).toBe('s1');
+    expect(getSessions).toHaveBeenCalledWith('user-1');
   });
 });

@@ -46,8 +46,8 @@ describe('providerService', () => {
     });
   });
 
-  it('should return only non-deleted providers', async () => {
-    // Arrange: Seed one active and one soft-deleted provider.
+  it('should return only non-deleted providers for requested user', async () => {
+    // Arrange: Seed one active and one soft-deleted provider for user-1 and one active provider for user-2.
     const activeProvider: Provider = {
       id: 'active-provider',
       user_id: 'user-1',
@@ -63,12 +63,19 @@ describe('providerService', () => {
       updated_at: new Date(),
       deleted_at: new Date()
     };
-    await db.providers.bulkAdd([activeProvider, deletedProvider]);
+    const otherUserProvider: Provider = {
+      id: 'other-user-provider',
+      user_id: 'user-2',
+      name: 'Other User Provider',
+      created_at: new Date(),
+      updated_at: new Date()
+    };
+    await db.providers.bulkAdd([activeProvider, deletedProvider, otherUserProvider]);
 
-    // Act: Fetch providers through the service.
-    const providers = await getProviders();
+    // Act: Fetch providers through the service for user-1.
+    const providers = await getProviders('user-1');
 
-    // Assert: Soft-deleted providers are excluded.
+    // Assert: Soft-deleted and foreign-user providers are excluded.
     expect(providers).toHaveLength(1);
     expect(providers[0].id).toBe('active-provider');
   });

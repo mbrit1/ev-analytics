@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../../../infra/db';
+import { getProviders } from '../services/providerService';
+import { useAuth } from '../../auth';
 
 /**
  * Subscribes components to active charging providers in the local cache.
@@ -8,7 +9,11 @@ import { db } from '../../../infra/db';
  * before they are shown in tariff forms and lists.
  */
 export function useProviders() {
-  const providers = useLiveQuery(() => db.providers.filter(p => !p.deleted_at).toArray(), []);
+  const { user } = useAuth();
+  const providers = useLiveQuery(async () => {
+    if (!user) return [];
+    return getProviders(user.id);
+  }, [user?.id]);
 
   return {
     providers: providers || [],

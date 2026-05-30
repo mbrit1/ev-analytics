@@ -79,7 +79,7 @@ describe('planService', () => {
     await db.charging_plans.bulkAdd([p1, p2])
 
     // Act: Query active charging plans through the service.
-    const plans = await getChargingPlans()
+    const plans = await getChargingPlans('u1')
     // Assert: Soft-deleted charging plans are excluded from active results.
     expect(plans).toHaveLength(1)
     expect(plans[0].id).toBe('p1')

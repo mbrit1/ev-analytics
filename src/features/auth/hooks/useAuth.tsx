@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { User, Session, AuthError } from '@supabase/supabase-js';
 import { supabase } from '../../../infra/supabase';
 import { isMockMode } from '../../../infra/mocks';
+import { clearLocalUserData } from '../../../infra/db';
 
 interface AuthContextType {
   /** The current Supabase user, or the local mock user when mock mode is active. */
@@ -79,11 +80,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const signOut = async (): Promise<{ error: AuthError | null }> => {
     if (isMockMode()) {
-      return { error: null };
+      try {
+        await clearLocalUserData();
+        return { error: null };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to clear local user data during sign-out';
+        return { error: { message } as AuthError };
+      }
     }
 
     const { error } = await supabase.auth.signOut();
-    return { error };
+    if (error) {
+      return { error };
+    }
+
+    try {
+      await clearLocalUserData();
+      return { error: null };
+    } catch (clearError) {
+      const message = clearError instanceof Error
+        ? clearError.message
+        : 'Failed to clear local user data during sign-out';
+      return { error: { message } as AuthError };
+    }
   };
 
   useEffect(() => {

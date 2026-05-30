@@ -366,7 +366,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       if (!plan) return;
       const sessionDate = parseDateInputAsUtc(values.session_timestamp);
       const snapshot = buildTariffPriceSnapshot(plan, provider.name, values.pricing_mode, values.charging_type);
-      const activeSelection = await getActivePlanSelectionAt(providerId, sessionDate);
+      const activeSelection = await getActivePlanSelectionAt(providerId, user.id, sessionDate);
       const planSelection = (!activeSelection || activeSelection.tariff_plan_id !== plan.id)
         ? await setActivePlanSelection({
           userId: user.id,
