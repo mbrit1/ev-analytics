@@ -83,6 +83,10 @@ describe('useSyncStatus', () => {
       hasPendingSync: false,
       pendingByTable: { providers: 0, charging_plans: 0, sessions: 0, provider_plan_selections: 0 },
       oldestPendingAt: undefined,
+      hasBlockingSyncError: false,
+      blockingErrorMessage: undefined,
+      retryCount: undefined,
+      nextRetryAt: undefined,
       isLoading: false
     });
   });
@@ -167,5 +171,66 @@ describe('useSyncStatus', () => {
 
     // Assert: The oldest pending timestamp is derived independently of insertion order.
     expect(result.current.oldestPendingAt).toEqual(earliestTimestamp);
+  });
+
+  it('surfaces a blocking error from the oldest actionable failed item', async () => {
+    // Arrange: Add two failed rows where the older actionable row should drive UI messaging.
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: buildChargingSession({ id: 'session-oldest-failed' }),
+        timestamp: new Date('2026-05-21T08:00:00.000Z'),
+        retry_count: 2,
+        next_attempt_at: new Date('2026-05-21T08:01:00.000Z'),
+        last_error: 'Oldest actionable sync error'
+      },
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: buildChargingSession({ id: 'session-newer-failed' }),
+        timestamp: new Date('2026-05-21T09:00:00.000Z'),
+        retry_count: 1,
+        next_attempt_at: new Date('2026-05-21T09:01:00.000Z'),
+        last_error: 'Newer sync error'
+      }
+    ]);
+
+    // Act
+    const { result } = renderHook(() => useSyncStatus());
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    // Assert
+    expect(result.current.hasBlockingSyncError).toBe(true);
+    expect(result.current.blockingErrorMessage).toBe('Oldest actionable sync error');
+    expect(result.current.retryCount).toBe(2);
+    expect(result.current.nextRetryAt).toEqual(new Date('2026-05-21T08:01:00.000Z'));
+  });
+
+  it('does not surface blocking error when failures are deferred to future retry windows', async () => {
+    // Arrange: Add a failed row that is not actionable yet.
+    await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'INSERT',
+      payload: buildChargingSession({ id: 'session-future-retry' }),
+      timestamp: new Date('2026-05-21T08:00:00.000Z'),
+      retry_count: 1,
+      next_attempt_at: new Date('2999-01-01T00:00:00.000Z'),
+      last_error: 'Deferred retry error'
+    });
+
+    // Act
+    const { result } = renderHook(() => useSyncStatus());
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    // Assert
+    expect(result.current.hasBlockingSyncError).toBe(false);
+    expect(result.current.blockingErrorMessage).toBeUndefined();
+    expect(result.current.retryCount).toBeUndefined();
+    expect(result.current.nextRetryAt).toBeUndefined();
   });
 });

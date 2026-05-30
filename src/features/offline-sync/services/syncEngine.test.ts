@@ -1,8 +1,17 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { db, type Provider, type ChargingPlan, type ChargingSession } from '../../../infra/db'
+import {
+  db,
+  type Provider,
+  type ChargingPlan,
+  type ChargingSession,
+  type ProviderPlanSelection,
+  type SyncOutbox
+} from '../../../infra/db'
 import { processOutbox, initialSync } from './syncEngine'
 import { supabase } from '../../../infra/supabase'
 import 'fake-indexeddb/auto'
+import { setActivePlanSelection } from '../../charging-plans'
+import { saveSession } from '../../charging-sessions'
 
 function buildProvider(overrides: Partial<Provider> = {}): Provider {
   const now = new Date('2026-05-21T00:00:00.000Z')
@@ -50,6 +59,22 @@ function buildChargingSession(overrides: Partial<ChargingSession> = {}): Chargin
     session_mode: 'plan',
     applied_dc_price_per_kwh: 79,
     applied_session_fee: 0,
+    created_at: now,
+    updated_at: now,
+    ...overrides
+  }
+}
+
+function buildProviderPlanSelection(overrides: Partial<ProviderPlanSelection> = {}): ProviderPlanSelection {
+  const now = new Date('2026-05-21T00:00:00.000Z')
+  return {
+    id: 'pps-default',
+    user_id: 'user-1',
+    provider_id: 'provider-default',
+    tariff_plan_id: 'plan-default',
+    valid_from: new Date('2026-05-21T00:00:00.000Z'),
+    valid_to: null,
+    price_snapshot: { label: 'Default Snapshot', kWhPrice: 79 },
     created_at: now,
     updated_at: now,
     ...overrides
@@ -219,6 +244,26 @@ describe('syncEngine', () => {
 
     // Assert: Charging-plan mutations target the matching Supabase table.
     expect(supabase.from).toHaveBeenCalledWith('charging_plans')
+  })
+
+  it('should upload provider plan selection outbox items to provider_plan_selections', async () => {
+    // Arrange: Queue a provider-plan-selection mutation for sync.
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+    const selection = buildProviderPlanSelection({ id: 'pps-1' })
+    await db.sync_outbox.add({
+      table_name: 'provider_plan_selections',
+      action: 'INSERT',
+      payload: selection,
+      timestamp: new Date()
+    })
+
+    // Act
+    await processOutbox()
+
+    // Assert
+    expect(supabase.from).toHaveBeenCalledWith('provider_plan_selections')
+    expect(await db.sync_outbox.count()).toBe(0)
   })
 
   it('should sync soft-delete outbox items with their deleted_at payload', async () => {
@@ -428,6 +473,93 @@ describe('syncEngine', () => {
       next_attempt_at: new Date('2026-05-21T12:01:00.000Z'),
       last_error: 'Unsupported sync table: unknown_table'
     })
+  })
+
+  it('supports every declared SyncOutbox table_name and drains successful rows', async () => {
+    // Arrange: Queue one row for each supported table_name.
+    const entries: Array<{ table: SyncOutbox['table_name']; payload: SyncOutbox['payload'] }> = [
+      { table: 'providers', payload: buildProvider({ id: 'contract-provider' }) },
+      { table: 'charging_plans', payload: buildChargingPlan({ id: 'contract-plan' }) },
+      { table: 'provider_plan_selections', payload: buildProviderPlanSelection({ id: 'contract-pps' }) },
+      { table: 'sessions', payload: buildChargingSession({ id: 'contract-session' }) }
+    ]
+    await db.sync_outbox.bulkAdd(
+      entries.map((entry, index) => ({
+        table_name: entry.table,
+        action: 'INSERT',
+        payload: entry.payload,
+        timestamp: new Date(`2026-05-21T10:0${index}:00.000Z`)
+      }))
+    )
+
+    // Act
+    await processOutbox()
+
+    // Assert: All known tables route successfully and queue drains.
+    expect(supabase.from).toHaveBeenCalledWith('providers')
+    expect(supabase.from).toHaveBeenCalledWith('charging_plans')
+    expect(supabase.from).toHaveBeenCalledWith('provider_plan_selections')
+    expect(supabase.from).toHaveBeenCalledWith('charging_sessions')
+    expect(await db.sync_outbox.count()).toBe(0)
+  })
+
+  it('processes provider_plan_selections before sessions without blocking on unsupported-table errors', async () => {
+    // Arrange: Queue provider-plan-selection first, then a session.
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'provider_plan_selections',
+        action: 'INSERT',
+        payload: buildProviderPlanSelection({ id: 'pps-before-session' }),
+        timestamp: new Date('2026-05-21T09:00:00.000Z')
+      },
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: buildChargingSession({ id: 'session-after-pps' }),
+        timestamp: new Date('2026-05-21T09:01:00.000Z')
+      }
+    ])
+
+    // Act
+    await processOutbox()
+
+    // Assert
+    expect(supabase.from).toHaveBeenNthCalledWith(1, 'provider_plan_selections')
+    expect(supabase.from).toHaveBeenNthCalledWith(2, 'charging_sessions')
+    expect(await db.sync_outbox.count()).toBe(0)
+  })
+
+  it('drains outbox for real plan-selection + session service flow', async () => {
+    // Arrange: Create real outbox rows via service calls.
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+    const now = new Date('2026-05-21T12:00:00.000Z')
+
+    const selection = await setActivePlanSelection({
+      userId: 'user-1',
+      providerId: 'provider-default',
+      tariffPlanId: 'plan-default',
+      validFrom: now,
+      priceSnapshot: { label: 'Default Snapshot', kWhPrice: 79 }
+    })
+
+    await saveSession(
+      buildChargingSession({
+        id: 'service-flow-session',
+        user_id: 'user-1',
+        provider_id: 'provider-default',
+        tariff_plan_id: 'plan-default',
+        plan_selection_id: selection.id
+      })
+    )
+
+    // Act
+    await processOutbox()
+
+    // Assert
+    expect(supabase.from).toHaveBeenCalledWith('provider_plan_selections')
+    expect(supabase.from).toHaveBeenCalledWith('charging_sessions')
+    expect(await db.sync_outbox.count()).toBe(0)
   })
 
   it('should treat check-constraint violations as non-retryable validation failures', async () => {

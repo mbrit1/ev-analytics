@@ -9,6 +9,10 @@ const baseStatus: SyncStatus = {
   queueLength: 0,
   hasPendingSync: false,
   pendingByTable: { providers: 0, charging_plans: 0, sessions: 0, provider_plan_selections: 0 },
+  hasBlockingSyncError: false,
+  blockingErrorMessage: undefined,
+  retryCount: undefined,
+  nextRetryAt: undefined,
   isLoading: false
 };
 

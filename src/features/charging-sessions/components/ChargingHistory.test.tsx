@@ -1,4 +1,3 @@
-import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { ChargingHistory } from './ChargingHistory';
@@ -60,4 +59,3 @@ describe('ChargingHistory', () => {
     expect(screen.getByText('Tesla')).toBeInTheDocument();
   });
 });
-
