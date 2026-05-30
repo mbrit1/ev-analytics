@@ -312,9 +312,11 @@ export const db = new EVAnalyticsDB();
  * multiple users share the same browser profile.
  */
 export async function clearLocalUserData(): Promise<void> {
-  await db.providers.clear();
-  await db.charging_plans.clear();
-  await db.provider_plan_selections.clear();
-  await db.sessions.clear();
-  await db.sync_outbox.clear();
+  await db.transaction('rw', [db.providers, db.charging_plans, db.provider_plan_selections, db.sessions, db.sync_outbox], async () => {
+    await db.providers.clear();
+    await db.charging_plans.clear();
+    await db.provider_plan_selections.clear();
+    await db.sessions.clear();
+    await db.sync_outbox.clear();
+  });
 }

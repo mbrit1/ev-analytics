@@ -690,6 +690,49 @@ describe('syncEngine', () => {
     expect(outboxItems[0].last_error).toBe('Tariff validity overlaps with an existing active version for this provider and name')
   })
 
+  it('should stop processing after non-overlap non-retryable charging-plan failure', async () => {
+    // Arrange: first charging-plan item fails non-retryable for a different validation reason.
+    const now = new Date('2026-05-21T12:00:00.000Z')
+    const chargingPlanUpsert = vi.fn(() => Promise.resolve({
+      error: { code: '23514', message: 'new row for relation "charging_plans" violates check constraint "charging_plans_name_not_empty"' }
+    }))
+    const chargingSessionUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => {
+      if (tableName === 'charging_plans') return { upsert: chargingPlanUpsert } as unknown as ReturnType<typeof supabase.from>
+      if (tableName === 'charging_sessions') return { upsert: chargingSessionUpsert } as unknown as ReturnType<typeof supabase.from>
+      return { upsert: vi.fn(() => Promise.resolve({ error: null })) } as unknown as ReturnType<typeof supabase.from>
+    })
+
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'charging_plans',
+        action: 'INSERT',
+        payload: buildChargingPlan({ id: 'blocked-non-overlap-plan' }),
+        timestamp: new Date('2026-05-21T11:00:00.000Z')
+      },
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: buildChargingSession({ id: 'should-not-sync' }),
+        timestamp: new Date('2026-05-21T11:01:00.000Z')
+      }
+    ])
+
+    // Act
+    await processOutbox({ now: () => now })
+
+    // Assert: queue does not continue for non-overlap charging-plan validation failure.
+    expect(chargingPlanUpsert).toHaveBeenCalledTimes(1)
+    expect(chargingSessionUpsert).not.toHaveBeenCalled()
+    const outboxItems = await db.sync_outbox.orderBy('timestamp').toArray()
+    expect(outboxItems).toHaveLength(2)
+    expect(outboxItems[0].table_name).toBe('charging_plans')
+    expect(outboxItems[0].retry_count).toBe(1)
+    expect(outboxItems[0].last_attempt_at).toEqual(now)
+    expect(outboxItems[0].next_attempt_at).toBeUndefined()
+    expect(outboxItems[0].last_error).toContain('Validation failed for charging_plans:')
+  })
+
   it('should pull data from Supabase into Dexie during initialSync', async () => {
     // Arrange: Return provider rows from the mocked Supabase select call.
     const mockProviders = [
