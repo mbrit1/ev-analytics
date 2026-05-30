@@ -278,8 +278,28 @@ export async function saveSession(session: ChargingSession): Promise<void> {
  * @returns Active charging sessions sorted from newest to oldest.
  */
 export async function getSessions(): Promise<ChargingSession[]> {
-  return db.sessions
-    .filter(s => !s.deleted_at)
-    .reverse()
-    .sortBy('session_timestamp');
+  const sessions = await db.sessions
+    .filter((session) => !session.deleted_at)
+    .toArray();
+
+  const toEpoch = (value: Date | string | number | undefined): number => {
+    if (value instanceof Date) {
+      return value.getTime();
+    }
+    if (typeof value === 'string' || typeof value === 'number') {
+      const parsed = new Date(value).getTime();
+      return Number.isNaN(parsed) ? 0 : parsed;
+    }
+    return 0;
+  };
+
+  // Keep history deterministic for "just saved" UX by ordering on the latest
+  // local mutation timestamp first, with session date as a secondary key.
+  return sessions.sort((left, right) => {
+    const updatedAtDelta = toEpoch(right.updated_at) - toEpoch(left.updated_at);
+    if (updatedAtDelta !== 0) {
+      return updatedAtDelta;
+    }
+    return toEpoch(right.session_timestamp) - toEpoch(left.session_timestamp);
+  });
 }

@@ -11,7 +11,9 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
     }),
-    cloudflare()
+    // Cloudflare's Vite plugin opens an inspector port which is not permitted in
+    // the sandboxed Vitest runtime. It is only needed for dev/build workflows.
+    ...(process.env.VITEST ? [] : [cloudflare()])
   ],
   test: {
     globals: true,

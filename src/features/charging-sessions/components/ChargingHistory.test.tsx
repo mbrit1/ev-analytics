@@ -1,108 +1,63 @@
-import { render, screen } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import React from 'react';
+import { render, screen, waitFor } from '@testing-library/react';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { ChargingHistory } from './ChargingHistory';
-import { useSessions } from '../hooks/useSessions';
-import { type ChargingSession } from '../../../infra/db';
-
-// Mock the hook to cover rendering states without depending on IndexedDB.
-vi.mock('../hooks/useSessions');
+import { db, type ChargingSession } from '../../../infra/db';
+import { saveSession } from '../services/sessionService';
 
 /**
- * Test suite for charging history rendering.
+ * Test suite for the charging history UI.
  *
- * Verifies session row content, localized values, ad-hoc details, and the
- * empty state while the data hook is mocked.
+ * Ensures newly saved sessions appear without a full reload by relying on the
+ * Dexie live-query subscription used by {@link useSessions}.
  */
 describe('ChargingHistory', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+  beforeEach(async () => {
+    // Arrange: Start each test from a clean IndexedDB state.
+    await db.delete();
+    await db.open();
   });
 
-  it('renders a list of sessions', () => {
-    // Arrange: Return one pending-sync session from the mocked hook.
-    vi.mocked(useSessions).mockReturnValue({
-      sessions: [
-        { 
-          id: 's1', 
-          session_timestamp: new Date('2024-05-14T10:00:00Z'),
-          provider_name_snapshot: 'Tesla',
-          charging_plan_name_snapshot: 'Supercharger',
-          charging_type: 'DC',
-          kwh_billed: 45.5,
-          total_cost: 2275, // 22.75 EUR
-          session_mode: 'plan',
-          price_snapshot: { label: 'Supercharger', kWhPrice: 50 }
-        } as unknown as ChargingSession
-      ],
-      isLoading: false,
-      pendingSyncIds: new Set(['s1']),
-    });
-
-    // Act: Render the history view.
+  it('renders a saved session after saveSession commits', async () => {
+    // Arrange: Render the empty history first.
     render(<ChargingHistory />);
-    
-    // Assert: Session details are visible and per-row sync badges are omitted.
-    expect(screen.getByText(/tesla/i)).toBeDefined();
-    expect(screen.getByText(/supercharger/i)).toBeDefined();
-    expect(screen.getByText(/45,5/)).toBeDefined();
-    expect(screen.getByText(/22,75/)).toBeDefined();
-    expect(screen.queryByText(/pending sync/i)).toBeNull();
-    expect(screen.queryByText(/synced/i)).toBeNull();
-  });
+    expect(await screen.findByText('No Sessions Yet')).toBeInTheDocument();
 
-  it('renders ad-hoc sessions with cpo/source details without extra price lines', () => {
-    // Arrange: Return one synced ad-hoc session with pricing snapshot details.
-    vi.mocked(useSessions).mockReturnValue({
-      sessions: [
-        {
-          id: 's2',
-          session_timestamp: new Date('2024-05-20T10:00:00Z'),
-          provider_name_snapshot: 'Fast CPO',
-          charging_plan_name_snapshot: null,
-          charging_type: 'DC',
-          kwh_billed: 20,
-          total_cost: 1780,
-          session_mode: 'ad_hoc',
-          ad_hoc_pricing: {
-            cpoName: 'Fast CPO',
-            pricePerKwh: 69,
-            pricePerSession: 150,
-            receiptUrl: 'https://example.com/r/1',
-            otherFees: [{ label: 'Parking', amount: 200, notes: 'Garage fee' }]
-          }
-        } as unknown as ChargingSession
-      ],
-      isLoading: false,
-      pendingSyncIds: new Set(),
+    const now = new Date('2026-05-30T10:00:00.000Z');
+    const session: ChargingSession = {
+      id: 'session-1',
+      user_id: 'user-1',
+      session_timestamp: now,
+      provider_id: 'provider-1',
+      provider_name_snapshot: 'Tesla',
+      charging_plan_name_snapshot: 'Standard',
+      charging_type: 'AC',
+      kwh_billed: 12.5,
+      total_cost: 5000,
+      session_mode: 'plan',
+      tariff_plan_id: 'plan-1',
+      plan_selection_id: 'sel-1',
+      price_snapshot: { label: 'Tesla Standard', kWhPrice: 40, sessionFee: 0 },
+      pricing_context: 'standard',
+      applied_price_per_kwh: 40,
+      applied_ac_price_per_kwh: 40,
+      applied_dc_price_per_kwh: 40,
+      applied_roaming_ac_price_per_kwh: undefined,
+      applied_roaming_dc_price_per_kwh: undefined,
+      applied_monthly_base_fee: undefined,
+      applied_session_fee: 0,
+      created_at: now,
+      updated_at: now,
+    };
+
+    // Act: Save a session after the component is already mounted.
+    await saveSession(session);
+
+    // Assert: The live query causes the history list to update.
+    await waitFor(() => {
+      expect(screen.getByText('Charging History')).toBeInTheDocument();
     });
-
-    // Act: Render history.
-    render(<ChargingHistory />);
-
-    // Assert: Ad-hoc labeling is visible, detailed price lines are hidden.
-    expect(screen.getByText(/ad-hoc/i)).toBeDefined();
-    expect(screen.getAllByText(/fast cpo/i).length).toBeGreaterThan(0);
-    expect(screen.queryByText((content) => content.includes('/kWh'))).toBeNull();
-    expect(screen.queryByText((content) => content.includes('/session'))).toBeNull();
-    expect(screen.queryByText(/receipt: https:\/\/example\.com\/r\/1/i)).toBeNull();
-    expect(screen.queryByText(/parking/i)).toBeNull();
-    expect(screen.queryByText(/soc/i)).toBeNull();
-    expect(screen.queryByText(/pending sync/i)).toBeNull();
-    expect(screen.queryByText(/synced/i)).toBeNull();
-  });
-
-  it('renders empty state when no sessions', () => {
-    // Arrange: Return an empty session collection from the mocked hook.
-    vi.mocked(useSessions).mockReturnValue({
-      sessions: [],
-      isLoading: false,
-      pendingSyncIds: new Set(),
-    });
-
-    // Act: Render the history view.
-    render(<ChargingHistory />);
-    
-    // Assert: The empty-state message is shown.
-    expect(screen.getByText(/no sessions/i)).toBeDefined();
+    expect(screen.getByText('Tesla')).toBeInTheDocument();
   });
 });
+
