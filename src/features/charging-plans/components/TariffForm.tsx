@@ -31,13 +31,42 @@ const tariffFormSchema = z.object({
 
 type TariffFormSchemaValues = z.infer<typeof tariffFormSchema>;
 
-function formatDateInputValue(date: Date): string {
+/**
+ * Coerces values that may have been rehydrated from storage into `Date` instances.
+ *
+ * This form expects `ChargingPlan.valid_from/valid_to` to be `Date` objects, but
+ * persisted records (or JSON serialization) can yield ISO strings or timestamps.
+ * Returning `null` allows callers to gracefully fall back without throwing.
+ */
+function coerceDate(value: unknown): Date | null {
+  if (value instanceof Date) return value;
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
+/**
+ * Converts a value into a `YYYY-MM-DD` string for `<input type="date">`.
+ *
+ * Uses UTC to keep the stored UTC semantics stable across local time zones.
+ * Returns an empty string when the input cannot be parsed into a valid date.
+ */
+function formatDateInputValue(dateLike: unknown): string {
+  const date = coerceDate(dateLike);
+  if (!date) return '';
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');
   const day = String(date.getUTCDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * Parses a `YYYY-MM-DD` date input string into a UTC `Date`.
+ *
+ * This avoids local time zone offsets when persisting plan validity boundaries.
+ */
 function parseDateInputAsUtc(dateInput: string): Date {
   const [year, month, day] = dateInput.split('-').map(Number);
   return new Date(Date.UTC(year, month - 1, day));
@@ -53,7 +82,7 @@ export const TariffForm: React.FC<TariffFormProps> = ({ onSubmit, onCancel, init
     defaultValues: {
       name: initialValues?.name ?? '',
       provider_id: initialValues?.provider_id ?? '',
-      valid_from: initialValues?.valid_from ? formatDateInputValue(initialValues.valid_from) : formatDateInputValue(new Date()),
+      valid_from: formatDateInputValue(initialValues?.valid_from ?? new Date()),
       valid_to: initialValues?.valid_to ? formatDateInputValue(initialValues.valid_to) : '',
       ac_price: initialValues?.ac_price_per_kwh != null ? formatCentsToDecimal(initialValues.ac_price_per_kwh) : '',
       dc_price: initialValues?.dc_price_per_kwh != null ? formatCentsToDecimal(initialValues.dc_price_per_kwh) : '',

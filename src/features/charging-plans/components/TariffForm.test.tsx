@@ -111,6 +111,22 @@ describe('TariffForm', () => {
     );
   });
 
+  it('coerces persisted date strings into date input values', () => {
+    // Arrange: Provide initialValues with string dates as they might be rehydrated from storage.
+    render(
+      <TariffForm
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        initialValues={{ valid_from: '2026-05-31T00:00:00.000Z', valid_to: '2026-06-30T00:00:00.000Z' } as any}
+      />
+    );
+
+    // Assert: Date inputs show normalized YYYY-MM-DD values.
+    expect(screen.getByLabelText(/valid from/i)).toHaveValue('2026-05-31');
+    expect(screen.getByLabelText(/valid to/i)).toHaveValue('2026-06-30');
+  });
+
   it('normalizes whitespace-only tariff name to empty string', async () => {
     // Arrange: Enter whitespace tariff name with required provider.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
