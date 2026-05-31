@@ -28,6 +28,7 @@ describe('supabase client bootstrap', () => {
 
   it('throws outside mock mode when URL is missing', async () => {
     vi.unstubAllEnvs();
+    vi.stubEnv('VITE_SUPABASE_URL', '');
     vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', 'public-key');
     isMockModeMock.mockReturnValue(false);
 
@@ -40,6 +41,7 @@ describe('supabase client bootstrap', () => {
   it('throws outside mock mode when publishable key is missing', async () => {
     vi.unstubAllEnvs();
     vi.stubEnv('VITE_SUPABASE_URL', 'https://project.supabase.co');
+    vi.stubEnv('VITE_SUPABASE_PUBLISHABLE_KEY', '');
     isMockModeMock.mockReturnValue(false);
 
     await expect(import('./client')).rejects.toThrow(
