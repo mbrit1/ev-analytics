@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AuthError } from '@supabase/supabase-js';
 import App from './App';
@@ -11,7 +12,9 @@ vi.mock('../features/auth', () => ({
   LoginForm: () => <div data-testid="login-form">Login Form</div>,
 }));
 vi.mock('../features/charging-plans/components/TariffList', () => ({
-  TariffList: () => <div>Tariff List</div>,
+  TariffList: ({ isCreatingTariff }: { isCreatingTariff: boolean }) => (
+    <div>{isCreatingTariff ? 'Tariff Create Form' : 'Tariff List'}</div>
+  ),
 }));
 vi.mock('../features/charging-sessions', () => ({
   ChargingHistory: () => <div>Charging History</div>,
@@ -22,8 +25,8 @@ vi.mock('../shared/ui', () => ({
     activeTab,
     onTabChange,
   }: {
-    activeTab: 'sessions' | 'tariffs';
-    onTabChange: (tab: 'sessions' | 'tariffs') => void;
+    activeTab: 'sessions' | 'tariffs' | 'analytics';
+    onTabChange: (tab: 'sessions' | 'tariffs' | 'analytics') => void;
   }) => (
     <nav>
       <div>Navigation</div>
@@ -41,8 +44,17 @@ vi.mock('../shared/ui', () => ({
       >
         Tariffs Tab
       </button>
+      <button
+        type="button"
+        aria-pressed={activeTab === 'analytics'}
+        onClick={() => onTabChange('analytics')}
+      >
+        Analytics Tab
+      </button>
     </nav>
   ),
+  MobileContextAction: () => <div>Mobile Context Action</div>,
+  Slab: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 vi.mock('../features/offline-sync', () => ({
   SyncStatusIndicator: () => <div>Sync Status</div>,
@@ -148,6 +160,33 @@ describe('App auth gating', () => {
 
     // Assert: App delegates logout to auth context action.
     expect(mockSignOut).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps mobile dock clearance on the main scroll container', () => {
+    // Arrange: Mock an authenticated user so the app shell renders.
+    vi.mocked(useAuth).mockReturnValue({
+      user: {
+        id: 'user-1',
+        email: 'driver@example.com',
+        app_metadata: {},
+        user_metadata: {},
+        aud: 'authenticated',
+        created_at: new Date().toISOString(),
+      },
+      session: null,
+      loading: false,
+      signIn: vi.fn(),
+      signOut: mockSignOut,
+    });
+
+    // Act: Render the authenticated app shell.
+    const { container } = render(<App />);
+    const main = container.querySelector('main');
+
+    // Assert: The mobile content container reserves the dock clearance token budget.
+    expect(main).not.toBeNull();
+    expect(main).toHaveClass('pb-[var(--mobile-content-clearance-with-action)]');
+    expect(main).toHaveClass('md:pb-8');
   });
 
   it('handles signOut rejection without crashing and still attempts logout', async () => {

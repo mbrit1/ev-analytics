@@ -1,10 +1,11 @@
-import { BatteryCharging, Loader2, LogOut, Plus } from 'lucide-react'
+import { BarChart3, BatteryCharging, Loader2, LogOut, Plus } from 'lucide-react'
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { useAuth, LoginForm } from '../features/auth'
 import { ChargingHistory, SessionForm, saveSession } from '../features/charging-sessions'
 import { startSyncRuntime, SyncStatusIndicator, useSyncStatus } from '../features/offline-sync'
 import { type ChargingSession } from '../infra/db'
-import { Navigation } from '../shared/ui'
+import { MobileContextAction, Navigation, Slab } from '../shared/ui'
+import { type NavigationTab } from '../shared/ui/Navigation/types'
 
 const TariffList = lazy(async () => {
   const module = await import('../features/charging-plans/components/TariffList')
@@ -21,8 +22,10 @@ const TariffList = lazy(async () => {
 function App() {
   const { user, loading, signOut } = useAuth()
   const syncStatus = useSyncStatus()
-  const [activeTab, setActiveTab] = useState<'sessions' | 'tariffs'>('sessions')
+  const [activeTab, setActiveTab] = useState<NavigationTab>('sessions')
   const [isSessionFormOpen, setIsSessionFormOpen] = useState(false)
+  const [isCreatingTariff, setIsCreatingTariff] = useState(false)
+  const [isTariffFormOpen, setIsTariffFormOpen] = useState(false)
   const [logoutError, setLogoutError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -52,6 +55,14 @@ function App() {
     return () => clearTimeout(timeoutId)
   }, [user])
 
+  const handleTabChange = (tab: NavigationTab) => {
+    setActiveTab(tab)
+
+    if (tab !== 'tariffs') {
+      setIsCreatingTariff(false)
+    }
+  }
+
   const handleLogout = async () => {
     setLogoutError(null)
     try {
@@ -79,10 +90,16 @@ function App() {
   const blockingSyncRetryText = syncStatus.nextRetryAt != null
     ? syncStatus.nextRetryAt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
     : null;
+  const isMobileContextActionVisible =
+    (activeTab === 'sessions' && !isSessionFormOpen) ||
+    (activeTab === 'tariffs' && !isCreatingTariff && !isTariffFormOpen)
+  const mobileMainPaddingClass = isMobileContextActionVisible
+    ? 'pb-[var(--mobile-content-clearance-with-action)]'
+    : 'pb-[var(--mobile-content-clearance-dock-only)]'
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-environment">
+      <div className="min-h-[100dvh] flex items-center justify-center bg-environment">
         <Loader2 className="w-8 h-8 text-accent animate-spin" />
       </div>
     )
@@ -93,10 +110,22 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-environment">
-      <div className="max-w-[1440px] mx-auto flex md:flex-row flex-col min-h-screen">
+    <div className="min-h-[100dvh] bg-environment">
+      <div className="max-w-[1440px] mx-auto flex md:flex-row flex-col min-h-[100dvh]">
         {/* Navigation (Sidebar on Desktop, BottomNav on Mobile) */}
-        <Navigation activeTab={activeTab} onTabChange={setActiveTab} />
+        <Navigation
+          activeTab={activeTab}
+          onTabChange={handleTabChange}
+        />
+        <MobileContextAction
+          activeTab={activeTab}
+          onAddSession={() => setIsSessionFormOpen(true)}
+          onAddTariff={() => {
+            setActiveTab('tariffs')
+            setIsCreatingTariff(true)
+          }}
+          isVisible={isMobileContextActionVisible}
+        />
 
         {/* Main Content Wrapper */}
         <div className="flex-1 flex flex-col min-w-0 bg-environment">
@@ -136,14 +165,27 @@ function App() {
           </header>
 
           {/* Main Content */}
-          <main className="flex-1 w-full p-4 md:p-8 pb-32 md:pb-8">
+          <main
+            className={`flex-1 w-full p-4 md:p-8 ${mobileMainPaddingClass} md:pb-8`}
+            data-has-mobile-context-action={isMobileContextActionVisible}
+          >
             <div className="max-w-2xl mx-auto">
               {logoutError && (
                 <div role="alert" className="mb-4 p-3 text-sm text-red-500 bg-red-500/10 rounded-lg">
                   {logoutError}
                 </div>
               )}
-              {activeTab === 'tariffs' ? (
+              {activeTab === 'analytics' ? (
+                <Slab className="space-y-3 p-6">
+                  <div className="flex items-center gap-2">
+                    <BarChart3 className="w-5 h-5 text-accent" aria-hidden="true" />
+                    <h1 className="text-2xl font-bold tracking-tight text-primary">Analytics</h1>
+                  </div>
+                  <p className="text-secondary">
+                    Analytics is planned and will be available in a future update.
+                  </p>
+                </Slab>
+              ) : activeTab === 'tariffs' ? (
                 <Suspense
                   fallback={(
                     <div className="min-h-[200px] flex items-center justify-center">
@@ -151,7 +193,11 @@ function App() {
                     </div>
                   )}
                 >
-                  <TariffList />
+                  <TariffList
+                    isCreatingTariff={isCreatingTariff}
+                    onCreateTariffChange={setIsCreatingTariff}
+                    onFormOpenChange={setIsTariffFormOpen}
+                  />
                 </Suspense>
               ) : (
                 <div className="space-y-6">
@@ -170,7 +216,7 @@ function App() {
                     {!isSessionFormOpen && (
                       <button
                         onClick={() => setIsSessionFormOpen(true)}
-                        className="flex items-center px-4 py-2 bg-accent text-white font-bold rounded-xl hover:opacity-90 transition-all shadow-md shadow-accent/20 min-h-[44px]"
+                        className="hidden md:flex items-center px-4 py-2 bg-accent text-white font-bold rounded-xl hover:opacity-90 transition-all shadow-md shadow-accent/20 min-h-[44px]"
                       >
                         <Plus className="w-5 h-5 mr-2" />
                         Add Session

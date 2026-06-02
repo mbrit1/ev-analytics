@@ -18,6 +18,24 @@ vi.mock('./TariffFormLoader', () => ({
  * Test suite for tariff list rendering and pricing-card hierarchy.
  */
 describe('TariffList', () => {
+  const renderTariffList = (
+    props: Partial<{
+      isCreatingTariff: boolean;
+      onCreateTariffChange: (isCreatingTariff: boolean) => void;
+      onFormOpenChange?: (isOpen: boolean) => void;
+    }> = {}
+  ) => {
+    const onCreateTariffChange = props.onCreateTariffChange ?? vi.fn()
+
+    return render(
+      <TariffList
+        isCreatingTariff={props.isCreatingTariff ?? false}
+        onCreateTariffChange={onCreateTariffChange}
+        onFormOpenChange={props.onFormOpenChange}
+      />
+    )
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useProviders).mockReturnValue({
@@ -53,7 +71,7 @@ describe('TariffList', () => {
     });
 
     // Act: Render tariff list.
-    render(<TariffList />);
+    renderTariffList();
 
     // Assert: No fixed-cost section; primary domestic rows and optional rows are shown.
     expect(screen.queryByText(/fixed tariff costs/i)).not.toBeInTheDocument();
@@ -88,7 +106,7 @@ describe('TariffList', () => {
       isLoading: false,
     });
 
-    render(<TariffList />);
+    renderTariffList();
 
     // Act: Trigger edit mode from card actions.
     fireEvent.click(screen.getByRole('button', { name: /edit ionity primary plan/i }));
@@ -126,7 +144,7 @@ describe('TariffList', () => {
       removeChargingPlan,
       isLoading: false,
     });
-    render(<TariffList />);
+    renderTariffList();
 
     // Assert: Primary add action and secondary row actions expose shared styling hooks.
     expect(screen.getByRole('button', { name: /add tariff/i }).className).toContain('bg-accent');
@@ -164,7 +182,7 @@ describe('TariffList', () => {
     });
 
     // Act: Render tariff list.
-    render(<TariffList />);
+    renderTariffList();
 
     // Assert: Optional rows are hidden when values are zero.
     expect(screen.queryByText(/roaming ac/i)).not.toBeInTheDocument();
@@ -210,7 +228,7 @@ describe('TariffList', () => {
     });
 
     // Act: Render tariff list.
-    render(<TariffList />);
+    renderTariffList();
 
     // Assert: Provider title is shown; static subtitle is absent; variant appears only when non-empty.
     expect(screen.getAllByRole('heading', { name: 'Ionity', level: 2 })).toHaveLength(2);
@@ -256,7 +274,7 @@ describe('TariffList', () => {
     });
 
     // Act: Render list.
-    render(<TariffList />);
+    renderTariffList();
 
     // Assert: No variant subtitle for undefined/whitespace and labels stay stable with provider name.
     expect(screen.queryByText(/^tariff$/i)).not.toBeInTheDocument();
@@ -293,11 +311,27 @@ describe('TariffList', () => {
     });
 
     // Act: Render list.
-    render(<TariffList />);
+    renderTariffList();
 
     // Assert: Uses provider_id as title and in action labels when lookup is missing.
     expect(screen.getByRole('heading', { name: 'provider-fallback', level: 2 })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /edit provider-fallback night saver/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /delete provider-fallback night saver/i })).toBeInTheDocument();
+  });
+
+  it('opens the create form when the parent requests tariff creation', () => {
+    // Arrange: Render the list with a pending parent-owned create request.
+    vi.mocked(useChargingPlans).mockReturnValue({
+      plans: [],
+      addChargingPlan: vi.fn(),
+      removeChargingPlan: vi.fn(),
+      isLoading: false,
+    });
+
+    // Act: Mount the tariff list with the create flag enabled.
+    renderTariffList({ isCreatingTariff: true });
+
+    // Assert: The create form opens deterministically once the list renders.
+    expect(screen.getByText('Tariff Form')).toBeInTheDocument();
   });
 });
