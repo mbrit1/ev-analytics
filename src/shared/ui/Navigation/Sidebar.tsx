@@ -3,18 +3,20 @@ import {
   BatteryCharging, 
   History, 
   Receipt, 
+  BarChart3,
   ChevronLeft, 
   ChevronRight 
 } from 'lucide-react'
+import { type NavigationTab } from './types'
 
 /**
  * Properties for the Sidebar component.
  */
 interface SidebarProps {
   /** The identifier of the currently active tab. */
-  activeTab: 'sessions' | 'tariffs'
+  activeTab: NavigationTab
   /** Callback fired when the user selects a different tab. */
-  onTabChange: (tab: 'sessions' | 'tariffs') => void
+  onTabChange: (tab: NavigationTab) => void
 }
 
 const NAV_ITEMS = [
@@ -29,6 +31,12 @@ const NAV_ITEMS = [
     label: 'Tariffs', 
     icon: Receipt, 
     ariaLabel: 'Navigate to Tariffs' 
+  },
+  {
+    id: 'analytics',
+    label: 'Analytics',
+    icon: BarChart3,
+    ariaLabel: 'Navigate to Analytics'
   },
 ] as const
 
@@ -58,7 +66,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
 
   return (
     <aside 
-      className={`hidden md:flex flex-col bg-surface/80 backdrop-blur-md border-r border-secondary/10 transition-all duration-300 ease-in-out h-screen sticky top-0 ${
+      className={`hidden md:flex flex-col bg-surface/80 backdrop-blur-md border-r border-secondary/10 transition-all duration-300 ease-in-out h-[100dvh] sticky top-0 ${
         isCollapsed ? 'w-[72px]' : 'w-[240px]'
       }`}
     >

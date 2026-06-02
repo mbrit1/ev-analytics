@@ -62,7 +62,7 @@ export const LoginForm: React.FC = () => {
   };
 
   return (
-    <main className="flex flex-col items-center justify-center min-h-screen p-4 bg-environment">
+    <main className="flex flex-col items-center justify-center min-h-[100dvh] p-4 bg-environment">
       <Slab className="w-full max-w-md space-y-6">
         <div className="text-center">
           <h1 className="text-2xl font-bold tracking-tight text-primary">EV Analytics</h1>

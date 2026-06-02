@@ -1,14 +1,15 @@
 import { Sidebar } from './Sidebar'
-import { BottomNav } from './BottomNav'
+import { MobileNavigationDock } from './MobileNavigationDock'
+import { type NavigationTab } from './types'
 
 /**
  * Properties for the root Navigation component.
  */
 interface NavigationProps {
   /** The identifier of the currently active tab. */
-  activeTab: 'sessions' | 'tariffs'
+  activeTab: NavigationTab
   /** Callback fired when the user selects a different tab. */
-  onTabChange: (tab: 'sessions' | 'tariffs') => void
+  onTabChange: (tab: NavigationTab) => void
 }
 
 /**
@@ -25,7 +26,7 @@ export function Navigation({ activeTab, onTabChange }: NavigationProps) {
   return (
     <>
       <Sidebar activeTab={activeTab} onTabChange={onTabChange} />
-      <BottomNav activeTab={activeTab} onTabChange={onTabChange} />
+      <MobileNavigationDock activeTab={activeTab} onTabChange={onTabChange} />
     </>
   )
 }

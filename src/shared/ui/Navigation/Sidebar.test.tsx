@@ -31,10 +31,13 @@ describe('Sidebar', () => {
   it('renders navigation items and toggles rail mode', () => {
     // Arrange: Setup the component with a mocked callback function
     const onTabChange = vi.fn()
-    render(<Sidebar activeTab="sessions" onTabChange={onTabChange} />)
+    const { container } = render(<Sidebar activeTab="sessions" onTabChange={onTabChange} />)
     
     // Assert: Check initial render (should show text labels)
+    expect(container.querySelector('aside')).toHaveClass('hidden')
+    expect(container.querySelector('aside')).toHaveClass('md:flex')
     expect(screen.getByText('Sessions')).toBeInTheDocument()
+    expect(screen.getByText('Analytics')).toBeInTheDocument()
     
     // Act: Toggle to rail mode
     const toggleBtn = screen.getByLabelText('Toggle Sidebar')
@@ -49,5 +52,7 @@ describe('Sidebar', () => {
     fireEvent.click(screen.getByLabelText('Navigate to Tariffs'))
     // Assert: The selected tab is reported to the parent.
     expect(onTabChange).toHaveBeenCalledWith('tariffs')
+    fireEvent.click(screen.getByLabelText('Navigate to Analytics'))
+    expect(onTabChange).toHaveBeenCalledWith('analytics')
   })
 })

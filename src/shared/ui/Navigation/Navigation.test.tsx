@@ -7,15 +7,16 @@ vi.mock('./Sidebar', () => ({
   Sidebar: vi.fn(({ activeTab, onTabChange }) => (
     <div data-testid="sidebar">
       Sidebar: {activeTab}
-      <button onClick={() => onTabChange('tariffs')}>Change to Tariffs</button>
+      <button onClick={() => onTabChange('analytics')}>Change to Analytics</button>
     </div>
   ))
 }))
 
-vi.mock('./BottomNav', () => ({
-  BottomNav: vi.fn(({ activeTab }) => (
-    <div data-testid="bottom-nav">
-      BottomNav: {activeTab}
+vi.mock('./MobileNavigationDock', () => ({
+  MobileNavigationDock: vi.fn(({ activeTab, onTabChange }) => (
+    <div data-testid="mobile-navigation-dock">
+      Dock: {activeTab}
+      <button onClick={() => onTabChange('tariffs')}>Change to Tariffs</button>
     </div>
   ))
 }))
@@ -26,16 +27,16 @@ vi.mock('./BottomNav', () => ({
  * rendered and receive the correct props.
  */
 describe('Navigation', () => {
-  it('renders both Sidebar and BottomNav with correct props', () => {
+  it('renders both Sidebar and MobileNavigationDock with correct props', () => {
     // Arrange: Render the root navigation component
     const onTabChange = vi.fn()
     render(<Navigation activeTab="sessions" onTabChange={onTabChange} />)
 
     // Assert: Verify both mock children are rendered with expected initial state
     expect(screen.getByTestId('sidebar')).toBeInTheDocument()
-    expect(screen.getByTestId('bottom-nav')).toBeInTheDocument()
+    expect(screen.getByTestId('mobile-navigation-dock')).toBeInTheDocument()
     expect(screen.getByText(/Sidebar: sessions/)).toBeInTheDocument()
-    expect(screen.getByText(/BottomNav: sessions/)).toBeInTheDocument()
+    expect(screen.getByText(/Dock: sessions/)).toBeInTheDocument()
   })
 
   it('passes onTabChange handler to children', async () => {
@@ -44,10 +45,12 @@ describe('Navigation', () => {
     render(<Navigation activeTab="sessions" onTabChange={onTabChange} />)
 
     // Act: Simulate an interaction from a child component
-    const button = screen.getByText('Change to Tariffs')
+    const button = screen.getByText('Change to Analytics')
     button.click()
+    screen.getByText('Change to Tariffs').click()
 
     // Assert: Verify the parent callback is invoked
+    expect(onTabChange).toHaveBeenCalledWith('analytics')
     expect(onTabChange).toHaveBeenCalledWith('tariffs')
   })
 })

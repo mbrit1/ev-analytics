@@ -6,6 +6,7 @@
   --color-accent: #007AFF;
   --color-primary: #1D1D1F;
   --color-secondary: #86868B;
+  --color-slab-border: rgba(0, 0, 0, 0.08);
   
   --shadow-slab: 0 10px 30px rgba(0, 0, 0, 0.04);
   --radius-slab: 28px;
@@ -15,14 +16,43 @@
 
 @layer base {
   :root {
+    --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+    --mobile-dock-height: 76px;
+    --mobile-dock-lift: 6px;
+    --mobile-nav-dock-height: var(--mobile-dock-height);
+    --mobile-nav-dock-bottom: calc(var(--safe-area-bottom) + var(--mobile-dock-lift));
+    --mobile-context-action-height: 52px;
+    --mobile-context-action-gap: 12px;
+    --mobile-content-bottom-clearance: 20px;
+    --mobile-context-action-bottom: calc(var(--mobile-nav-dock-bottom) + var(--mobile-nav-dock-height) + var(--mobile-context-action-gap));
+    --mobile-content-clearance-with-action: calc(
+      var(--mobile-nav-dock-bottom)
+      + var(--mobile-nav-dock-height)
+      + var(--mobile-context-action-gap)
+      + var(--mobile-context-action-height)
+      + var(--mobile-content-bottom-clearance)
+    );
+    --mobile-content-clearance-dock-only: calc(
+      var(--mobile-nav-dock-bottom) + var(--mobile-nav-dock-height) + var(--mobile-content-bottom-clearance)
+    );
+
     --bg-environment: var(--color-environment);
     --surface-slab: var(--color-surface);
     --primary-typography: var(--color-primary);
     --secondary-typography: var(--color-secondary);
+    --slab-border: var(--color-slab-border);
+    --slab-drop-shadow: var(--shadow-slab);
+    --edge-border: 1px solid var(--color-slab-border);
   }
 
   @media (prefers-color-scheme: dark) {
     :root {
+      --color-environment: #000000;
+      --color-surface: #1C1C1E;
+      --color-primary: #F5F5F7;
+      --color-secondary: #8E8E93;
+      --color-slab-border: rgba(255, 255, 255, 0.1);
+      --shadow-slab: 0 10px 40px rgba(0, 0, 0, 0.3);
       --bg-environment: #000000;
       --surface-slab: #1C1C1E;
       --primary-typography: #F5F5F7;

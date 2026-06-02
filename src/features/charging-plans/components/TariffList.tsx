@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import { formatCurrency } from '../../../shared/lib';
 import { type ChargingPlan } from '../../../infra/db';
@@ -10,33 +10,56 @@ import { Slab } from '../../../shared/ui';
 /**
  * Tariffs screen backed by the charging-plan domain.
  */
-export const TariffList: React.FC = () => {
-  const { plans, addChargingPlan, removeChargingPlan, isLoading } = useChargingPlans();
-  const { providers } = useProviders();
-  const [isFormOpen, setIsFormOpen] = useState(false);
-  const [editingPlan, setEditingPlan] = useState<ChargingPlan | undefined>(undefined);
+interface TariffListProps {
+  /** Controls whether the create form should open from the parent shell. */
+  isCreatingTariff: boolean
+  /** Clears the parent-owned tariff create request when consumed or dismissed. */
+  onCreateTariffChange: (isCreatingTariff: boolean) => void
+  /** Emits whether the create/edit form surface is currently open. */
+  onFormOpenChange?: (isOpen: boolean) => void
+}
+
+/**
+ * Tariffs screen backed by the charging-plan domain.
+ */
+export function TariffList({
+  isCreatingTariff,
+  onCreateTariffChange,
+  onFormOpenChange,
+}: TariffListProps) {
+  const { plans, addChargingPlan, removeChargingPlan, isLoading } = useChargingPlans()
+  const { providers } = useProviders()
+  const [isFormOpen, setIsFormOpen] = useState(false)
+  const [editingPlan, setEditingPlan] = useState<ChargingPlan | undefined>(undefined)
+  const isCreateRequested = isCreatingTariff && !isFormOpen
+  const isFormVisible = isFormOpen || isCreateRequested
+
+  useEffect(() => {
+    onFormOpenChange?.(isFormVisible)
+  }, [isFormVisible, onFormOpenChange])
 
   const handleSubmit = async (plan: ChargingPlan) => {
-    await addChargingPlan(plan);
-    setIsFormOpen(false);
-    setEditingPlan(undefined);
-  };
-
-  if (isLoading) {
-    return <div>Loading tariffs...</div>;
+    await addChargingPlan(plan)
+    setIsFormOpen(false)
+    setEditingPlan(undefined)
+    onCreateTariffChange(false)
   }
 
-  const shouldRenderOptionalAmount = (amount: number | undefined): amount is number => amount != null && amount > 0;
-  const providerNameById = new Map(providers.map((provider) => [provider.id, provider.name]));
+  if (isLoading) {
+    return <div>Loading tariffs...</div>
+  }
+
+  const shouldRenderOptionalAmount = (amount: number | undefined): amount is number => amount != null && amount > 0
+  const providerNameById = new Map(providers.map((provider) => [provider.id, provider.name]))
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold tracking-tight text-primary">Tariffs</h1>
-        {!isFormOpen && (
+        {!isFormVisible && (
           <button
             onClick={() => setIsFormOpen(true)}
-            className="flex items-center px-4 py-2 bg-accent text-white font-bold rounded-xl hover:opacity-90 transition-all shadow-md shadow-accent/20 min-h-[44px]"
+            className="hidden md:flex items-center px-4 py-2 bg-accent text-white font-bold rounded-xl hover:opacity-90 transition-all shadow-md shadow-accent/20 min-h-[44px]"
           >
             <Plus className="w-5 h-5 mr-2" />
             Add Tariff
@@ -44,14 +67,15 @@ export const TariffList: React.FC = () => {
         )}
       </div>
 
-      {isFormOpen && (
+      {isFormVisible && (
         <TariffFormLoader
           onSubmit={handleSubmit}
           onCancel={() => {
-            setIsFormOpen(false);
-            setEditingPlan(undefined);
+            setIsFormOpen(false)
+            setEditingPlan(undefined)
+            onCreateTariffChange(false)
           }}
-          initialValues={editingPlan}
+          initialValues={isCreatingTariff ? undefined : editingPlan}
         />
       )}
 
@@ -73,8 +97,8 @@ export const TariffList: React.FC = () => {
             <div className="flex gap-2 pt-1">
               <button
                 onClick={() => {
-                  setEditingPlan(plan);
-                  setIsFormOpen(true);
+                  setEditingPlan(plan)
+                  setIsFormOpen(true)
                 }}
                 aria-label={editLabel}
                 className="inline-flex items-center justify-center px-3 py-2 bg-secondary/10 text-primary font-bold rounded-xl hover:bg-secondary/20 transition-all min-h-[44px] sm:px-4"
@@ -132,4 +156,4 @@ export const TariffList: React.FC = () => {
       })}
     </div>
   );
-};
+}

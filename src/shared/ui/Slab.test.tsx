@@ -30,7 +30,7 @@ describe('Slab', () => {
     const expectedClasses = [
       'bg-surface',
       'border',
-      'border-secondary/10',
+      'border-slab-border',
       'rounded-slab',
       'shadow-slab',
       'p-8',
