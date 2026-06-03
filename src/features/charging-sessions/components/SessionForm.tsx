@@ -10,6 +10,7 @@ import { prepareSession } from '../services/sessionService';
 import { Slab } from '../../../shared/ui';
 import { ThinInput } from '../../../shared/ui';
 import { TactileMatrix } from '../../../shared/ui';
+import { formatCurrency } from '../../../shared/lib/utils';
 
 /**
  * Browser form values are kept as strings so react-hook-form can preserve
@@ -132,6 +133,59 @@ type LegacySessionInitialValues = Partial<ChargingSession> & {
   pricing_context?: ChargingSession['pricing_context'];
 };
 
+type ChargingRateValue = 'AC_standard' | 'DC_standard' | 'AC_roaming' | 'DC_roaming';
+
+const chargingRateOptions: Array<{
+  label: string;
+  value: ChargingRateValue;
+  chargingType: SessionFormValues['charging_type'];
+  pricingMode: SessionFormValues['pricing_mode'];
+  getPrice: (plan: ChargingPlan) => number | null | undefined;
+}> = [
+  { label: 'Domestic AC', value: 'AC_standard', chargingType: 'AC', pricingMode: 'standard', getPrice: (plan) => plan.ac_price_per_kwh },
+  { label: 'Roaming AC', value: 'AC_roaming', chargingType: 'AC', pricingMode: 'roaming', getPrice: (plan) => plan.roaming_ac_price_per_kwh },
+  { label: 'Domestic DC', value: 'DC_standard', chargingType: 'DC', pricingMode: 'standard', getPrice: (plan) => plan.dc_price_per_kwh },
+  { label: 'Roaming DC', value: 'DC_roaming', chargingType: 'DC', pricingMode: 'roaming', getPrice: (plan) => plan.roaming_dc_price_per_kwh },
+];
+
+function toChargingRateValue(
+  chargingType: SessionFormValues['charging_type'],
+  pricingMode: SessionFormValues['pricing_mode']
+): ChargingRateValue {
+  return `${chargingType}_${pricingMode}` as ChargingRateValue;
+}
+
+function parseChargingRateValue(value: string): typeof chargingRateOptions[number] {
+  const option = chargingRateOptions.find((candidate) => candidate.value === value);
+  if (!option) {
+    return chargingRateOptions[0];
+  }
+  return option;
+}
+
+function buildChargingRateOptions(plan?: ChargingPlan): Array<{
+  label: string;
+  secondaryLabel: string;
+  value: ChargingRateValue;
+}> {
+  if (!plan) {
+    return [];
+  }
+
+  return chargingRateOptions.flatMap((option) => {
+    const price = option.getPrice(plan);
+    if (price == null) {
+      return [];
+    }
+
+    return [{
+      label: option.label,
+      secondaryLabel: `${formatCurrency(price)}/kWh`,
+      value: option.value,
+    }];
+  });
+}
+
 function formatDateInputValue(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -216,6 +270,22 @@ function buildTariffPriceSnapshot(
   };
 }
 
+function hasPlanPriceForMode(
+  plan: ChargingPlan,
+  pricingMode: SessionFormValues['pricing_mode'],
+  chargingType: SessionFormValues['charging_type']
+): boolean {
+  if (pricingMode === 'roaming') {
+    return chargingType === 'AC'
+      ? plan.roaming_ac_price_per_kwh != null
+      : plan.roaming_dc_price_per_kwh != null;
+  }
+
+  return chargingType === 'AC'
+    ? plan.ac_price_per_kwh != null
+    : plan.dc_price_per_kwh != null;
+}
+
 interface SessionFormProps {
   /** Persists the fully prepared charging session. */
   onSubmit: (session: ChargingSession) => Promise<void>;
@@ -246,6 +316,8 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     control,
     setValue,
     getValues,
+    setError,
+    clearErrors,
     formState: { errors, isSubmitting },
   } = useForm<SessionFormValues>({
     resolver: zodResolver(sessionSchema),
@@ -281,11 +353,24 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   const selectedProviderId = useWatch({ control, name: 'provider_id' });
   const selectedPricingSource = useWatch({ control, name: 'session_mode' });
   const selectedPlanId = useWatch({ control, name: 'tariff_plan_id' });
+  const selectedChargingType = useWatch({ control, name: 'charging_type' });
+  const selectedPricingMode = useWatch({ control, name: 'pricing_mode' });
   const selectedSessionDate = useWatch({ control, name: 'session_timestamp' });
   const isChargingPlanPricing = selectedPricingSource === 'plan';
   const providerPlans = React.useMemo(
     () => plans.filter(plan => plan.provider_id === selectedProviderId),
     [plans, selectedProviderId]
+  );
+  const selectedPlan = React.useMemo(
+    () => plans.find(plan => plan.id === selectedPlanId),
+    [plans, selectedPlanId]
+  );
+  const shouldDisablePlanSelect = selectedPricingSource === 'plan'
+    && providerPlans.length <= 1;
+  const selectedChargingRate = toChargingRateValue(selectedChargingType, selectedPricingMode);
+  const planRateOptions = React.useMemo(
+    () => buildChargingRateOptions(selectedPlan),
+    [selectedPlan]
   );
   const sessionDateField = register('session_timestamp');
 
@@ -319,6 +404,38 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     setValue('tariff_plan_id', '');
   }, [selectedPricingSource, selectedProviderId, providerPlans, getValues, setValue]);
 
+  React.useEffect(() => {
+    if (selectedPricingSource !== 'plan') {
+      return;
+    }
+
+    if (!selectedPlan) {
+      return;
+    }
+
+    const currentChargingType = getValues('charging_type');
+    const currentPricingMode = getValues('pricing_mode');
+    const currentOption = parseChargingRateValue(toChargingRateValue(currentChargingType, currentPricingMode));
+    if (hasPlanPriceForMode(selectedPlan, currentOption.pricingMode, currentOption.chargingType)) {
+      return;
+    }
+
+    const nextOption = chargingRateOptions.find((option) => (
+      hasPlanPriceForMode(selectedPlan, option.pricingMode, option.chargingType)
+    ));
+
+    if (!nextOption) {
+      return;
+    }
+
+    if (nextOption.chargingType !== currentChargingType) {
+      setValue('charging_type', nextOption.chargingType, { shouldDirty: true });
+    }
+    if (nextOption.pricingMode !== currentPricingMode) {
+      setValue('pricing_mode', nextOption.pricingMode, { shouldDirty: true });
+    }
+  }, [getValues, selectedPlan, selectedPricingSource, setValue]);
+
   const sessionDateLabel = React.useMemo(() => {
     const raw = selectedSessionDate || formatDateInputValue(new Date());
     const [year, month, day] = raw.split('-');
@@ -338,91 +455,101 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   }, []);
 
   const handleFormSubmit = async (values: SessionFormValues) => {
-    // A session must belong to the active user; unauthenticated renders should
-    // not be able to create orphaned local records.
-    if (!user) return;
+    clearErrors('root.submit');
 
-    // Convert browser-friendly strings into the numeric domain fields expected
-    // by prepareSession. Decimal fields accept both German and English input.
-    const sessionBase = {
-      user_id: user.id,
-      session_timestamp: parseDateInputAsUtc(values.session_timestamp),
-      charging_type: values.charging_type,
-      kwh_billed: parseFloat(values.kwh_billed.replace(',', '.')),
-      kwh_added: values.kwh_added ? parseFloat(values.kwh_added.replace(',', '.')) : undefined,
-      start_soc_percentage: values.start_soc_percentage ? parseInt(values.start_soc_percentage) : undefined,
-      end_soc_percentage: values.end_soc_percentage ? parseInt(values.end_soc_percentage) : undefined,
-      odometer_km: values.odometer_km ? parseInt(values.odometer_km) : undefined,
-      notes: values.notes,
-    };
+    try {
+      // A session must belong to the active user; unauthenticated renders should
+      // not be able to create orphaned local records.
+      if (!user) return;
 
-    const providerId = values.provider_id;
-    if (!providerId) return;
-    const provider = providers.find(p => p.id === providerId);
-    if (!provider) return;
+      // Convert browser-friendly strings into the numeric domain fields expected
+      // by prepareSession. Decimal fields accept both German and English input.
+      const sessionBase = {
+        user_id: user.id,
+        session_timestamp: parseDateInputAsUtc(values.session_timestamp),
+        charging_type: values.charging_type,
+        kwh_billed: parseFloat(values.kwh_billed.replace(',', '.')),
+        kwh_added: values.kwh_added ? parseFloat(values.kwh_added.replace(',', '.')) : undefined,
+        start_soc_percentage: values.start_soc_percentage ? parseInt(values.start_soc_percentage) : undefined,
+        end_soc_percentage: values.end_soc_percentage ? parseInt(values.end_soc_percentage) : undefined,
+        odometer_km: values.odometer_km ? parseInt(values.odometer_km) : undefined,
+        notes: values.notes,
+      };
 
-    if (values.session_mode === 'plan') {
-      const plan = plans.find((plan) => plan.id === values.tariff_plan_id);
-      if (!plan) return;
-      const sessionDate = parseDateInputAsUtc(values.session_timestamp);
-      const snapshot = buildTariffPriceSnapshot(plan, provider.name, values.pricing_mode, values.charging_type);
-      const activeSelection = await getActivePlanSelectionAt(providerId, user.id, sessionDate);
-      const planSelection = (!activeSelection || activeSelection.tariff_plan_id !== plan.id)
-        ? await setActivePlanSelection({
-          userId: user.id,
-          providerId,
-          tariffPlanId: plan.id,
-          validFrom: sessionDate,
-          priceSnapshot: snapshot
-        })
-        : activeSelection;
-      const session = prepareSession(
-        {
-          ...sessionBase,
-          provider_id: providerId,
-          session_mode: 'plan',
-          tariff_plan_id: plan.id,
-          plan_selection_id: planSelection.id,
-          price_snapshot: snapshot,
-          pricing_context: values.pricing_mode,
+      const providerId = values.provider_id;
+      if (!providerId) return;
+      const provider = providers.find(p => p.id === providerId);
+      if (!provider) return;
+
+      if (values.session_mode === 'plan') {
+        const plan = plans.find((plan) => plan.id === values.tariff_plan_id);
+        if (!plan) return;
+        const sessionDate = parseDateInputAsUtc(values.session_timestamp);
+        const snapshot = buildTariffPriceSnapshot(plan, provider.name, values.pricing_mode, values.charging_type);
+        const activeSelection = await getActivePlanSelectionAt(providerId, user.id, sessionDate);
+        const planSelection = (!activeSelection || activeSelection.tariff_plan_id !== plan.id)
+          ? await setActivePlanSelection({
+            userId: user.id,
+            providerId,
+            tariffPlanId: plan.id,
+            validFrom: sessionDate,
+            priceSnapshot: snapshot
+          })
+          : activeSelection;
+        const session = prepareSession(
+          {
+            ...sessionBase,
+            provider_id: providerId,
+            session_mode: 'plan',
+            tariff_plan_id: plan.id,
+            plan_selection_id: planSelection.id,
+            price_snapshot: snapshot,
+            pricing_context: values.pricing_mode,
+          },
+          plan,
+          provider
+        );
+        await onSubmit(session);
+        return;
+      }
+
+      const pricePerKwh = parseDecimalToCents(values.ad_hoc_price_per_kwh);
+      if (pricePerKwh == null) {
+        return;
+      }
+      const sessionFee = parseDecimalToCents(values.ad_hoc_session_fee);
+      const otherFeesAmount = parseDecimalToCents(values.ad_hoc_other_fees);
+
+      const session = prepareSession({
+        ...sessionBase,
+        provider_id: providerId,
+        session_mode: 'ad_hoc',
+        tariff_plan_id: null,
+        plan_selection_id: null,
+        price_snapshot: {
+          label: 'Ad-Hoc',
+          kWhPrice: pricePerKwh,
+          sessionFee: sessionFee,
+          blockingFee: otherFeesAmount
         },
-        plan,
-        provider
-      );
+        pricing_context: 'ad_hoc',
+        ad_hoc_pricing: {
+          cpoName: values.cpo_name?.trim() || null,
+          pricePerKwh,
+          pricePerSession: sessionFee,
+          receiptUrl: values.ad_hoc_receipt_url || null,
+          notes: values.notes || null,
+          otherFees: otherFeesAmount == null ? undefined : [{ label: 'Other fees', amount: otherFeesAmount }],
+        },
+      });
       await onSubmit(session);
-      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to save session. Please try again.';
+      setError('root.submit', {
+        type: 'server',
+        message,
+      });
     }
-
-    const pricePerKwh = parseDecimalToCents(values.ad_hoc_price_per_kwh);
-    if (pricePerKwh == null) {
-      return;
-    }
-    const sessionFee = parseDecimalToCents(values.ad_hoc_session_fee);
-    const otherFeesAmount = parseDecimalToCents(values.ad_hoc_other_fees);
-
-    const session = prepareSession({
-      ...sessionBase,
-      provider_id: providerId,
-      session_mode: 'ad_hoc',
-      tariff_plan_id: null,
-      plan_selection_id: null,
-      price_snapshot: {
-        label: 'Ad-Hoc',
-        kWhPrice: pricePerKwh,
-        sessionFee: sessionFee,
-        blockingFee: otherFeesAmount
-      },
-      pricing_context: 'ad_hoc',
-      ad_hoc_pricing: {
-        cpoName: values.cpo_name?.trim() || null,
-        pricePerKwh,
-        pricePerSession: sessionFee,
-        receiptUrl: values.ad_hoc_receipt_url || null,
-        notes: values.notes || null,
-        otherFees: otherFeesAmount == null ? undefined : [{ label: 'Other fees', amount: otherFeesAmount }],
-      },
-    });
-    await onSubmit(session);
   };
 
   return (
@@ -446,6 +573,13 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       </div>
 
       <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-8" noValidate>
+        {errors.root?.submit?.message && (
+          <p role="alert" className="text-sm text-red-500 font-medium">
+            {errors.root.submit.message}
+          </p>
+        )}
+        <input type="hidden" {...register('charging_type')} />
+        <input type="hidden" {...register('pricing_mode')} />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Date */}
           <div className="flex flex-col">
@@ -544,7 +678,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                   {...register('tariff_plan_id')}
                   required={isChargingPlanPricing}
                   aria-required={isChargingPlanPricing ? 'true' : 'false'}
-                  disabled={!selectedProviderId || providerPlans.length === 0}
+                  disabled={shouldDisablePlanSelect}
                   className={`w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors disabled:text-secondary/55 disabled:cursor-not-allowed ${
                     selectedPlanId ? 'text-primary' : 'text-primary/70'
                   }`}
@@ -564,21 +698,18 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                 )}
               </div>
 
-              <Controller
-                name="pricing_mode"
-                control={control}
-                render={({ field }) => (
-                  <TactileMatrix
-                    label="Pricing Mode"
-                    value={field.value}
-                    onChange={field.onChange}
-                    options={[
-                      { label: 'Domestic', value: 'standard' },
-                      { label: 'Roaming', value: 'roaming' },
-                    ]}
-                  />
-                )}
-              />
+              {planRateOptions.length > 0 && (
+                <TactileMatrix
+                  label="Charging Rate"
+                  value={selectedChargingRate}
+                  onChange={(value) => {
+                    const nextRate = parseChargingRateValue(value);
+                    setValue('charging_type', nextRate.chargingType, { shouldDirty: true });
+                    setValue('pricing_mode', nextRate.pricingMode, { shouldDirty: true });
+                  }}
+                  options={planRateOptions}
+                />
+              )}
             </>
           ) : (
             <>
@@ -657,30 +788,6 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
             />
           </div>
         )}
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Charging Type */}
-          <Controller
-            name="charging_type"
-            control={control}
-            render={({ field }) => (
-              <TactileMatrix
-                label="Charging Type"
-                value={field.value}
-                onChange={field.onChange}
-                options={[
-                  { label: 'AC', value: 'AC' },
-                  { label: 'DC', value: 'DC' },
-                ]}
-              />
-            )}
-          />
-
-          {/* Spacer for consistent grid rhythm */}
-          <div className="flex flex-col">
-            <div className="hidden md:block h-full" />
-          </div>
-        </div>
 
         <div className="flex flex-col gap-8">
           {/* kWh Billed */}

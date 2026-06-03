@@ -12,6 +12,11 @@ describe('TactileMatrix', () => {
     { label: 'Option 2', value: 'opt2' },
     { label: 'Option 3', value: 'opt3' },
   ];
+  const optionsWithDisabled = [
+    { label: 'Option 1', value: 'opt1' },
+    { label: 'Option 2', value: 'opt2', disabled: true },
+    { label: 'Option 3', value: 'opt3' },
+  ];
 
   it('renders label and all options', () => {
     // Arrange: Define a selected value and predefined options.
@@ -30,6 +35,26 @@ describe('TactileMatrix', () => {
     options.forEach(option => {
       expect(screen.getByText(option.label)).toBeInTheDocument();
     });
+  });
+
+  it('renders option secondary text with smaller tabular typography', () => {
+    // Arrange: Provide an option with secondary pricing copy.
+    render(
+      <TactileMatrix
+        label="Test Matrix"
+        options={[{ label: 'Domestic DC', secondaryLabel: '0,49 €/kWh', value: 'dc' }]}
+        value="dc"
+        onChange={() => {}}
+      />
+    );
+
+    // Assert: The primary label remains visible and secondary copy uses the requested hierarchy.
+    expect(screen.getByText('Domestic DC')).toHaveClass('text-[17px]');
+    expect(screen.getByText('Domestic DC')).toHaveClass('font-semibold');
+    expect(screen.getByText('0,49 €/kWh')).toHaveClass('text-[13px]');
+    expect(screen.getByText('0,49 €/kWh')).toHaveClass('font-medium');
+    expect(screen.getByText('0,49 €/kWh')).toHaveClass('opacity-90');
+    expect(screen.getByText('0,49 €/kWh')).toHaveClass('tabular-nums');
   });
 
   it('calls onChange with correct value when an option is clicked', () => {
@@ -51,6 +76,26 @@ describe('TactileMatrix', () => {
     expect(onChange).toHaveBeenCalledWith('opt2');
   });
 
+  it('does not allow selecting disabled options', () => {
+    // Arrange: Render the matrix with a disabled middle option.
+    const onChange = vi.fn();
+    render(
+      <TactileMatrix
+        label="Test Matrix"
+        options={optionsWithDisabled}
+        value="opt1"
+        onChange={onChange}
+      />
+    );
+
+    // Act: Try to click the disabled option.
+    fireEvent.click(screen.getByText('Option 2'));
+
+    // Assert: Disabled options do not propagate changes.
+    expect(onChange).not.toHaveBeenCalled();
+    expect(screen.getByRole('radio', { name: 'Option 2' })).toBeDisabled();
+  });
+
   it('applies active classes only to the selected option', () => {
     // Arrange: Select Option 2 as the active value.
     // Act: Render the matrix.
@@ -63,8 +108,8 @@ describe('TactileMatrix', () => {
       />
     );
 
-    const activeOption = screen.getByText('Option 2');
-    const idleOption = screen.getByText('Option 1');
+    const activeOption = screen.getByRole('radio', { name: 'Option 2' });
+    const idleOption = screen.getByRole('radio', { name: 'Option 1' });
 
     // Assert: Requirements: bg-primary text-surface shadow-md scale-[1.02]
     expect(activeOption).toHaveClass('bg-primary');
@@ -114,6 +159,28 @@ describe('TactileMatrix', () => {
     expect(onChange).toHaveBeenCalledWith('opt3');
   });
 
+  it('skips disabled options when navigating with arrow keys', () => {
+    // Arrange: Render the matrix with a disabled middle option.
+    const onChange = vi.fn();
+    render(
+      <TactileMatrix
+        label="Test Matrix"
+        options={optionsWithDisabled}
+        value="opt1"
+        onChange={onChange}
+      />
+    );
+
+    const firstOption = screen.getByText('Option 1');
+    firstOption.focus();
+
+    // Act: Move right from the first option.
+    fireEvent.keyDown(firstOption, { key: 'ArrowRight' });
+
+    // Assert: Keyboard navigation skips the disabled option and lands on the next enabled one.
+    expect(onChange).toHaveBeenCalledWith('opt3');
+  });
+
   it('manages tabIndex correctly for radio group items', () => {
     // Arrange: Select Option 2 as the active value.
     // Act: Render the matrix.
@@ -126,9 +193,9 @@ describe('TactileMatrix', () => {
       />
     );
 
-    const option1 = screen.getByText('Option 1');
-    const option2 = screen.getByText('Option 2');
-    const option3 = screen.getByText('Option 3');
+    const option1 = screen.getByRole('radio', { name: 'Option 1' });
+    const option2 = screen.getByRole('radio', { name: 'Option 2' });
+    const option3 = screen.getByRole('radio', { name: 'Option 3' });
 
     // Assert: Only the selected option (Option 2) should be in the tab sequence
     expect(option1).toHaveAttribute('tabindex', '-1');

@@ -6,8 +6,12 @@ import React from 'react';
 interface TactileOption {
   /** Display text for the option. */
   label: string;
+  /** Optional secondary display text shown beneath the primary label. */
+  secondaryLabel?: string;
   /** Internal value representing the option. */
   value: string;
+  /** Disables the option when the current context cannot support it. */
+  disabled?: boolean;
 }
 
 /**
@@ -44,6 +48,26 @@ export const TactileMatrix: React.FC<TactileMatrixProps> = ({
 }) => {
   const labelId = React.useId();
   const buttonRefs = React.useRef<(HTMLButtonElement | null)[]>([]);
+  const enabledOptions = React.useMemo(
+    () => options.map((option, index) => ({ option, index })).filter(({ option }) => !option.disabled),
+    [options]
+  );
+
+  const findNextEnabledIndex = (startIndex: number, step: 1 | -1): number | null => {
+    if (enabledOptions.length === 0) {
+      return null;
+    }
+
+    let index = startIndex;
+    for (let attempts = 0; attempts < options.length; attempts += 1) {
+      index = (index + step + options.length) % options.length;
+      if (!options[index]?.disabled) {
+        return index;
+      }
+    }
+
+    return null;
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent, index: number) => {
     let nextIndex: number | null = null;
@@ -51,11 +75,11 @@ export const TactileMatrix: React.FC<TactileMatrixProps> = ({
     switch (e.key) {
       case 'ArrowRight':
       case 'ArrowDown':
-        nextIndex = (index + 1) % options.length;
+        nextIndex = findNextEnabledIndex(index, 1);
         break;
       case 'ArrowLeft':
       case 'ArrowUp':
-        nextIndex = (index - 1 + options.length) % options.length;
+        nextIndex = findNextEnabledIndex(index, -1);
         break;
       default:
         break;
@@ -85,11 +109,11 @@ export const TactileMatrix: React.FC<TactileMatrixProps> = ({
       >
         {label}
       </span>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+      <div className={`grid gap-3 ${options.length === 1 ? 'grid-cols-1' : 'grid-cols-2 sm:grid-cols-3'}`}>
         {options.map((option, index) => {
           const isActive = option.value === value;
-          // If no value matches, the first item should be focusable
-          const isFocusable = isActive || (value === '' && index === 0);
+          // If no value matches, the first enabled item should be focusable.
+          const isFocusable = !option.disabled && (isActive || (value === '' && enabledOptions[0]?.index === index));
           
           return (
             <button
@@ -99,21 +123,35 @@ export const TactileMatrix: React.FC<TactileMatrixProps> = ({
               }}
               type="button"
               role="radio"
+              aria-label={option.secondaryLabel ? `${option.label} ${option.secondaryLabel}` : undefined}
               aria-checked={isActive}
+              aria-disabled={option.disabled ? 'true' : undefined}
+              disabled={option.disabled}
               tabIndex={isFocusable ? 0 : -1}
-              onClick={() => onChange(option.value)}
+              onClick={() => {
+                if (!option.disabled) {
+                  onChange(option.value);
+                }
+              }}
               onKeyDown={(e) => handleKeyDown(e, index)}
               className={`
                 py-3 px-4 rounded-xl font-bold text-sm transition-all min-h-[44px] cursor-pointer
-                flex items-center justify-center text-center
+                flex flex-col items-center justify-center text-center whitespace-pre-line
                 ${
-                  isActive
-                    ? 'bg-primary text-surface shadow-md scale-[1.02]'
-                    : 'bg-secondary/10 text-primary hover:bg-secondary/20'
+                  option.disabled
+                    ? 'bg-secondary/5 text-secondary/40 cursor-not-allowed'
+                    : isActive
+                      ? 'bg-primary text-surface shadow-md scale-[1.02]'
+                      : 'bg-secondary/10 text-primary hover:bg-secondary/20'
                 }
               `}
             >
-              {option.label}
+              <span className={option.secondaryLabel ? 'text-[17px] font-semibold' : undefined}>{option.label}</span>
+              {option.secondaryLabel && (
+                <span className="text-[13px] font-medium opacity-90 tabular-nums">
+                  {option.secondaryLabel}
+                </span>
+              )}
             </button>
           );
         })}
