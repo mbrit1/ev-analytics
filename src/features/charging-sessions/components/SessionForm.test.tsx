@@ -96,13 +96,12 @@ describe('SessionForm', () => {
     expect(screen.getByLabelText(/provider/i)).toBeDefined();
     expect(screen.getByText(/pricing source/i)).toBeDefined();
     expect(screen.getByLabelText(/^plan\s*\*?$/i)).toBeDefined();
-    expect(screen.getByText(/charging type/i)).toBeDefined();
-    expect(screen.getByText(/pricing mode/i)).toBeDefined();
+    expect(screen.queryByText(/charging rate/i)).toBeNull();
     expect(screen.getByLabelText(/kwh billed/i)).toBeDefined();
     expect(screen.getByText(/required fields/i)).toBeDefined();
   });
 
-  it('shows charging-plan provider/plan and domestic-roaming controls by default', () => {
+  it('shows charging-plan provider/plan and combined charging-rate controls by default', () => {
     // Arrange: Render a fresh session form.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
 
@@ -111,7 +110,9 @@ describe('SessionForm', () => {
     expect(screen.getByRole('radio', { name: /ad-hoc/i })).toBeDefined();
     expect(screen.getByLabelText(/provider/i)).toBeDefined();
     expect(screen.getByLabelText(/^plan\s*\*?$/i)).toBeDefined();
-    expect(screen.getByText(/pricing mode/i)).toBeDefined();
+    expect(screen.queryByText(/charging rate/i)).toBeNull();
+    expect(screen.queryByText(/^pricing mode$/i)).toBeNull();
+    expect(screen.queryByText(/^charging type$/i)).toBeNull();
   });
 
   it('switches to ad-hoc pricing fields when pricing source is ad-hoc', () => {
@@ -129,6 +130,7 @@ describe('SessionForm', () => {
     expect(screen.getByLabelText(/session fee/i)).toBeDefined();
     expect(screen.getByLabelText(/receipt url/i)).toBeDefined();
     expect(screen.getByLabelText(/other fees/i)).toBeDefined();
+    expect(screen.queryByText(/charging rate/i)).toBeNull();
   });
 
   it('shows required markers for default charging-plan required fields', () => {
@@ -240,6 +242,7 @@ describe('SessionForm', () => {
 
     // Act: Render and submit unchanged edit values.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+    expect(screen.getByRole('radio', { name: /roaming ac\s+0,50 €\/kwh/i })).toHaveAttribute('aria-checked', 'true');
     fireEvent.click(screen.getByRole('button', { name: /save session/i }));
 
     // Assert: Stored roaming context is preserved through re-save.
@@ -377,6 +380,40 @@ describe('SessionForm', () => {
 
     // Assert: the single matching plan is selected automatically.
     expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('t3');
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toBeDisabled();
+  });
+
+  it('shows charging-rate choices only after a plan is selected', () => {
+    // Arrange: render a fresh form and choose a provider with multiple plans.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+
+    // Assert: plan-dependent rate choices are not rendered while plan selection is empty.
+    expect(screen.queryByText(/charging rate/i)).toBeNull();
+    expect(screen.queryByRole('radio', { name: /domestic ac/i })).toBeNull();
+    expect(screen.queryByRole('radio', { name: /roaming ac/i })).toBeNull();
+    expect(screen.queryByRole('radio', { name: /domestic dc/i })).toBeNull();
+    expect(screen.queryByRole('radio', { name: /roaming dc/i })).toBeNull();
+
+    // Act: choose a plan.
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't1' } });
+
+    // Assert: once a plan is selected, supported rate choices become available with prices.
+    expect(screen.getByRole('radio', { name: /domestic ac\s+0,40 €\/kwh/i })).not.toBeDisabled();
+    expect(screen.getByRole('radio', { name: /roaming ac\s+0,50 €\/kwh/i })).not.toBeDisabled();
+    expect(screen.getByRole('radio', { name: /domestic dc\s+0,60 €\/kwh/i })).not.toBeDisabled();
+    expect(screen.getByRole('radio', { name: /roaming dc\s+0,70 €\/kwh/i })).not.toBeDisabled();
+  });
+
+  it('keeps the plan select enabled when the selected provider has multiple plans', () => {
+    // Arrange: render a fresh form.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Act: choose provider p1, which has multiple plans in the fixture set.
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+
+    // Assert: the plan select remains interactive because the user must choose.
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).not.toBeDisabled();
   });
 
   it('clears stale plan when provider changes to one that does not own it', () => {
@@ -487,5 +524,110 @@ describe('SessionForm', () => {
       expect(screen.getByText(/end soc must be greater than or equal to start soc/i)).toBeDefined();
     });
     expect(mockOnSubmit).not.toHaveBeenCalled();
+  });
+
+  it('submits the selected combined charging rate as charging type and pricing context', async () => {
+    // Arrange: fill required plan-mode fields.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't1' } });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10,0' } });
+
+    // Act: select roaming DC as the combined rate and submit.
+    fireEvent.click(screen.getByRole('radio', { name: /roaming dc/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: the domain payload keeps the existing fields expected by services.
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          charging_type: 'DC',
+          pricing_context: 'roaming',
+          applied_price_per_kwh: 70,
+        })
+      );
+    });
+  });
+
+  it('renders only combined charging rates backed by tariff prices', () => {
+    // Arrange: Render a plan that has domestic AC and roaming DC pricing only.
+    vi.mocked(useChargingPlans).mockReturnValue({
+      plans: [
+        {
+          id: 't1',
+          name: 'P1 Home',
+          provider_id: 'p1',
+          ac_price_per_kwh: 40,
+          dc_price_per_kwh: null,
+          roaming_ac_price_per_kwh: null,
+          roaming_dc_price_per_kwh: 70,
+          monthly_base_fee: 0,
+          session_fee: 0
+        }
+      ] as unknown as ChargingPlan[],
+      isLoading: false,
+      addChargingPlan: vi.fn(),
+      removeChargingPlan: vi.fn(),
+    });
+
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't1' } });
+
+    // Assert: Only priced rates are rendered, in the approved label order.
+    const rateOptions = screen.getAllByRole('radio', { name: /(domestic|roaming)/i });
+    expect(rateOptions).toHaveLength(2);
+    expect(rateOptions.map((option) => option.getAttribute('aria-label') ?? option.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+      'Domestic AC 0,40 €/kWh',
+      'Roaming DC 0,70 €/kWh',
+    ]);
+    expect(screen.queryByRole('radio', { name: /roaming ac/i })).toBeNull();
+    expect(screen.queryByRole('radio', { name: /domestic dc/i })).toBeNull();
+  });
+
+  it('auto-selects the only available charging rate', async () => {
+    // Arrange: Render a plan that has domestic AC pricing only.
+    vi.mocked(useChargingPlans).mockReturnValue({
+      plans: [
+        {
+          id: 't2',
+          name: 'P1 AC Only',
+          provider_id: 'p1',
+          ac_price_per_kwh: 42,
+          dc_price_per_kwh: null,
+          roaming_ac_price_per_kwh: null,
+          roaming_dc_price_per_kwh: null,
+          monthly_base_fee: 0,
+          session_fee: 0
+        }
+      ] as unknown as ChargingPlan[],
+      isLoading: false,
+      addChargingPlan: vi.fn(),
+      removeChargingPlan: vi.fn(),
+    });
+
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't2' } });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+
+    // Assert: the one available rate is visible and selected.
+    const onlyRate = screen.getByRole('radio', { name: /domestic ac\s+0,42 €\/kwh/i });
+    expect(onlyRate).toHaveAttribute('aria-checked', 'true');
+    expect(screen.queryByRole('radio', { name: /roaming ac/i })).toBeNull();
+    expect(screen.queryByRole('radio', { name: /domestic dc/i })).toBeNull();
+    expect(screen.queryByRole('radio', { name: /roaming dc/i })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          charging_type: 'AC',
+          pricing_context: 'standard',
+          applied_price_per_kwh: 42,
+        })
+      );
+    });
   });
 });
