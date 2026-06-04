@@ -555,4 +555,31 @@ describe('sessionService', () => {
     expect(sessions[0].id).toBe('s2');
     expect(sessions[1].id).toBe('s1');
   });
+
+  it('prefers session_timestamp over updated_at when ordering history', async () => {
+    // Arrange: Give the older session a newer update timestamp.
+    const newerSessionDate = buildSessionFixture({
+      id: 'session-newer-date',
+      session_timestamp: new Date('2026-06-03T08:00:00.000Z'),
+      created_at: new Date('2026-06-03T08:30:00.000Z'),
+      updated_at: new Date('2026-06-03T08:30:00.000Z'),
+    });
+    const olderSessionDate = buildSessionFixture({
+      id: 'session-older-date',
+      session_timestamp: new Date('2026-06-02T08:00:00.000Z'),
+      created_at: new Date('2026-06-04T08:30:00.000Z'),
+      updated_at: new Date('2026-06-04T08:30:00.000Z'),
+    });
+
+    await db.sessions.bulkAdd([olderSessionDate, newerSessionDate]);
+
+    // Act: Fetch active sessions through the service.
+    const sessions = await (await import('./sessionService')).getSessions('user-456');
+
+    // Assert: Session date remains the primary ordering key.
+    expect(sessions.map((session) => session.id)).toEqual([
+      'session-newer-date',
+      'session-older-date',
+    ]);
+  });
 })

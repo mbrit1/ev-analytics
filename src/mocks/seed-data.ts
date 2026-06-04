@@ -1,13 +1,15 @@
 /**
  * Seed providers returned by MSW when local mock mode hydrates Supabase data.
  */
+const MOCK_NOW_ISO = '2026-06-04T09:00:00.000Z';
+
 export const mockProviders = [
-  { id: 'p1', user_id: 'mock-user-id', name: 'Tesla', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: 'p2', user_id: 'mock-user-id', name: 'EnBW', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: 'p3', user_id: 'mock-user-id', name: 'FastCharge', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: 'p4', user_id: 'mock-user-id', name: 'DC Only Energy', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: 'p5', user_id: 'mock-user-id', name: 'AC Only Energy', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  { id: 'p6', user_id: 'mock-user-id', name: 'Mixed Null Energy', created_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+  { id: 'p1', user_id: 'mock-user-id', name: 'Tesla', created_at: MOCK_NOW_ISO, updated_at: MOCK_NOW_ISO },
+  { id: 'p2', user_id: 'mock-user-id', name: 'EnBW', created_at: MOCK_NOW_ISO, updated_at: MOCK_NOW_ISO },
+  { id: 'p3', user_id: 'mock-user-id', name: 'FastCharge', created_at: MOCK_NOW_ISO, updated_at: MOCK_NOW_ISO },
+  { id: 'p4', user_id: 'mock-user-id', name: 'DC Only Energy', created_at: MOCK_NOW_ISO, updated_at: MOCK_NOW_ISO },
+  { id: 'p5', user_id: 'mock-user-id', name: 'AC Only Energy', created_at: MOCK_NOW_ISO, updated_at: MOCK_NOW_ISO },
+  { id: 'p6', user_id: 'mock-user-id', name: 'Mixed Null Energy', created_at: MOCK_NOW_ISO, updated_at: MOCK_NOW_ISO }
 ];
 
 /**
@@ -29,8 +31,8 @@ export const mockChargingPlans = [
     session_fee: 0,
     affiliation: null,
     notes: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    created_at: MOCK_NOW_ISO,
+    updated_at: MOCK_NOW_ISO
   },
   {
     id: 'cp2',
@@ -47,8 +49,8 @@ export const mockChargingPlans = [
     session_fee: 0,
     affiliation: null,
     notes: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    created_at: MOCK_NOW_ISO,
+    updated_at: MOCK_NOW_ISO
   },
   {
     id: 'cp6',
@@ -65,8 +67,8 @@ export const mockChargingPlans = [
     session_fee: 0,
     affiliation: null,
     notes: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    created_at: MOCK_NOW_ISO,
+    updated_at: MOCK_NOW_ISO
   },
   {
     id: 'cp3',
@@ -83,8 +85,8 @@ export const mockChargingPlans = [
     session_fee: 0,
     affiliation: null,
     notes: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    created_at: MOCK_NOW_ISO,
+    updated_at: MOCK_NOW_ISO
   },
   {
     id: 'cp4',
@@ -101,8 +103,8 @@ export const mockChargingPlans = [
     session_fee: 0,
     affiliation: null,
     notes: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    created_at: MOCK_NOW_ISO,
+    updated_at: MOCK_NOW_ISO
   },
   {
     id: 'cp5',
@@ -119,8 +121,8 @@ export const mockChargingPlans = [
     session_fee: 0,
     affiliation: null,
     notes: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    created_at: MOCK_NOW_ISO,
+    updated_at: MOCK_NOW_ISO
   },
   {
     id: 'cp7',
@@ -137,8 +139,8 @@ export const mockChargingPlans = [
     session_fee: 0,
     affiliation: null,
     notes: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    created_at: MOCK_NOW_ISO,
+    updated_at: MOCK_NOW_ISO
   },
   {
     id: 'cp8',
@@ -155,8 +157,8 @@ export const mockChargingPlans = [
     session_fee: 0,
     affiliation: null,
     notes: null,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    created_at: MOCK_NOW_ISO,
+    updated_at: MOCK_NOW_ISO
   }
 ];
 
@@ -168,7 +170,7 @@ export const mockSessions = [
   {
     id: 's1',
     user_id: 'mock-user-id',
-    session_timestamp: new Date().toISOString(),
+    session_timestamp: '2026-06-03T08:15:00.000Z',
     provider_id: 'p1',
     provider_name_snapshot: 'Tesla',
     tariff_plan_id: 'cp1',
@@ -185,13 +187,13 @@ export const mockSessions = [
     applied_ac_price_per_kwh: 45,
     applied_dc_price_per_kwh: 45,
     applied_session_fee: 0,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    created_at: '2026-06-03T08:20:00.000Z',
+    updated_at: '2026-06-03T08:20:00.000Z'
   },
   {
     id: 's2',
     user_id: 'mock-user-id',
-    session_timestamp: new Date().toISOString(),
+    session_timestamp: '2026-06-02T18:45:00.000Z',
     provider_id: 'p2',
     provider_name_snapshot: 'EnBW',
     tariff_plan_id: null,
@@ -209,13 +211,13 @@ export const mockSessions = [
     },
     applied_price_per_kwh: 51,
     applied_session_fee: 0,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    created_at: '2026-06-02T18:50:00.000Z',
+    updated_at: '2026-06-02T18:50:00.000Z'
   },
   {
     id: 's4',
     user_id: 'mock-user-id',
-    session_timestamp: new Date().toISOString(),
+    session_timestamp: '2026-05-29T12:30:00.000Z',
     provider_id: 'p2',
     provider_name_snapshot: 'EnBW',
     tariff_plan_id: 'cp6',
@@ -233,13 +235,13 @@ export const mockSessions = [
     applied_roaming_ac_price_per_kwh: 57,
     applied_roaming_dc_price_per_kwh: 67,
     applied_session_fee: 0,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    created_at: '2026-05-29T12:35:00.000Z',
+    updated_at: '2026-05-29T12:35:00.000Z'
   },
   {
     id: 's3',
     user_id: 'mock-user-id',
-    session_timestamp: new Date().toISOString(),
+    session_timestamp: '2026-05-18T07:05:00.000Z',
     provider_id: 'p3',
     provider_name_snapshot: 'FastCharge',
     tariff_plan_id: 'cp3',
@@ -255,7 +257,7 @@ export const mockSessions = [
     applied_roaming_ac_price_per_kwh: 55,
     applied_roaming_dc_price_per_kwh: 75,
     applied_session_fee: 0,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+    created_at: '2026-05-18T07:10:00.000Z',
+    updated_at: '2026-05-18T07:10:00.000Z'
   }
 ];

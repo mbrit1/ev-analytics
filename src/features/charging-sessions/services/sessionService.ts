@@ -1,5 +1,6 @@
 import { db, type ChargingSession, type ChargingPlan, type Provider } from '../../../infra/db';
 import type { SessionPreparationInput } from '../model/types';
+import { sortSessionsNewestFirst } from '../model/types';
 
 /**
  * Prepares a complete ChargingSession object from user input and associated data.
@@ -271,7 +272,8 @@ export async function saveSession(session: ChargingSession): Promise<void> {
 }
 
 /**
- * Fetches all charging sessions from the local database, ordered by timestamp descending.
+ * Fetches all charging sessions from the local database, ordered newest-first
+ * by the session timestamp users expect to see in history.
  *
  * Soft-deleted sessions are omitted so history views only show active records.
  *
@@ -282,24 +284,5 @@ export async function getSessions(userId: string): Promise<ChargingSession[]> {
     .filter((session) => session.user_id === userId && !session.deleted_at)
     .toArray();
 
-  const toEpoch = (value: Date | string | number | undefined): number => {
-    if (value instanceof Date) {
-      return value.getTime();
-    }
-    if (typeof value === 'string' || typeof value === 'number') {
-      const parsed = new Date(value).getTime();
-      return Number.isNaN(parsed) ? 0 : parsed;
-    }
-    return 0;
-  };
-
-  // Keep history deterministic for "just saved" UX by ordering on the latest
-  // local mutation timestamp first, with session date as a secondary key.
-  return sessions.sort((left, right) => {
-    const updatedAtDelta = toEpoch(right.updated_at) - toEpoch(left.updated_at);
-    if (updatedAtDelta !== 0) {
-      return updatedAtDelta;
-    }
-    return toEpoch(right.session_timestamp) - toEpoch(left.session_timestamp);
-  });
+  return sortSessionsNewestFirst(sessions);
 }

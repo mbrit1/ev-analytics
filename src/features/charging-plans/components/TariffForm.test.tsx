@@ -93,6 +93,28 @@ describe('TariffForm', () => {
     );
   });
 
+  it('keeps optional prices undefined and falls back required fees to zero', async () => {
+    // Arrange: Fill only the required provider field and leave price inputs blank.
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+
+    // Act: Submit the form without optional money values.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Optional price fields remain undefined while fee fields are explicit zeroes.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+    expect(mockOnSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ac_price_per_kwh: undefined,
+        dc_price_per_kwh: undefined,
+        roaming_ac_price_per_kwh: undefined,
+        roaming_dc_price_per_kwh: undefined,
+        monthly_base_fee: 0,
+        session_fee: 0,
+      })
+    );
+  });
+
   it('allows submit when tariff name is empty', async () => {
     // Arrange: Fill only required fields without tariff name.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
@@ -178,6 +200,20 @@ describe('TariffForm', () => {
     // Assert: Conflict message is shown to the user.
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Tariff validity overlaps with an existing active version for this provider and name');
+  });
+
+  it('rejects malformed money input before submit and shows a validation error', async () => {
+    // Arrange: Enter required fields plus a malformed decimal amount.
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,4,9' } });
+
+    // Act: Submit the form with invalid money input.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Submission is blocked and the user sees the validation message.
+    await screen.findByText('Enter a valid money amount');
+    expect(mockOnSubmit).not.toHaveBeenCalled();
   });
 
   it('exposes provider validation with aria attributes', async () => {

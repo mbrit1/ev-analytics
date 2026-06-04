@@ -14,17 +14,28 @@ export interface TariffFormProps {
   initialValues?: Partial<ChargingPlan>;
 }
 
+const MONEY_INPUT_ERROR_MESSAGE = 'Enter a valid money amount';
+
+function isValidMoneyInput(value?: string): boolean {
+  if (value == null) return true;
+  const normalized = value.trim();
+  if (normalized === '') return true;
+  return /^-?\d+(?:[.,]\d+)?$/.test(normalized);
+}
+
+const moneyFieldSchema = z.string().optional().refine(isValidMoneyInput, MONEY_INPUT_ERROR_MESSAGE);
+
 const tariffFormSchema = z.object({
   name: z.string().optional(),
   provider_id: z.string().min(1, 'Provider is required'),
   valid_from: z.string().min(1, 'Valid from date is required'),
   valid_to: z.string().optional(),
-  ac_price: z.string().optional(),
-  dc_price: z.string().optional(),
-  roaming_ac_price: z.string().optional(),
-  roaming_dc_price: z.string().optional(),
-  monthly_base_fee: z.string().optional(),
-  session_fee: z.string().optional(),
+  ac_price: moneyFieldSchema,
+  dc_price: moneyFieldSchema,
+  roaming_ac_price: moneyFieldSchema,
+  roaming_dc_price: moneyFieldSchema,
+  monthly_base_fee: moneyFieldSchema,
+  session_fee: moneyFieldSchema,
   affiliation: z.string().optional(),
   notes: z.string().optional(),
 });
@@ -107,12 +118,12 @@ export const TariffForm: React.FC<TariffFormProps> = ({ onSubmit, onCancel, init
         name: normalizedPlanName,
         valid_from: parseDateInputAsUtc(values.valid_from),
         valid_to: values.valid_to ? parseDateInputAsUtc(values.valid_to) : null,
-        ac_price_per_kwh: values.ac_price ? parseDecimalToCents(values.ac_price) : undefined,
-        dc_price_per_kwh: values.dc_price ? parseDecimalToCents(values.dc_price) : undefined,
-        roaming_ac_price_per_kwh: values.roaming_ac_price ? parseDecimalToCents(values.roaming_ac_price) : undefined,
-        roaming_dc_price_per_kwh: values.roaming_dc_price ? parseDecimalToCents(values.roaming_dc_price) : undefined,
-        monthly_base_fee: values.monthly_base_fee ? parseDecimalToCents(values.monthly_base_fee) : 0,
-        session_fee: values.session_fee ? parseDecimalToCents(values.session_fee) : 0,
+        ac_price_per_kwh: parseDecimalToCents(values.ac_price ?? ''),
+        dc_price_per_kwh: parseDecimalToCents(values.dc_price ?? ''),
+        roaming_ac_price_per_kwh: parseDecimalToCents(values.roaming_ac_price ?? ''),
+        roaming_dc_price_per_kwh: parseDecimalToCents(values.roaming_dc_price ?? ''),
+        monthly_base_fee: parseDecimalToCents(values.monthly_base_fee ?? '') ?? 0,
+        session_fee: parseDecimalToCents(values.session_fee ?? '') ?? 0,
         affiliation: values.affiliation || undefined,
         notes: values.notes || undefined,
         created_at: initialValues?.created_at ?? now,
@@ -186,20 +197,20 @@ export const TariffForm: React.FC<TariffFormProps> = ({ onSubmit, onCancel, init
 
         <section className="space-y-6" aria-labelledby="tariff-section-charging-prices">
           <h3 id="tariff-section-charging-prices" className="text-[13px] font-semibold text-secondary uppercase tracking-wider">Charging Prices</h3>
-          <ThinInput label="AC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('ac_price')} />
-          <ThinInput label="DC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('dc_price')} />
+          <ThinInput label="AC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('ac_price')} error={errors.ac_price?.message} />
+          <ThinInput label="DC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('dc_price')} error={errors.dc_price?.message} />
         </section>
 
         <section className="space-y-6" aria-labelledby="tariff-section-roaming-prices">
           <h3 id="tariff-section-roaming-prices" className="text-[13px] font-semibold text-secondary uppercase tracking-wider">Roaming Prices</h3>
-          <ThinInput label="Roaming AC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('roaming_ac_price')} />
-          <ThinInput label="Roaming DC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('roaming_dc_price')} />
+          <ThinInput label="Roaming AC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('roaming_ac_price')} error={errors.roaming_ac_price?.message} />
+          <ThinInput label="Roaming DC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('roaming_dc_price')} error={errors.roaming_dc_price?.message} />
         </section>
 
         <section className="space-y-6" aria-labelledby="tariff-section-additional-fees">
           <h3 id="tariff-section-additional-fees" className="text-[13px] font-semibold text-secondary uppercase tracking-wider">Additional Fees</h3>
-          <ThinInput label="Monthly Base Fee" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('monthly_base_fee')} />
-          <ThinInput label="Session Fee" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('session_fee')} />
+          <ThinInput label="Monthly Base Fee" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('monthly_base_fee')} error={errors.monthly_base_fee?.message} />
+          <ThinInput label="Session Fee" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('session_fee')} error={errors.session_fee?.message} />
         </section>
 
         <section className="space-y-6" aria-labelledby="tariff-section-advanced">

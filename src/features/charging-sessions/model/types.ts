@@ -38,3 +38,6 @@ export type SessionPreparationInput =
   | AdHocSessionPreparationInput;
 
 export type { ChargingSession };
+export { sortSessionsNewestFirst } from './sortSessionsNewestFirst';
+export type { SessionMonthGroup } from './groupSessionsByMonth';
+export { groupSessionsByMonth } from './groupSessionsByMonth';
