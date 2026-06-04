@@ -1,6 +1,7 @@
 import React from 'react';
 import { useSessions } from '../hooks/useSessions';
-import { formatCurrency, formatCentsToDecimal } from '../../../shared/lib';
+import { groupSessionsByMonth } from '../model/types';
+import { formatCurrency, formatCentsToDecimal, formatKwh } from '../../../shared/lib';
 import { Calendar, Zap, Info } from 'lucide-react';
 import { Slab } from '../../../shared/ui';
 
@@ -13,6 +14,7 @@ import { Slab } from '../../../shared/ui';
  */
 export const ChargingHistory: React.FC = () => {
   const { sessions, isLoading } = useSessions();
+  const monthGroups = groupSessionsByMonth(sessions);
 
   if (isLoading) {
     return (
@@ -40,63 +42,80 @@ export const ChargingHistory: React.FC = () => {
       <h2 className="text-sm font-bold text-secondary uppercase tracking-widest mb-4 px-2">
         Charging History
       </h2>
-      <div className="space-y-4">
-        {sessions.map((session) => (
-          <Slab
-            key={session.id}
-            className="p-6"
-          >
-            <div className="flex justify-between items-center">
-              <div className="space-y-1.5">
-                <div className="flex items-center text-[10px] font-bold uppercase tracking-widest text-secondary">
-                  <Calendar className="w-3 h-3 mr-1.5" />
-                  {new Date(session.session_timestamp).toLocaleDateString('de-DE', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    year: 'numeric',
-                  })}
-                </div>
-                <h3 className="text-lg font-bold text-primary leading-tight">
-                  {session.provider_name_snapshot || 'Unknown Provider'}
+      <div className="space-y-6">
+        {monthGroups.map((group) => (
+          <section key={group.monthKey} className="space-y-4">
+            <header className="border-t border-slab-border/70 px-2 pt-4">
+              <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+                <h3 className="text-sm font-semibold text-primary">
+                  {group.label}
                 </h3>
-                <div className="flex flex-wrap items-center gap-3">
-                  <p className="text-sm text-secondary font-medium">
-                    {(session.session_mode === 'ad_hoc' ? 'Ad-Hoc' : (session.price_snapshot?.label ?? session.charging_plan_name_snapshot ?? 'Charging Plan'))} • {session.charging_type}
-                  </p>
-                  {session.session_mode === 'ad_hoc' && (() => {
-                    const cpoName = session.ad_hoc_pricing?.cpoName?.trim();
-                    const providerName = (session.provider_name_snapshot || '').trim().toLowerCase();
-                    const shouldShowCpoName = cpoName != null && cpoName.toLowerCase() !== providerName;
-                    const metadataParts = [shouldShowCpoName ? cpoName : null].filter(Boolean);
-
-                    if (metadataParts.length === 0) {
-                      return null;
-                    }
-
-                    return (
-                      <p className="text-xs text-secondary/80 font-medium">
-                        {metadataParts.join(' • ')}
-                      </p>
-                    );
-                  })()}
-                  {(session.start_soc_percentage != null || session.end_soc_percentage != null) && (
-                    <p className="text-xs text-secondary/80 font-medium">
-                      SoC {session.start_soc_percentage != null ? `${session.start_soc_percentage}%` : '—'} → {session.end_soc_percentage != null ? `${session.end_soc_percentage}%` : '—'}
-                    </p>
-                  )}
-                </div>
-              </div>
-              <div className="text-right">
-                <p className="text-4xl font-semibold text-primary tabular-nums tracking-tight">
-                  {formatCurrency(session.total_cost)}
+                <p className="text-sm text-secondary tabular-nums">
+                  {group.count} {group.count === 1 ? 'Session' : 'Sessions'} · {formatCurrency(group.totalCostCents)} · {formatKwh(group.totalKwh)} kWh
                 </p>
-                <div className="flex items-center justify-end text-lg font-medium text-secondary tabular-nums mt-1">
-                  <Zap className="w-4 h-4 mr-1 text-accent" />
-                  {formatCentsToDecimal(Math.round(session.kwh_billed * 100)).replace(',00', '')} <span className="text-sm ml-1">kWh</span>
-                </div>
               </div>
+            </header>
+
+            <div className="space-y-4">
+              {group.sessions.map((session) => (
+                <Slab
+                  key={session.id}
+                  className="p-6"
+                >
+                  <div className="flex justify-between items-center">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center text-[10px] font-bold uppercase tracking-widest text-secondary">
+                        <Calendar className="w-3 h-3 mr-1.5" />
+                        {new Date(session.session_timestamp).toLocaleDateString('de-DE', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric',
+                        })}
+                      </div>
+                      <h3 className="text-lg font-bold text-primary leading-tight">
+                        {session.provider_name_snapshot || 'Unknown Provider'}
+                      </h3>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <p className="text-sm text-secondary font-medium">
+                          {(session.session_mode === 'ad_hoc' ? 'Ad-Hoc' : (session.price_snapshot?.label ?? session.charging_plan_name_snapshot ?? 'Charging Plan'))} • {session.charging_type}
+                        </p>
+                        {session.session_mode === 'ad_hoc' && (() => {
+                          const cpoName = session.ad_hoc_pricing?.cpoName?.trim();
+                          const providerName = (session.provider_name_snapshot || '').trim().toLowerCase();
+                          const shouldShowCpoName = cpoName != null && cpoName.toLowerCase() !== providerName;
+                          const metadataParts = [shouldShowCpoName ? cpoName : null].filter(Boolean);
+
+                          if (metadataParts.length === 0) {
+                            return null;
+                          }
+
+                          return (
+                            <p className="text-xs text-secondary/80 font-medium">
+                              {metadataParts.join(' • ')}
+                            </p>
+                          );
+                        })()}
+                        {(session.start_soc_percentage != null || session.end_soc_percentage != null) && (
+                          <p className="text-xs text-secondary/80 font-medium">
+                            SoC {session.start_soc_percentage != null ? `${session.start_soc_percentage}%` : '—'} → {session.end_soc_percentage != null ? `${session.end_soc_percentage}%` : '—'}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-4xl font-semibold text-primary tabular-nums tracking-tight">
+                        {formatCurrency(session.total_cost)}
+                      </p>
+                      <div className="flex items-center justify-end text-lg font-medium text-secondary tabular-nums mt-1">
+                        <Zap className="w-4 h-4 mr-1 text-accent" />
+                        {formatCentsToDecimal(Math.round(session.kwh_billed * 100)).replace(',00', '')} <span className="text-sm ml-1">kWh</span>
+                      </div>
+                    </div>
+                  </div>
+                </Slab>
+              ))}
             </div>
-          </Slab>
+          </section>
         ))}
       </div>
     </div>

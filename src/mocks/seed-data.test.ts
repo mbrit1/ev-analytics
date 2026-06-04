@@ -123,4 +123,23 @@ describe('seed-data', () => {
     expect(sessionModes).toEqual(['ad_hoc', 'plan']);
     expect(pricingContexts).toEqual(['ad_hoc', 'roaming', 'standard']);
   });
+
+  it('uses fixed, distinct session dates so newest-first history is visible in the mock UI', () => {
+    // Arrange: Read the seeded timestamps as ISO strings.
+    const sessionTimestamps = Object.fromEntries(
+      mockSessions.map((session) => [session.id, session.session_timestamp])
+    );
+
+    // Act: Derive the unique set of seeded session dates.
+    const uniqueTimestamps = new Set(mockSessions.map((session) => session.session_timestamp));
+
+    // Assert: Each mock session has a stable date that differs from the others.
+    expect(uniqueTimestamps.size).toBe(mockSessions.length);
+    expect(sessionTimestamps).toEqual({
+      s1: '2026-06-03T08:15:00.000Z',
+      s2: '2026-06-02T18:45:00.000Z',
+      s4: '2026-05-29T12:30:00.000Z',
+      s3: '2026-05-18T07:05:00.000Z',
+    });
+  });
 });
