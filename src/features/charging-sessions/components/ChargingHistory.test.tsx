@@ -85,9 +85,10 @@ describe('ChargingHistory', () => {
 
     // Assert: The live query causes the history list to update.
     await waitFor(() => {
-      expect(screen.getByText('Charging History')).toBeInTheDocument();
+      expect(screen.getByText('Mai 2026')).toBeInTheDocument();
     });
     expect(screen.getByText('Tesla')).toBeInTheDocument();
+    expect(screen.queryByText('Charging History')).not.toBeInTheDocument();
   });
 
   it('renders month group labels and stable summaries while keeping session cards visible', async () => {
@@ -120,10 +121,13 @@ describe('ChargingHistory', () => {
       expect(screen.getByText('Juni 2026')).toBeInTheDocument();
     });
 
-    // Assert: Group labels, stable summaries, and existing cards all remain visible.
+    // Assert: Group labels, compact summaries, and existing cards all remain visible.
     expect(screen.getByText('Mai 2026')).toBeInTheDocument();
-    expect(screen.getByText('2 Sessions · 22,00 € · 51,75 kWh')).toBeInTheDocument();
-    expect(screen.getByText('1 Session · 22,04 € · 51,25 kWh')).toBeInTheDocument();
+    expect(screen.getByText('51,75 kWh · 22,00 €')).toBeInTheDocument();
+    expect(screen.getByText('51,25 kWh · 22,04 €')).toBeInTheDocument();
+    expect(screen.queryByText('2 Sessions · 22,00 € · 51,75 kWh')).not.toBeInTheDocument();
+    expect(screen.queryByText('1 Session · 22,04 € · 51,25 kWh')).not.toBeInTheDocument();
+    expect(screen.queryByText('2 Sessions')).not.toBeInTheDocument();
     expect(screen.getAllByText('Tesla')).toHaveLength(2);
     expect(screen.getByText('Ionity')).toBeInTheDocument();
     expect(screen.getByText('22,00 €')).toBeInTheDocument();

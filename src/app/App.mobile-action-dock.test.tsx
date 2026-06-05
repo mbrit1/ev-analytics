@@ -181,12 +181,15 @@ describe('App mobile action dock', () => {
     const user = userEvent.setup();
     render(<App />);
 
+    expect(screen.getByRole('heading', { name: 'Charging History' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Sessions' })).not.toBeInTheDocument();
+
     // Act: Jump to tariffs from the default sessions view and then back again.
     await user.click(screen.getByRole('button', { name: 'Tariffs' }));
     expect(await screen.findByText('Tariff List')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Sessions' }));
-    expect(await screen.findByText('Charging History')).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Charging History' })).toBeInTheDocument();
   });
 
   it('does not show a contextual create pill on analytics', async () => {
