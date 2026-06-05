@@ -212,7 +212,7 @@ function App() {
                     </div>
                   )}
                   <div className="flex items-center justify-between">
-                    <h1 className="text-2xl font-bold tracking-tight text-primary">Sessions</h1>
+                    <h1 className="text-2xl font-bold tracking-tight text-primary">Charging History</h1>
                     {!isSessionFormOpen && (
                       <button
                         onClick={() => setIsSessionFormOpen(true)}
