@@ -49,21 +49,27 @@ When the Tariffs screen is active and the tariff form is closed:
   the existing header row,
 - if `plans.length > 0`, render the existing tariff cards exactly as today.
 
+When the tariff form is open, only the empty-state card is suppressed. Existing
+non-empty tariff cards should keep their current behavior and remain rendered
+beneath the create or edit form.
+
 The empty-state card should mirror the Sessions pattern in structure and tone:
 
-- `Info` icon,
-- short headline,
-- supporting copy,
-- centered layout inside a `Slab`.
+- centered layout inside a `Slab`,
+- `Info` icon using the same decorative treatment as Sessions,
+- short headline using the same hierarchy as Sessions,
+- supporting copy using secondary text treatment.
 
 Approved copy:
 
 - Headline: `No Tariffs Yet`
 - Body: `Your saved tariffs will appear here once you add your first tariff.`
 
-The existing `Add Tariff` button remains visible on desktop whenever the form is
-closed, including the empty state. The empty-state card must not appear while
-the create or edit form is open.
+The existing inline `Add Tariff` button remains visible on desktop whenever the
+form is closed, including the empty state. On mobile, the existing app-level
+contextual `Add Tariff` action remains responsible for the primary action; this
+spec does not require App-level changes. The empty-state card must not appear
+while the create or edit form is open.
 
 ## Render Rules
 
@@ -74,6 +80,9 @@ The Tariffs screen should preserve the current high-level render sequence:
 3. When `isFormVisible` is false and `plans.length === 0`, render the empty
    state card.
 4. When `plans.length > 0`, render the existing list of tariff cards unchanged.
+
+Rule 4 applies whether the form is open or closed, matching the current
+non-empty list behavior.
 
 This keeps the change easy to reason about and avoids side effects in tariff
 form flows.
@@ -101,7 +110,7 @@ Required coverage:
 
 - renders `No Tariffs Yet` when `plans` is empty and the form is closed,
 - renders the supporting copy in that same state,
-- keeps the `Add Tariff` button visible in the empty state,
+- keeps the desktop inline `Add Tariff` button visible in the empty state,
 - does not render the empty-state card once at least one plan exists,
 - does not render the empty-state card while the form is open.
 
@@ -116,7 +125,8 @@ another small visual inconsistency.
 Guardrails:
 
 - keep the copy exactly aligned with issue `#48`,
-- mirror the Sessions empty-state structure closely,
+- mirror the Sessions empty-state structure closely enough for direct visual
+  parity review,
 - avoid shared-component extraction in this issue,
 - keep the change limited to the Tariffs component and its test file,
 - preserve existing header and CTA behavior.
@@ -127,6 +137,8 @@ Guardrails:
   `plans.length === 0` and the form is closed.
 - The card uses the same component language as the Sessions empty state:
   `Slab`, centered layout, `Info` icon, and supporting text.
-- The `Add Tariff` action remains available while the empty state is shown.
+- The desktop inline `Add Tariff` action remains available while the empty state
+  is shown, and the existing mobile contextual action remains unchanged.
 - The card disappears when a tariff exists.
+- Existing tariff cards keep rendering beneath an open create or edit form.
 - Focused test coverage verifies the empty-state behavior.
