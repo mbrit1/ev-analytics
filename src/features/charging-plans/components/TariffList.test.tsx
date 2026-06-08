@@ -18,6 +18,9 @@ vi.mock('./TariffFormLoader', () => ({
  * Test suite for tariff list rendering and pricing-card hierarchy.
  */
 describe('TariffList', () => {
+  const emptyStateHeadline = 'No Tariffs Yet'
+  const emptyStateBody = 'Your saved tariffs will appear here once you add your first tariff.'
+
   const renderTariffList = (
     props: Partial<{
       isCreatingTariff: boolean;
@@ -81,6 +84,7 @@ describe('TariffList', () => {
     expect(screen.getByText(/roaming dc/i)).toBeInTheDocument();
     expect(screen.getByText(/monthly base fee/i)).toBeInTheDocument();
     expect(screen.getByText(/session fee/i)).toBeInTheDocument();
+    expect(screen.queryByText(emptyStateHeadline)).not.toBeInTheDocument();
   });
 
   it('opens form with preloaded tariff when Edit is clicked', () => {
@@ -333,5 +337,96 @@ describe('TariffList', () => {
 
     // Assert: The create form opens deterministically once the list renders.
     expect(screen.getByText('Tariff Form')).toBeInTheDocument();
+    expect(screen.queryByText(emptyStateHeadline)).not.toBeInTheDocument();
+  });
+
+  it('keeps existing tariff cards visible when the parent requests create mode', () => {
+    // Arrange: A non-empty list should stay visible under the parent-opened create form.
+    vi.mocked(useChargingPlans).mockReturnValue({
+      plans: [
+        {
+          id: 't1',
+          user_id: 'u1',
+          provider_id: 'p1',
+          name: 'Primary Plan',
+          valid_from: new Date(),
+          valid_to: null,
+          ac_price_per_kwh: 39,
+          dc_price_per_kwh: 59,
+          monthly_base_fee: 0,
+          session_fee: 0,
+          created_at: new Date('2026-01-01T00:00:00.000Z'),
+          updated_at: new Date('2026-01-01T00:00:00.000Z'),
+        },
+      ],
+      addChargingPlan: vi.fn(),
+      removeChargingPlan: vi.fn(),
+      isLoading: false,
+    });
+
+    // Act: Mount the tariff list with the create flag enabled.
+    renderTariffList({ isCreatingTariff: true });
+
+    // Assert: The create form opens, the existing list remains visible, and no empty state appears.
+    expect(screen.getByText('Tariff Form')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Ionity', level: 2 })).toBeInTheDocument();
+    expect(screen.queryByText(emptyStateHeadline)).not.toBeInTheDocument();
+  });
+
+  it('renders a sessions-style empty state and keeps the add action visible when no plans exist', () => {
+    // Arrange: No plans and no open form should show the informative empty state.
+    vi.mocked(useChargingPlans).mockReturnValue({
+      plans: [],
+      addChargingPlan: vi.fn(),
+      removeChargingPlan: vi.fn(),
+      isLoading: false,
+    });
+
+    // Act: Render the tariffs screen in its closed, empty state.
+    renderTariffList();
+
+    // Assert: The empty-state headline, copy, and desktop CTA are all visible.
+    const addTariffButton = screen.getByRole('button', { name: /add tariff/i });
+
+    expect(screen.getByText(emptyStateHeadline)).toBeInTheDocument();
+    expect(screen.getByText(emptyStateBody)).toBeInTheDocument();
+    expect(addTariffButton).toBeInTheDocument();
+    expect(addTariffButton.className).toContain('hidden');
+    expect(addTariffButton.className).toContain('md:flex');
+    expect(screen.queryByText('Tariff Form')).not.toBeInTheDocument();
+  });
+
+  it('keeps existing list behavior when the form is open and suppresses the empty state', () => {
+    // Arrange: A non-empty list should stay visible under the edit form.
+    vi.mocked(useChargingPlans).mockReturnValue({
+      plans: [
+        {
+          id: 't1',
+          user_id: 'u1',
+          provider_id: 'p1',
+          name: 'Primary Plan',
+          valid_from: new Date(),
+          valid_to: null,
+          ac_price_per_kwh: 39,
+          dc_price_per_kwh: 59,
+          monthly_base_fee: 0,
+          session_fee: 0,
+          created_at: new Date('2026-01-01T00:00:00.000Z'),
+          updated_at: new Date('2026-01-01T00:00:00.000Z'),
+        },
+      ],
+      addChargingPlan: vi.fn(),
+      removeChargingPlan: vi.fn(),
+      isLoading: false,
+    });
+
+    // Act: Open the edit form from an existing tariff card.
+    renderTariffList();
+    fireEvent.click(screen.getByRole('button', { name: /edit ionity primary plan/i }));
+
+    // Assert: The form opens, the existing list remains visible, and no empty state appears.
+    expect(screen.getByText('Tariff Form')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Ionity', level: 2 })).toBeInTheDocument();
+    expect(screen.queryByText(emptyStateHeadline)).not.toBeInTheDocument();
   });
 });

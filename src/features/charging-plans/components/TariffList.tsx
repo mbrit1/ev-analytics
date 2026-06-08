@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Info, Plus, Trash2 } from 'lucide-react';
 import { formatCurrency } from '../../../shared/lib';
 import { type ChargingPlan } from '../../../infra/db';
 import { useChargingPlans } from '../hooks/useChargingPlans';
@@ -33,6 +33,7 @@ export function TariffList({
   const [editingPlan, setEditingPlan] = useState<ChargingPlan | undefined>(undefined)
   const isCreateRequested = isCreatingTariff && !isFormOpen
   const isFormVisible = isFormOpen || isCreateRequested
+  const hasPlans = plans.length > 0
 
   useEffect(() => {
     onFormOpenChange?.(isFormVisible)
@@ -77,6 +78,14 @@ export function TariffList({
           }}
           initialValues={isCreatingTariff ? undefined : editingPlan}
         />
+      )}
+
+      {!isFormVisible && !hasPlans && (
+        <Slab className="text-center p-12">
+          <Info className="w-12 h-12 text-secondary/30 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-primary mb-2">No Tariffs Yet</h2>
+          <p className="text-secondary">Your saved tariffs will appear here once you add your first tariff.</p>
+        </Slab>
       )}
 
       {plans.map((plan) => {
