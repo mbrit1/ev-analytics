@@ -1,4 +1,5 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ChargingHistory } from './ChargingHistory';
 import { db, type ChargingSession } from '../../../infra/db';
@@ -132,5 +133,87 @@ describe('ChargingHistory', () => {
     expect(screen.getByText('Ionity')).toBeInTheDocument();
     expect(screen.getByText('22,00 €')).toBeInTheDocument();
     expect(screen.getByText('0,00 €')).toBeInTheDocument();
+  });
+
+  it('keeps session cards non-interactive when no selection handler is provided', async () => {
+    // Arrange: render the history without an edit handler and persist one session.
+    render(<ChargingHistory />);
+    expect(await screen.findByText('No Sessions Yet')).toBeInTheDocument();
+
+    const session = buildSession('session-static', '2026-05-30T10:00:00.000Z');
+    await act(async () => {
+      await saveSession(session);
+    });
+
+    // Act: wait for the saved card content to appear.
+    await waitFor(() => {
+      expect(screen.getByText('Mai 2026')).toBeInTheDocument();
+    });
+
+    // Assert: the card stays visible without exposing an inert button.
+    expect(screen.queryByRole('button', {
+      name: 'Edit session Tesla 30.05.2026',
+    })).not.toBeInTheDocument();
+    expect(screen.getByText('Tesla')).toBeInTheDocument();
+  });
+
+  it('emits the selected session when a history card is clicked', async () => {
+    // Arrange: render and persist one visible session.
+    const user = userEvent.setup();
+    const onSelectSession = vi.fn();
+    render(<ChargingHistory onSelectSession={onSelectSession} />);
+    expect(await screen.findByText('No Sessions Yet')).toBeInTheDocument();
+
+    const session = buildSession('session-click', '2026-05-30T10:00:00.000Z');
+    await act(async () => {
+      await saveSession(session);
+    });
+
+    const trigger = await screen.findByRole('button', {
+      name: 'Edit session Tesla 30.05.2026',
+    });
+
+    // Act: inspect the interactive card shell, then activate it.
+    const slab = trigger.parentElement;
+    await user.click(trigger);
+
+    // Assert: only the button owns card padding and the session is emitted.
+    expect(slab).not.toHaveClass('p-8');
+    expect(trigger).toHaveClass('p-6');
+    expect(onSelectSession).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'session-click',
+    }));
+  });
+
+  it('emits the selected session from an accessible card button with keyboard activation', async () => {
+    // Arrange: render and persist one visible session.
+    const user = userEvent.setup();
+    const onSelectSession = vi.fn();
+    render(<ChargingHistory onSelectSession={onSelectSession} />);
+    expect(await screen.findByText('No Sessions Yet')).toBeInTheDocument();
+
+    const session = buildSession('session-edit', '2026-05-30T10:00:00.000Z');
+    await act(async () => {
+      await saveSession(session);
+    });
+
+    const trigger = await screen.findByRole('button', {
+      name: 'Edit session Tesla 30.05.2026',
+    });
+
+    // Act: focus with Tab and activate with Enter, then Space.
+    await user.tab();
+    expect(trigger).toHaveFocus();
+
+    await user.keyboard('{Enter}');
+    await user.keyboard(' ');
+
+    // Assert: native button behavior emits the exact selected session for both keys.
+    expect(onSelectSession).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      id: 'session-edit',
+    }));
+    expect(onSelectSession).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      id: 'session-edit',
+    }));
   });
 });

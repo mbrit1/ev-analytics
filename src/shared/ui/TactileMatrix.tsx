@@ -52,6 +52,11 @@ export const TactileMatrix: React.FC<TactileMatrixProps> = ({
     () => options.map((option, index) => ({ option, index })).filter(({ option }) => !option.disabled),
     [options]
   );
+  const gridColumnsClass = options.length === 1
+    ? 'grid-cols-1'
+    : options.length === 2
+      ? 'grid-cols-2'
+      : 'grid-cols-2 sm:grid-cols-3';
 
   const findNextEnabledIndex = (startIndex: number, step: 1 | -1): number | null => {
     if (enabledOptions.length === 0) {
@@ -109,7 +114,7 @@ export const TactileMatrix: React.FC<TactileMatrixProps> = ({
       >
         {label}
       </span>
-      <div className={`grid gap-3 ${options.length === 1 ? 'grid-cols-1' : 'grid-cols-2 sm:grid-cols-3'}`}>
+      <div className={`grid gap-3 ${gridColumnsClass}`}>
         {options.map((option, index) => {
           const isActive = option.value === value;
           // If no value matches, the first enabled item should be focusable.

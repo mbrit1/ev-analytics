@@ -1,6 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { EVAnalyticsDB, db as sharedDb, type ChargingPlan, type Provider, type ChargingSession, type AdHocPricingSnapshot } from '../../../infra/db'
-import { saveSession, prepareSession } from './sessionService'
+import {
+  hasPlanPricingIdentityChanged,
+  prepareSession,
+  prepareSessionEdit,
+  saveSession,
+  saveSessionWithPlanSelection,
+  type SessionPersistenceRequest,
+  updateSession,
+  updateSessionWithPlanSelection,
+} from './sessionService'
 import 'fake-indexeddb/auto'
 
 /**
@@ -17,8 +26,10 @@ describe('sessionService', () => {
     // are isolated from earlier writes.
     db = new EVAnalyticsDB()
     await db.sessions.clear()
+    await db.provider_plan_selections.clear()
     await db.sync_outbox.clear()
     await sharedDb.sessions.clear()
+    await sharedDb.provider_plan_selections.clear()
     await sharedDb.sync_outbox.clear()
     vi.restoreAllMocks()
   })
@@ -490,6 +501,299 @@ describe('sessionService', () => {
     );
   });
 
+  it('preserves plan snapshots and selection when pricing identity is unchanged', () => {
+    // Arrange: the current plan price differs from the historical session price.
+    const original = buildSessionFixture({
+      id: 'session-history',
+      provider_id: 'provider-1',
+      tariff_plan_id: 'plan-1',
+      plan_selection_id: 'selection-history',
+      session_timestamp: new Date('2026-06-01T00:00:00.000Z'),
+      charging_type: 'AC',
+      pricing_context: 'standard',
+      kwh_billed: 40,
+      total_cost: 1800,
+      applied_price_per_kwh: 40,
+      applied_session_fee: 200,
+      price_snapshot: { label: 'Historical plan', kWhPrice: 40, sessionFee: 200 },
+      provider_name_snapshot: 'Historical Provider',
+      charging_plan_name_snapshot: 'Historical Plan',
+    });
+
+    // Act: edit only billed energy and notes without supplying current plan data.
+    const edited = prepareSessionEdit(original, {
+      user_id: original.user_id,
+      session_timestamp: original.session_timestamp,
+      provider_id: original.provider_id,
+      charging_type: original.charging_type,
+      kwh_billed: 50,
+      notes: 'Updated note',
+      session_mode: 'plan',
+      tariff_plan_id: original.tariff_plan_id!,
+      plan_selection_id: original.plan_selection_id,
+      price_snapshot: original.price_snapshot,
+      pricing_context: original.pricing_context,
+    });
+
+    // Assert: history stays attached to the persisted pricing facts.
+    expect(edited).toEqual(expect.objectContaining({
+      id: original.id,
+      created_at: original.created_at,
+      plan_selection_id: 'selection-history',
+      provider_name_snapshot: 'Historical Provider',
+      charging_plan_name_snapshot: 'Historical Plan',
+      price_snapshot: { label: 'Historical plan', kWhPrice: 40, sessionFee: 200 },
+      applied_price_per_kwh: 40,
+      applied_session_fee: 200,
+      total_cost: 2200,
+      notes: 'Updated note',
+    }));
+  });
+
+  it('detects deliberate plan pricing identity changes', () => {
+    // Arrange: start from a persisted standard AC plan session.
+    const original = buildSessionFixture({
+      provider_id: 'provider-1',
+      tariff_plan_id: 'plan-1',
+      session_timestamp: new Date('2026-06-01T00:00:00.000Z'),
+      charging_type: 'AC',
+      pricing_context: 'standard',
+      session_mode: 'plan',
+    });
+
+    // Act and Assert: usage-only edits are stable, while rate identity changes reprice.
+    expect(hasPlanPricingIdentityChanged(original, {
+      provider_id: 'provider-1',
+      tariff_plan_id: 'plan-1',
+      session_timestamp: new Date('2026-06-01T00:00:00.000Z'),
+      charging_type: 'AC',
+      pricing_context: 'standard',
+    })).toBe(false);
+    expect(hasPlanPricingIdentityChanged(original, {
+      provider_id: 'provider-1',
+      tariff_plan_id: 'plan-1',
+      session_timestamp: new Date('2026-06-01T00:00:00.000Z'),
+      charging_type: 'DC',
+      pricing_context: 'standard',
+    })).toBe(true);
+  });
+
+  it('recalculates plan snapshots after a deliberate pricing identity change', () => {
+    // Arrange: change the existing session from plan-1 to the current plan fixture.
+    const original = buildSessionFixture({
+      id: 'session-reprice',
+      provider_id: 'provider-old',
+      tariff_plan_id: 'plan-old',
+      plan_selection_id: 'selection-old',
+      price_snapshot: { label: 'Old plan', kWhPrice: 40, sessionFee: 0 },
+      created_at: new Date('2026-05-01T08:00:00.000Z'),
+    });
+    const currentProvider: Provider = {
+      ...mockProvider,
+      id: 'provider-new',
+      name: 'Current Provider',
+    };
+    const currentPlan: ChargingPlan = {
+      ...mockChargingPlan,
+      id: 'plan-new',
+      provider_id: 'provider-new',
+      name: 'Current Plan',
+      ac_price_per_kwh: 55,
+      session_fee: 100,
+    };
+
+    // Act: prepare a deliberate provider/plan change with its new selection id.
+    const edited = prepareSessionEdit(original, {
+      user_id: original.user_id,
+      session_timestamp: original.session_timestamp,
+      provider_id: currentProvider.id,
+      charging_type: 'AC',
+      kwh_billed: 10,
+      session_mode: 'plan',
+      tariff_plan_id: currentPlan.id,
+      plan_selection_id: 'selection-new',
+      price_snapshot: { label: 'Stale caller snapshot', kWhPrice: 1, sessionFee: 999 },
+      pricing_context: 'standard',
+    }, currentPlan, currentProvider);
+
+    // Assert: identity is stable but pricing history now reflects the deliberate choice.
+    expect(edited).toEqual(expect.objectContaining({
+      id: 'session-reprice',
+      created_at: original.created_at,
+      provider_id: 'provider-new',
+      tariff_plan_id: 'plan-new',
+      plan_selection_id: 'selection-new',
+      provider_name_snapshot: 'Current Provider',
+      charging_plan_name_snapshot: 'Current Plan',
+      price_snapshot: {
+        label: 'Current Provider Current Plan',
+        kWhPrice: 55,
+        sessionFee: 100,
+      },
+      applied_price_per_kwh: 55,
+      applied_session_fee: 100,
+      total_cost: 650,
+    }));
+  });
+
+  it('rejects switching pricing source while editing a session', () => {
+    // Arrange: start from a persisted plan-based session.
+    const original = buildSessionFixture({
+      session_mode: 'plan',
+      tariff_plan_id: 'plan-1',
+      provider_id: 'provider-1',
+      charging_type: 'AC',
+      pricing_context: 'standard',
+    });
+
+    // Act/Assert: editing cannot switch the persisted pricing source.
+    expect(() => prepareSessionEdit(original, {
+      user_id: original.user_id,
+      session_timestamp: original.session_timestamp,
+      provider_id: original.provider_id,
+      charging_type: original.charging_type,
+      kwh_billed: original.kwh_billed,
+      session_mode: 'ad_hoc',
+      tariff_plan_id: null,
+      pricing_context: 'ad_hoc',
+      ad_hoc_pricing: {
+        cpoName: 'Guest CPO',
+        pricePerKwh: 55,
+      },
+    })).toThrow('Pricing source cannot be changed while editing a session');
+  });
+
+  it('rejects invalid unchanged-identity edits that violate session invariants', () => {
+    // Arrange: keep the plan identity fixed while sending invalid billed energy.
+    const original = buildSessionFixture({
+      session_mode: 'plan',
+      tariff_plan_id: 'plan-1',
+      provider_id: 'provider-1',
+      charging_type: 'AC',
+      pricing_context: 'standard',
+      session_timestamp: new Date('2026-06-01T00:00:00.000Z'),
+    });
+
+    // Act/Assert: unchanged-identity edits still enforce the same input invariants.
+    expect(() => prepareSessionEdit(original, {
+      user_id: original.user_id,
+      session_timestamp: original.session_timestamp,
+      provider_id: original.provider_id,
+      charging_type: original.charging_type,
+      kwh_billed: 0,
+      session_mode: 'plan',
+      tariff_plan_id: original.tariff_plan_id!,
+      plan_selection_id: original.plan_selection_id,
+      price_snapshot: original.price_snapshot,
+      pricing_context: original.pricing_context,
+    })).toThrow('kwh_billed must be greater than 0');
+  });
+
+  it('preserves ad-hoc fee collections when an unchanged edit is resaved', () => {
+    // Arrange: store multiple fee rows with labels and notes.
+    const original = buildSessionFixture({
+      id: 'session-ad-hoc-preserve-fees',
+      session_mode: 'ad_hoc',
+      tariff_plan_id: null,
+      plan_selection_id: null,
+      pricing_context: 'ad_hoc',
+      charging_plan_name_snapshot: 'Ad-Hoc',
+      provider_name_snapshot: 'Guest CPO',
+      applied_price_per_kwh: 55,
+      applied_session_fee: 199,
+      total_cost: 924,
+      ad_hoc_pricing: {
+        cpoName: 'Guest CPO',
+        pricePerKwh: 55,
+        pricePerSession: 199,
+        otherFees: [
+          { label: 'Parking', amount: 50, notes: 'First hour' },
+          { label: 'Idle', amount: 125, notes: 'Overstay' },
+        ],
+      },
+      price_snapshot: { label: 'Ad-Hoc', kWhPrice: 55, sessionFee: 199, blockingFee: 175 },
+    });
+
+    // Act: update notes only while resubmitting the same aggregate pricing.
+    const edited = prepareSessionEdit(original, {
+      user_id: original.user_id,
+      session_timestamp: original.session_timestamp,
+      provider_id: original.provider_id,
+      charging_type: original.charging_type,
+      kwh_billed: original.kwh_billed,
+      notes: 'Updated note',
+      session_mode: 'ad_hoc',
+      tariff_plan_id: null,
+      pricing_context: 'ad_hoc',
+      ad_hoc_pricing: {
+        cpoName: 'Guest CPO',
+        pricePerKwh: 55,
+        pricePerSession: 199,
+        otherFees: [
+          { label: 'Parking', amount: 50, notes: 'First hour' },
+          { label: 'Idle', amount: 125, notes: 'Overstay' },
+        ],
+      },
+    });
+
+    // Assert: all persisted fee rows survive unchanged.
+    expect(edited.ad_hoc_pricing?.otherFees).toEqual([
+      { label: 'Parking', amount: 50, notes: 'First hour' },
+      { label: 'Idle', amount: 125, notes: 'Overstay' },
+    ]);
+    expect(edited.total_cost).toBe(2574);
+    expect(edited.notes).toBe('Updated note');
+  });
+
+  it('replaces ad-hoc fee collections when the aggregate other-fees amount changes', () => {
+    // Arrange: start from a stored ad-hoc session with multiple fee rows.
+    const original = buildSessionFixture({
+      id: 'session-ad-hoc-rewrite-fees',
+      session_mode: 'ad_hoc',
+      tariff_plan_id: null,
+      plan_selection_id: null,
+      pricing_context: 'ad_hoc',
+      charging_plan_name_snapshot: 'Ad-Hoc',
+      provider_name_snapshot: 'Guest CPO',
+      applied_price_per_kwh: 55,
+      applied_session_fee: 199,
+      total_cost: 924,
+      ad_hoc_pricing: {
+        cpoName: 'Guest CPO',
+        pricePerKwh: 55,
+        pricePerSession: 199,
+        otherFees: [
+          { label: 'Parking', amount: 50, notes: 'First hour' },
+          { label: 'Idle', amount: 125, notes: 'Overstay' },
+        ],
+      },
+      price_snapshot: { label: 'Ad-Hoc', kWhPrice: 55, sessionFee: 199, blockingFee: 175 },
+    });
+
+    // Act: submit a changed aggregate amount through the simplified UI model.
+    const edited = prepareSessionEdit(original, {
+      user_id: original.user_id,
+      session_timestamp: original.session_timestamp,
+      provider_id: original.provider_id,
+      charging_type: original.charging_type,
+      kwh_billed: original.kwh_billed,
+      session_mode: 'ad_hoc',
+      tariff_plan_id: null,
+      pricing_context: 'ad_hoc',
+      ad_hoc_pricing: {
+        cpoName: 'Guest CPO',
+        pricePerKwh: 55,
+        pricePerSession: 199,
+        otherFees: [{ label: 'Other fees', amount: 250 }],
+      },
+    });
+
+    // Assert: the aggregate rewrite intentionally collapses to one synthetic fee row.
+    expect(edited.ad_hoc_pricing?.otherFees).toEqual([{ label: 'Other fees', amount: 250 }]);
+    expect(edited.price_snapshot?.blockingFee).toBe(250);
+    expect(edited.total_cost).toBe(2649);
+  });
+
   it('should atomically save a session and create an outbox entry', async () => {
     // Arrange: Create a complete session ready for local persistence.
     const sessionData = buildSessionFixture({ id: 'session-123' })
@@ -527,6 +831,158 @@ describe('sessionService', () => {
     // Assert: Dexie should roll back the session write.
     const session = await sharedDb.sessions.get('session-rollback');
     expect(session).toBeUndefined();
+  })
+
+  it('atomically saves a plan session together with its plan-selection history', async () => {
+    // Arrange: create a prepared plan session plus its matching selection change.
+    const session = buildSessionFixture({
+      id: 'session-with-selection',
+      provider_id: 'provider-1',
+      tariff_plan_id: 'plan-1',
+      plan_selection_id: 'selection-new',
+      price_snapshot: { label: 'Provider Plan', kWhPrice: 40, sessionFee: 0 },
+    });
+    const request: SessionPersistenceRequest = {
+      session,
+      planSelectionChange: {
+        userId: session.user_id,
+        providerId: session.provider_id,
+        tariffPlanId: 'plan-1',
+        validFrom: new Date('2026-06-01T00:00:00.000Z'),
+        priceSnapshot: { label: 'Provider Plan', kWhPrice: 40, sessionFee: 0 },
+      },
+    };
+
+    // Act: persist the session and selection in one orchestration call.
+    await saveSessionWithPlanSelection(request);
+
+    // Assert: session, selection row, and outbox items are all committed.
+    const storedSession = await sharedDb.sessions.get('session-with-selection');
+    const storedSelection = await sharedDb.provider_plan_selections.toCollection().first();
+    expect(await sharedDb.sessions.get('session-with-selection')).toEqual(
+      expect.objectContaining({
+        id: 'session-with-selection',
+        plan_selection_id: storedSelection?.id,
+      })
+    );
+    expect(await sharedDb.provider_plan_selections.count()).toBe(1);
+    expect(storedSelection).toEqual(expect.objectContaining({
+      tariff_plan_id: 'plan-1',
+      provider_id: 'provider-1',
+    }));
+    expect(storedSession?.plan_selection_id).toBe(storedSelection?.id);
+    expect(await sharedDb.sync_outbox.toArray()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ table_name: 'sessions', action: 'INSERT' }),
+        expect.objectContaining({ table_name: 'provider_plan_selections', action: 'INSERT' }),
+      ])
+    );
+  });
+
+  it('rolls back a plan-linked update when the session row is missing after selection writes', async () => {
+    // Arrange: build an update request whose session id is not present locally.
+    const session = buildSessionFixture({
+      id: 'session-selection-rollback',
+      provider_id: 'provider-1',
+      tariff_plan_id: 'plan-1',
+      plan_selection_id: 'selection-new',
+      price_snapshot: { label: 'Provider Plan', kWhPrice: 40, sessionFee: 0 },
+    });
+
+    // Act/Assert: no partial selection or session data survives the rejected transaction.
+    await expect(updateSessionWithPlanSelection({
+      session,
+      planSelectionChange: {
+        userId: session.user_id,
+        providerId: session.provider_id,
+        tariffPlanId: 'plan-1',
+        validFrom: new Date('2026-06-01T00:00:00.000Z'),
+        priceSnapshot: { label: 'Provider Plan', kWhPrice: 40, sessionFee: 0 },
+      },
+    })).rejects.toThrow('Session not found: session-selection-rollback');
+
+    expect(await sharedDb.sessions.get('session-selection-rollback')).toBeUndefined();
+    expect(await sharedDb.provider_plan_selections.count()).toBe(0);
+    expect(await sharedDb.sync_outbox.count()).toBe(0);
+  });
+
+  it('updates only an existing row and preserves stored immutable fields', async () => {
+    // Arrange: persist a row, then provide conflicting caller-owned fields.
+    const original = buildSessionFixture({
+      id: 'session-edit-1',
+      user_id: 'stored-user',
+      created_at: new Date('2026-06-01T08:00:00.000Z'),
+      session_mode: 'plan',
+      deleted_at: new Date('2026-06-03T08:00:00.000Z'),
+      notes: 'Original',
+    });
+    await sharedDb.sessions.put(original);
+
+    // Act: update mutable content.
+    await updateSession({
+      ...original,
+      user_id: 'caller-user',
+      created_at: new Date('2026-06-02T08:00:00.000Z'),
+      session_mode: 'ad_hoc',
+      deleted_at: undefined,
+      notes: 'Edited',
+    });
+
+    // Assert: service-owned identity and lifecycle fields come from storage.
+    expect(await sharedDb.sessions.get(original.id)).toEqual(expect.objectContaining({
+      id: original.id,
+      user_id: 'stored-user',
+      created_at: original.created_at,
+      session_mode: 'plan',
+      deleted_at: original.deleted_at,
+      notes: 'Edited',
+    }));
+  })
+
+  it('rejects an update when the local session does not exist', async () => {
+    // Arrange: build a valid payload without seeding its id.
+    const missing = buildSessionFixture({ id: 'missing-session' });
+
+    // Act and Assert: edit cannot silently become an insert.
+    await expect(updateSession(missing)).rejects.toThrow('Session not found: missing-session');
+    expect(await sharedDb.sessions.get('missing-session')).toBeUndefined();
+    expect(await sharedDb.sync_outbox.count()).toBe(0);
+  })
+
+  it('queues an UPDATE payload for the stored session id', async () => {
+    // Arrange: seed directly so the assertion contains only the update outbox row.
+    const original = buildSessionFixture({ id: 'session-edit-outbox', total_cost: 1800 });
+    await sharedDb.sessions.put(original);
+
+    // Act: update the same logical row.
+    await updateSession({ ...original, total_cost: 2500, notes: 'Edited' });
+
+    // Assert: one retryable UPDATE is queued with the committed payload.
+    expect(await sharedDb.sync_outbox.toArray()).toEqual([
+      expect.objectContaining({
+        table_name: 'sessions',
+        action: 'UPDATE',
+        retry_count: 0,
+        payload: expect.objectContaining({
+          id: 'session-edit-outbox',
+          total_cost: 2500,
+          notes: 'Edited',
+        }),
+      }),
+    ]);
+  })
+
+  it('rolls back the local edit when the update outbox write fails', async () => {
+    // Arrange: seed the original row and force the queue write to reject.
+    const original = buildSessionFixture({ id: 'session-update-rollback', notes: 'Original' });
+    await sharedDb.sessions.put(original);
+    const outboxSpy = vi.spyOn(sharedDb.sync_outbox, 'add')
+      .mockRejectedValueOnce(new Error('Outbox failed'));
+
+    // Act and Assert: the transaction rejects and restores the original row.
+    await expect(updateSession({ ...original, notes: 'Edited' })).rejects.toThrow('Outbox failed');
+    expect(await sharedDb.sessions.get(original.id)).toEqual(original);
+    outboxSpy.mockRestore();
   })
 
   it('should fetch sessions for requested user ordered by timestamp desc', async () => {

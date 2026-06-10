@@ -5,7 +5,56 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthError } from '@supabase/supabase-js';
 import App from './App';
 import { useAuth } from '../features/auth';
+import type { ChargingSession } from '../infra/db';
 import { useSyncStatus } from '../features/offline-sync';
+import type { SessionPersistenceRequest } from '../features/charging-sessions';
+
+const {
+  existingSession,
+  submittedSession,
+  mockSaveSession,
+  mockUpdateSession,
+} = vi.hoisted(() => {
+  const timestamp = new Date('2026-06-01T08:00:00.000Z');
+  const baseSession = {
+    user_id: 'user-1',
+    session_timestamp: timestamp,
+    provider_id: 'provider-1',
+    provider_name_snapshot: 'Provider',
+    charging_plan_name_snapshot: 'Plan',
+    charging_type: 'AC' as const,
+    kwh_billed: 10,
+    total_cost: 400,
+    session_mode: 'plan' as const,
+    tariff_plan_id: 'plan-1',
+    plan_selection_id: 'selection-1',
+    price_snapshot: { label: 'Provider Plan', kWhPrice: 40, sessionFee: 0 },
+    pricing_context: 'standard' as const,
+    applied_price_per_kwh: 40,
+    applied_ac_price_per_kwh: 40,
+    applied_dc_price_per_kwh: 60,
+    applied_roaming_ac_price_per_kwh: 50,
+    applied_roaming_dc_price_per_kwh: 70,
+    applied_monthly_base_fee: 0,
+    applied_session_fee: 0,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+
+  return {
+    existingSession: { ...baseSession, id: 'session-existing' },
+    submittedSession: {
+      session: {
+        ...baseSession,
+        id: 'session-existing',
+        notes: 'Edited',
+        updated_at: new Date('2026-06-02T08:00:00.000Z'),
+      },
+    } satisfies SessionPersistenceRequest,
+    mockSaveSession: vi.fn(),
+    mockUpdateSession: vi.fn(),
+  };
+});
 
 vi.mock('../features/auth', () => ({
   useAuth: vi.fn(),
@@ -53,9 +102,39 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
   },
 }));
 vi.mock('../features/charging-sessions', () => ({
-  ChargingHistory: () => <div>Charging History</div>,
-  SessionForm: () => <div>Session Form</div>,
-  saveSession: vi.fn(),
+  ChargingHistory: ({ onSelectSession }: {
+    onSelectSession?: (session: ChargingSession) => void;
+  }) => (
+    <div>
+      Charging History
+      <button
+        type="button"
+        onClick={() => onSelectSession?.(existingSession as ChargingSession)}
+      >
+        Open Existing Session
+      </button>
+    </div>
+  ),
+  SessionForm: ({ onSubmit, onCancel, initialValues }: {
+    onSubmit: (request: SessionPersistenceRequest) => Promise<void>;
+    onCancel: () => void;
+    initialValues?: ChargingSession;
+  }) => (
+    <div>
+      <div>{initialValues ? 'Edit Session Form' : 'Session Form'}</div>
+      <button
+        type="button"
+        onClick={() => {
+          void onSubmit(submittedSession as SessionPersistenceRequest).catch(() => undefined);
+        }}
+      >
+        Trigger Session Submit
+      </button>
+      <button type="button" onClick={onCancel}>Cancel Session Form</button>
+    </div>
+  ),
+  saveSession: mockSaveSession,
+  updateSession: mockUpdateSession,
 }));
 vi.mock('../shared/ui', () => ({
   Navigation: ({
@@ -136,6 +215,8 @@ describe('App mobile action dock', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockSignOut.mockResolvedValue({ error: null });
+    mockSaveSession.mockReset();
+    mockUpdateSession.mockReset();
     vi.mocked(useSyncStatus).mockReturnValue({
       queueLength: 0,
       hasPendingSync: false,
@@ -215,6 +296,73 @@ describe('App mobile action dock', () => {
 
     // Assert: The existing Add Session flow opens the session form surface.
     expect(screen.getByText('Session Form')).toBeInTheDocument();
+    expect(screen.queryByText('Edit Session Form')).not.toBeInTheDocument();
+  });
+
+  it('opens the selected session and cancel returns to history without persistence', async () => {
+    // Arrange: open edit mode.
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Open Existing Session' }));
+    expect(screen.getByText('Edit Session Form')).toBeInTheDocument();
+
+    // Act: cancel.
+    await user.click(screen.getByRole('button', { name: 'Cancel Session Form' }));
+
+    // Assert: history returns and no write occurs.
+    expect(screen.getByRole('heading', { name: 'Charging History' })).toBeInTheDocument();
+    expect(mockSaveSession).not.toHaveBeenCalled();
+    expect(mockUpdateSession).not.toHaveBeenCalled();
+  });
+
+  it('saves an edited session through update and then opens a blank create form', async () => {
+    // Arrange: open edit mode.
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Open Existing Session' }));
+
+    // Act: submit the prepared edit, return to history, then start create mode.
+    await user.click(screen.getByRole('button', { name: 'Trigger Session Submit' }));
+    await screen.findByRole('heading', { name: 'Charging History' });
+    await user.click(screen.getByText('Add Session Pill'));
+
+    // Assert: update receives the prepared session and edit state does not leak.
+    expect(mockUpdateSession).toHaveBeenCalledWith(submittedSession.session);
+    expect(mockSaveSession).not.toHaveBeenCalled();
+    expect(screen.getByText('Session Form')).toBeInTheDocument();
+    expect(screen.queryByText('Edit Session Form')).not.toBeInTheDocument();
+  });
+
+  it('keeps edit mode open when the local update rejects', async () => {
+    // Arrange: make the offline update transaction fail.
+    const user = userEvent.setup();
+    mockUpdateSession.mockRejectedValueOnce(new Error('Outbox failed'));
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Open Existing Session' }));
+
+    // Act: submit the edit.
+    await user.click(screen.getByRole('button', { name: 'Trigger Session Submit' }));
+
+    // Assert: App does not close edit mode after a rejected promise.
+    expect(screen.getByText('Edit Session Form')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Open Existing Session' })).not.toBeInTheDocument();
+  });
+
+  it('discards unsaved edit state when leaving the sessions tab', async () => {
+    // Arrange: open edit mode and then navigate away.
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Open Existing Session' }));
+    expect(screen.getByText('Edit Session Form')).toBeInTheDocument();
+
+    // Act: leave sessions and then return.
+    await user.click(screen.getByRole('button', { name: 'Tariffs' }));
+    expect(await screen.findByText('Tariff List')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Sessions' }));
+
+    // Assert: the shell returns to history instead of restoring the stale edit form.
+    expect(await screen.findByRole('heading', { name: 'Charging History' })).toBeInTheDocument();
+    expect(screen.queryByText('Edit Session Form')).not.toBeInTheDocument();
   });
 
   it('opens the tariff form when Add Tariff is invoked from mobile contextual action', async () => {

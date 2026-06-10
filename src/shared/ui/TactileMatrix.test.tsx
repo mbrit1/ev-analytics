@@ -57,6 +57,29 @@ describe('TactileMatrix', () => {
     expect(screen.getByText('0,49 €/kWh')).toHaveClass('tabular-nums');
   });
 
+  it('keeps a two-option matrix at two columns across breakpoints', () => {
+    // Arrange: Render the common binary-choice matrix shape.
+    render(
+      <TactileMatrix
+        label="Charging Rate"
+        options={[
+          { label: 'Domestic AC', value: 'ac' },
+          { label: 'Domestic DC', value: 'dc' },
+        ]}
+        value="dc"
+        onChange={() => {}}
+      />
+    );
+
+    // Act: Locate the grid that owns the option columns.
+    const group = screen.getByRole('radiogroup', { name: 'Charging Rate' });
+    const optionGrid = group.querySelector('.grid');
+
+    // Assert: No desktop utility introduces an empty third column.
+    expect(optionGrid).toHaveClass('grid-cols-2');
+    expect(optionGrid).not.toHaveClass('sm:grid-cols-3');
+  });
+
   it('calls onChange with correct value when an option is clicked', () => {
     // Arrange: Render the matrix with a mock change handler
     const onChange = vi.fn();

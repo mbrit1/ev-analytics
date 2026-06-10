@@ -1,8 +1,10 @@
+import { StrictMode } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SessionForm } from './SessionForm';
 import { getActivePlanSelectionAt, setActivePlanSelection, useChargingPlans, useProviders } from '../../charging-plans';
-import { type ChargingPlan, type Provider } from '../../../infra/db';
+import { type ChargingPlan, type ChargingSession, type Provider } from '../../../infra/db';
+import type { SessionPersistenceRequest } from '../services/sessionService';
 
 // Mock dependent hooks so form tests can exercise validation and submission UI
 // without requiring tariff/provider IndexedDB state.
@@ -18,10 +20,41 @@ vi.mock('../../auth', () => ({
  * while provider, tariff, and auth hooks are mocked.
  */
 describe('SessionForm', () => {
-  const mockOnSubmit = vi.fn();
+  const mockOnSubmit = vi.fn<(request: SessionPersistenceRequest) => Promise<void>>();
   const mockOnCancel = vi.fn();
   const getLabelByTextContent = (labelText: string) =>
     screen.getByText((_, element) => element?.tagName === 'LABEL' && element.textContent?.replace(/\s+/g, ' ').trim() === labelText);
+
+  function buildSessionFixture(overrides: Partial<ChargingSession> = {}): ChargingSession {
+    const timestamp = new Date('2026-06-01T00:00:00.000Z');
+
+    return {
+      id: 'session-form-fixture',
+      user_id: 'user-1',
+      session_timestamp: timestamp,
+      provider_id: 'p1',
+      provider_name_snapshot: 'ChargePoint',
+      charging_plan_name_snapshot: 'P1 Home',
+      charging_type: 'AC',
+      kwh_billed: 25,
+      total_cost: 1000,
+      session_mode: 'plan',
+      tariff_plan_id: 't1',
+      plan_selection_id: 'selection-1',
+      price_snapshot: { label: 'ChargePoint P1 Home', kWhPrice: 40, sessionFee: 0 },
+      pricing_context: 'standard',
+      applied_price_per_kwh: 40,
+      applied_ac_price_per_kwh: 40,
+      applied_dc_price_per_kwh: 60,
+      applied_roaming_ac_price_per_kwh: 50,
+      applied_roaming_dc_price_per_kwh: 70,
+      applied_monthly_base_fee: 0,
+      applied_session_fee: 0,
+      created_at: timestamp,
+      updated_at: timestamp,
+      ...overrides,
+    };
+  }
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -113,6 +146,27 @@ describe('SessionForm', () => {
     expect(screen.queryByText(/charging rate/i)).toBeNull();
     expect(screen.queryByText(/^pricing mode$/i)).toBeNull();
     expect(screen.queryByText(/^charging type$/i)).toBeNull();
+  });
+
+  it('gives charging-plan controls enough width at compact desktop sizes', () => {
+    // Arrange: Render a persisted plan session with rate options available.
+    render(
+      <SessionForm
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        initialValues={buildSessionFixture()}
+      />
+    );
+
+    // Act: Locate the responsive grid and charging-rate matrix.
+    const provider = screen.getByLabelText(/provider/i);
+    const detailsGrid = provider.closest('.grid');
+    const chargingRate = screen.getByRole('radiogroup', { name: 'Charging Rate' });
+
+    // Assert: The section stacks until large screens and the rate spans the desktop row.
+    expect(detailsGrid).toHaveClass('lg:grid-cols-2');
+    expect(detailsGrid).not.toHaveClass('md:grid-cols-2');
+    expect(chargingRate).toHaveClass('lg:col-span-2');
   });
 
   it('switches to ad-hoc pricing fields when pricing source is ad-hoc', () => {
@@ -210,6 +264,21 @@ describe('SessionForm', () => {
     });
   });
 
+  it('formats persisted kWh decimals with a comma in edit mode', () => {
+    // Arrange: Persisted numeric values use JavaScript numbers internally.
+    const initialValues = buildSessionFixture({
+      kwh_billed: 45.2,
+      kwh_added: 42.75,
+    });
+
+    // Act: Open the existing session in the editor.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+
+    // Assert: User-facing decimal values follow European formatting.
+    expect(screen.getByLabelText(/kwh billed/i)).toHaveValue('45,2');
+    expect(screen.getByLabelText(/kwh added/i)).toHaveValue('42,75');
+  });
+
   it('prefills plan selector from legacy tariff_id when tariff_plan_id is absent', () => {
     // Arrange: legacy session shape where only tariff_id exists.
     const initialValues = {
@@ -225,6 +294,70 @@ describe('SessionForm', () => {
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
 
     // Assert: Legacy tariff id is applied to the plan select control.
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('t1');
+  });
+
+  it('keeps edit provider and plan selected when active options hydrate', () => {
+    // Arrange: Start with only historical fallback options available.
+    const initialValues = buildSessionFixture({
+      provider_id: 'p1',
+      tariff_plan_id: 't1',
+      session_mode: 'plan',
+    });
+    vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: true });
+    vi.mocked(useChargingPlans).mockReturnValue({
+      plans: [],
+      isLoading: true,
+      addChargingPlan: vi.fn(),
+      removeChargingPlan: vi.fn(),
+    });
+
+    const { rerender } = render(
+      <StrictMode>
+        <SessionForm
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          initialValues={initialValues}
+        />
+      </StrictMode>
+    );
+
+    expect(screen.getByLabelText(/provider/i)).toHaveValue('p1');
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('t1');
+
+    // Act: Replace historical fallbacks with asynchronously hydrated active options.
+    vi.mocked(useProviders).mockReturnValue({
+      providers: [{ id: 'p1', name: 'ChargePoint' }] as unknown as Provider[],
+      isLoading: false,
+    });
+    vi.mocked(useChargingPlans).mockReturnValue({
+      plans: [{
+        id: 't1',
+        name: 'P1 Home',
+        provider_id: 'p1',
+        ac_price_per_kwh: 40,
+        dc_price_per_kwh: 60,
+        roaming_ac_price_per_kwh: 50,
+        roaming_dc_price_per_kwh: 70,
+        monthly_base_fee: 0,
+        session_fee: 0,
+      }] as unknown as ChargingPlan[],
+      isLoading: false,
+      addChargingPlan: vi.fn(),
+      removeChargingPlan: vi.fn(),
+    });
+    rerender(
+      <StrictMode>
+        <SessionForm
+          onSubmit={mockOnSubmit}
+          onCancel={mockOnCancel}
+          initialValues={initialValues}
+        />
+      </StrictMode>
+    );
+
+    // Assert: Native select values remain aligned with form state.
+    expect(screen.getByLabelText(/provider/i)).toHaveValue('p1');
     expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('t1');
   });
 
@@ -248,9 +381,190 @@ describe('SessionForm', () => {
     // Assert: Stored roaming context is preserved through re-save.
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({ pricing_context: 'roaming', session_mode: 'plan' })
+        expect.objectContaining({
+          session: expect.objectContaining({ pricing_context: 'roaming', session_mode: 'plan' }),
+          planSelectionChange: expect.objectContaining({
+            providerId: 'p1',
+            tariffPlanId: 't1',
+          }),
+        })
       );
     });
+  });
+
+  it('renders pricing source as read-only while keeping persisted plan values visible', () => {
+    // Arrange: the persisted provider and plan are absent from active hook results.
+    vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });
+    vi.mocked(useChargingPlans).mockReturnValue({
+      plans: [],
+      isLoading: false,
+      addChargingPlan: vi.fn(),
+      removeChargingPlan: vi.fn(),
+    });
+    const initialValues = buildSessionFixture({
+      id: 'session-plan-edit',
+      provider_id: 'retired-provider',
+      provider_name_snapshot: 'Retired Provider',
+      tariff_plan_id: 'retired-plan',
+      charging_plan_name_snapshot: 'Retired Plan',
+      session_mode: 'plan',
+    });
+
+    // Act: render edit mode.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+
+    // Assert: source is fixed and historical selections remain represented.
+    expect(screen.getByText('Charging Plan')).toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /charging plan/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radio', { name: /ad-hoc/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/provider/i)).toHaveValue('retired-provider');
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('retired-plan');
+  });
+
+  it('does not keep a historical plan selectable after changing edit mode to another provider', async () => {
+    // Arrange: edit mode starts with a retired plan tied to the original provider.
+    const initialValues = buildSessionFixture({
+      id: 'session-provider-swap',
+      provider_id: 'p1',
+      provider_name_snapshot: 'ChargePoint',
+      tariff_plan_id: 'retired-plan',
+      charging_plan_name_snapshot: 'Retired ChargePoint Plan',
+      session_mode: 'plan',
+    });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+
+    // Assert: the historical plan is initially represented for the original provider.
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('retired-plan');
+
+    // Act: switch the provider to a different provider that has its own live plan.
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p2' } });
+
+    // Assert: the stale historical plan is cleared and replaced by the valid p2 plan.
+    await waitFor(() => {
+      expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('t3');
+    });
+    const optionValues = Array.from(screen.getByLabelText(/^plan\s*\*?$/i).querySelectorAll('option'))
+      .map((option) => option.getAttribute('value'));
+    expect(optionValues).not.toContain('retired-plan');
+  });
+
+  it('preserves snapshots and skips plan-selection writes for an unchanged plan edit', async () => {
+    // Arrange: current hooks contain changed prices for the same ids.
+    const initialValues = buildSessionFixture({
+      id: 'session-plan-stable',
+      provider_id: 'p1',
+      tariff_plan_id: 't1',
+      plan_selection_id: 'selection-old',
+      kwh_billed: 25,
+      applied_price_per_kwh: 40,
+      applied_session_fee: 100,
+      price_snapshot: { label: 'Historical Plan', kWhPrice: 40, sessionFee: 100 },
+    });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '30' } });
+
+    // Act: save without changing provider, plan, date, or rate.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: no plan-selection mutation occurs and historical prices calculate the total.
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+        session: expect.objectContaining({
+          id: 'session-plan-stable',
+          plan_selection_id: 'selection-old',
+          price_snapshot: { label: 'Historical Plan', kWhPrice: 40, sessionFee: 100 },
+          total_cost: 1300,
+        }),
+      }));
+    });
+    expect(setActivePlanSelection).not.toHaveBeenCalled();
+  });
+
+  it('preserves the original exact timestamp when the visible edit date is unchanged', async () => {
+    // Arrange: persisted sessions may store a non-midnight UTC timestamp.
+    const originalTimestamp = new Date('2026-06-01T14:37:12.000Z');
+    const initialValues = buildSessionFixture({
+      id: 'session-plan-same-day',
+      session_timestamp: originalTimestamp,
+      plan_selection_id: 'selection-original',
+      price_snapshot: { label: 'Historical Plan', kWhPrice: 40, sessionFee: 0 },
+      applied_price_per_kwh: 40,
+    });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '30' } });
+
+    // Act: save without changing the visible calendar date.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: unchanged visible date keeps the persisted timestamp and avoids repricing writes.
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+        session: expect.objectContaining({
+          session_timestamp: originalTimestamp,
+          plan_selection_id: 'selection-original',
+          total_cost: 1200,
+        }),
+      }));
+    });
+    expect(setActivePlanSelection).not.toHaveBeenCalled();
+  });
+
+  it('submits a plan-selection change request after a deliberate plan pricing change', async () => {
+    // Arrange: edit an existing session and switch its charging rate.
+    const originalTimestamp = new Date('2026-06-01T14:37:12.000Z');
+    const expectedPlanSelectionDate = new Date('2026-06-01T00:00:00.000Z');
+    const initialValues = buildSessionFixture({
+      id: 'session-plan-change',
+      session_timestamp: originalTimestamp,
+      provider_id: 'p1',
+      tariff_plan_id: 't1',
+      charging_type: 'AC',
+      pricing_context: 'standard',
+    });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+
+    // Act: select the roaming AC rate and save.
+    fireEvent.click(screen.getByRole('radio', { name: /roaming ac/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: deliberate repricing consults history with the date-only UTC day
+    // while deferring selection persistence to the parent request handler.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalled());
+    expect(getActivePlanSelectionAt).toHaveBeenCalledWith('p1', 'user-1', expectedPlanSelectionDate);
+    expect(setActivePlanSelection).not.toHaveBeenCalled();
+    expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      session: expect.objectContaining({
+        id: 'session-plan-change',
+        pricing_context: 'roaming',
+        session_timestamp: originalTimestamp,
+      }),
+      planSelectionChange: expect.objectContaining({
+        userId: 'user-1',
+        providerId: 'p1',
+        tariffPlanId: 't1',
+        validFrom: expectedPlanSelectionDate,
+      }),
+    }));
+  });
+
+  it('keeps edit mode open and shows the submit error when persistence rejects', async () => {
+    // Arrange: reject the parent persistence callback.
+    mockOnSubmit.mockRejectedValueOnce(new Error('Local update failed'));
+    render(
+      <SessionForm
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        initialValues={buildSessionFixture({ id: 'session-error' })}
+      />
+    );
+
+    // Act: submit the edit.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: the existing submit-level error pattern remains active.
+    expect(await screen.findByRole('alert')).toHaveTextContent('Local update failed');
+    expect(screen.getByRole('heading', { name: 'Edit Session' })).toBeInTheDocument();
+    expect(mockOnCancel).not.toHaveBeenCalled();
   });
 
   it('opens in ad-hoc mode and clears stale tariff_plan_id from legacy initial values', async () => {
@@ -282,10 +596,167 @@ describe('SessionForm', () => {
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
-          session_mode: 'ad_hoc',
-          tariff_plan_id: null
+          session: expect.objectContaining({
+            session_mode: 'ad_hoc',
+            tariff_plan_id: null,
+          }),
         })
       );
+    });
+  });
+
+  it('submits a retired-provider ad-hoc edit when pricing remains ad-hoc and valid', async () => {
+    // Arrange: the saved provider no longer exists in the live provider list.
+    const initialValues = buildSessionFixture({
+      id: 'session-retired-ad-hoc',
+      provider_id: 'retired-provider',
+      provider_name_snapshot: 'Retired Provider',
+      session_mode: 'ad_hoc',
+      tariff_plan_id: null,
+      plan_selection_id: null,
+      pricing_context: 'ad_hoc',
+      charging_plan_name_snapshot: null,
+      ad_hoc_pricing: {
+        cpoName: 'FastNet',
+        pricePerKwh: 59,
+        pricePerSession: 150,
+        receiptUrl: null,
+        notes: null,
+        otherFees: undefined,
+      },
+      price_snapshot: { label: 'Ad-Hoc', kWhPrice: 59, sessionFee: 150 },
+      applied_price_per_kwh: 59,
+      applied_session_fee: 150,
+      total_cost: 1625,
+    });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+
+    // Act: make an otherwise valid edit and submit without changing the retired provider.
+    fireEvent.change(screen.getByLabelText(/^notes$/i), { target: { value: 'Updated note' } });
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: edit submission still succeeds and preserves the retired provider id.
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          session: expect.objectContaining({
+            id: 'session-retired-ad-hoc',
+            session_mode: 'ad_hoc',
+            provider_id: 'retired-provider',
+            tariff_plan_id: null,
+            ad_hoc_pricing: expect.objectContaining({
+              cpoName: 'FastNet',
+              pricePerKwh: 59,
+              pricePerSession: 150,
+              notes: 'Updated note',
+            }),
+          }),
+        })
+      );
+    });
+  });
+
+  it('prefills ad-hoc other fees using the summed persisted fee amount', () => {
+    // Arrange: start from multiple stored other-fee rows.
+    const initialValues = buildSessionFixture({
+      id: 'session-ad-hoc-fee-sum',
+      session_mode: 'ad_hoc',
+      tariff_plan_id: null,
+      plan_selection_id: null,
+      pricing_context: 'ad_hoc',
+      charging_plan_name_snapshot: null,
+      ad_hoc_pricing: {
+        cpoName: 'FastNet',
+        pricePerKwh: 59,
+        pricePerSession: 150,
+        otherFees: [
+          { label: 'Parking', amount: 50, notes: 'First hour' },
+          { label: 'Idle', amount: 125, notes: 'Overstay' },
+        ],
+      },
+    });
+
+    // Act: render the edit form.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+
+    // Assert: the simplified UI shows the aggregate fee amount.
+    expect(screen.getByLabelText(/other fees/i)).toHaveValue('1,75');
+  });
+
+  it('preserves ad-hoc other-fee entries when the aggregate fee amount is unchanged', async () => {
+    // Arrange: edit an ad-hoc session with multiple stored fee rows.
+    const initialValues = buildSessionFixture({
+      id: 'session-ad-hoc-unchanged-fees',
+      session_mode: 'ad_hoc',
+      tariff_plan_id: null,
+      plan_selection_id: null,
+      pricing_context: 'ad_hoc',
+      charging_plan_name_snapshot: null,
+      ad_hoc_pricing: {
+        cpoName: 'FastNet',
+        pricePerKwh: 59,
+        pricePerSession: 150,
+        otherFees: [
+          { label: 'Parking', amount: 50, notes: 'First hour' },
+          { label: 'Idle', amount: 125, notes: 'Overstay' },
+        ],
+      },
+    });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+    fireEvent.change(screen.getByLabelText(/^notes$/i), { target: { value: 'Updated note' } });
+
+    // Act: submit without changing the aggregate other-fees value.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: stored rows survive untouched.
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+        session: expect.objectContaining({
+          ad_hoc_pricing: expect.objectContaining({
+            otherFees: [
+              { label: 'Parking', amount: 50, notes: 'First hour' },
+              { label: 'Idle', amount: 125, notes: 'Overstay' },
+            ],
+          }),
+        }),
+      }));
+    });
+  });
+
+  it('collapses ad-hoc other fees to one synthesized row when the aggregate amount changes', async () => {
+    // Arrange: edit an ad-hoc session with multiple stored fee rows.
+    const initialValues = buildSessionFixture({
+      id: 'session-ad-hoc-changed-fees',
+      session_mode: 'ad_hoc',
+      tariff_plan_id: null,
+      plan_selection_id: null,
+      pricing_context: 'ad_hoc',
+      charging_plan_name_snapshot: null,
+      ad_hoc_pricing: {
+        cpoName: 'FastNet',
+        pricePerKwh: 59,
+        pricePerSession: 150,
+        otherFees: [
+          { label: 'Parking', amount: 50, notes: 'First hour' },
+          { label: 'Idle', amount: 125, notes: 'Overstay' },
+        ],
+      },
+    });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+    fireEvent.change(screen.getByLabelText(/other fees/i), { target: { value: '2,50' } });
+
+    // Act: submit with a changed aggregate fee total.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: the simplified UI rewrites the collection to one synthetic row.
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+        session: expect.objectContaining({
+          ad_hoc_pricing: expect.objectContaining({
+            otherFees: [{ label: 'Other fees', amount: 250 }],
+          }),
+        }),
+      }));
     });
   });
 
@@ -327,16 +798,18 @@ describe('SessionForm', () => {
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
-          session_mode: 'ad_hoc',
-          provider_id: 'p1',
-          tariff_plan_id: null,
-          ad_hoc_pricing: expect.objectContaining({
-            cpoName: 'FastNet',
-            pricePerKwh: 59,
-            pricePerSession: 150,
-            receiptUrl: 'https://example.com/receipt',
-            notes: 'Night charge',
-            otherFees: expect.any(Array),
+          session: expect.objectContaining({
+            session_mode: 'ad_hoc',
+            provider_id: 'p1',
+            tariff_plan_id: null,
+            ad_hoc_pricing: expect.objectContaining({
+              cpoName: 'FastNet',
+              pricePerKwh: 59,
+              pricePerSession: 150,
+              receiptUrl: 'https://example.com/receipt',
+              notes: 'Night charge',
+              otherFees: expect.any(Array),
+            }),
           }),
         })
       );
@@ -381,6 +854,21 @@ describe('SessionForm', () => {
     // Assert: the single matching plan is selected automatically.
     expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('t3');
     expect(screen.getByLabelText(/^plan\s*\*?$/i)).toBeDisabled();
+  });
+
+  it('keeps the plan select enabled when one active plan plus one historical fallback are both selectable', () => {
+    // Arrange: edit mode starts with a retired plan and the same provider still has one active plan.
+    const initialValues = buildSessionFixture({
+      id: 'session-historical-plus-active',
+      provider_id: 'p1',
+      tariff_plan_id: 'retired-plan',
+      charging_plan_name_snapshot: 'Retired Plan',
+      session_mode: 'plan',
+    });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+
+    // Assert: the user can switch from the historical fallback to the single live plan.
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).not.toBeDisabled();
   });
 
   it('shows charging-rate choices only after a plan is selected', () => {
@@ -541,9 +1029,15 @@ describe('SessionForm', () => {
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
-          charging_type: 'DC',
-          pricing_context: 'roaming',
-          applied_price_per_kwh: 70,
+          session: expect.objectContaining({
+            charging_type: 'DC',
+            pricing_context: 'roaming',
+            applied_price_per_kwh: 70,
+          }),
+          planSelectionChange: expect.objectContaining({
+            providerId: 'p1',
+            tariffPlanId: 't1',
+          }),
         })
       );
     });
@@ -623,9 +1117,15 @@ describe('SessionForm', () => {
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
-          charging_type: 'AC',
-          pricing_context: 'standard',
-          applied_price_per_kwh: 42,
+          session: expect.objectContaining({
+            charging_type: 'AC',
+            pricing_context: 'standard',
+            applied_price_per_kwh: 42,
+          }),
+          planSelectionChange: expect.objectContaining({
+            providerId: 'p1',
+            tariffPlanId: 't2',
+          }),
         })
       );
     });
