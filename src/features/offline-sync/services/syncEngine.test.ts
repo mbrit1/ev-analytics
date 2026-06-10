@@ -784,6 +784,33 @@ describe('syncEngine', () => {
     expect(await db.sessions.toArray()).toEqual(remoteSessions)
   })
 
+  it('should normalize remote charging session timestamps before storing them locally', async () => {
+    // Arrange: Supabase returns JSON timestamps as ISO strings.
+    const remoteSession = {
+      ...buildChargingSession({ id: 's-date-normalization', user_id: 'u1' }),
+      session_timestamp: '2026-06-03T08:15:00.000Z',
+      created_at: '2026-06-03T08:20:00.000Z',
+      updated_at: '2026-06-03T08:20:00.000Z',
+    }
+
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      select: () => Promise.resolve({
+        data: tableName === 'charging_sessions' ? [remoteSession] : [],
+        error: null,
+      })
+    }) as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Hydrate the remote session into Dexie.
+    await initialSync()
+
+    // Assert: Local domain timestamps satisfy the Date-based session contract.
+    const localSession = await db.sessions.get('s-date-normalization')
+    expect(localSession?.session_timestamp).toBeInstanceOf(Date)
+    expect(localSession?.created_at).toBeInstanceOf(Date)
+    expect(localSession?.updated_at).toBeInstanceOf(Date)
+    expect(localSession?.session_timestamp.toISOString()).toBe('2026-06-03T08:15:00.000Z')
+  })
+
   it('should continue initialSync when one remote table fails', async () => {
     // Arrange: Make providers fail while charging_plans and sessions still return data.
     const remoteChargingPlans: ChargingPlan[] = [

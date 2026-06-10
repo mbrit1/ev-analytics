@@ -3,10 +3,20 @@ import { useForm, Controller, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Save, X, Calendar, FileText } from 'lucide-react';
-import { getActivePlanSelectionAt, setActivePlanSelection, useChargingPlans, useProviders } from '../../charging-plans';
+import {
+  getActivePlanSelectionAt,
+  type SetActivePlanSelectionInput,
+  useChargingPlans,
+  useProviders,
+} from '../../charging-plans';
 import { useAuth } from '../../auth';
 import { type ChargingPlan, type ChargingSession, type TariffPriceSnapshot } from '../../../infra/db';
-import { prepareSession } from '../services/sessionService';
+import {
+  hasPlanPricingIdentityChanged,
+  prepareSession,
+  prepareSessionEdit,
+  type SessionPersistenceRequest,
+} from '../services/sessionService';
 import { Slab } from '../../../shared/ui';
 import { ThinInput } from '../../../shared/ui';
 import { TactileMatrix } from '../../../shared/ui';
@@ -198,6 +208,20 @@ function parseDateInputAsUtc(dateInput: string): Date {
   return new Date(Date.UTC(year, month - 1, day));
 }
 
+function resolveSubmittedSessionTimestamp(
+  dateInput: string,
+  existingSession?: ChargingSession
+): Date {
+  if (
+    existingSession
+    && formatDateInputValue(existingSession.session_timestamp) === dateInput
+  ) {
+    return existingSession.session_timestamp;
+  }
+
+  return parseDateInputAsUtc(dateInput);
+}
+
 function resolveInitialPlanId(initialValues?: LegacySessionInitialValues): string {
   if (resolveInitialPricingSource(initialValues) === 'ad_hoc') {
     return '';
@@ -231,6 +255,10 @@ function parseDecimalToCents(value?: string): number | undefined {
   const parsed = Number.parseFloat(normalized);
   if (!Number.isFinite(parsed)) return undefined;
   return Math.round(parsed * 100);
+}
+
+function formatDecimalInputValue(value?: number): string {
+  return value == null ? '' : value.toString().replace('.', ',');
 }
 
 function resolvePlanSnapshotKwhPrice(
@@ -287,8 +315,8 @@ function hasPlanPriceForMode(
 }
 
 interface SessionFormProps {
-  /** Persists the fully prepared charging session. */
-  onSubmit: (session: ChargingSession) => Promise<void>;
+  /** Persists the prepared session plus any atomic plan-selection change. */
+  onSubmit: (request: SessionPersistenceRequest) => Promise<void>;
   /** Closes the form without saving changes. */
   onCancel: () => void;
   /** Existing values used when editing a previously saved session. */
@@ -309,6 +337,10 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   const { plans } = useChargingPlans();
   const { providers } = useProviders();
   const hiddenDateInputRef = React.useRef<HTMLInputElement | null>(null);
+
+  const initialAdHocOtherFeesTotal = React.useMemo(() => {
+    return initialValues?.ad_hoc_pricing?.otherFees?.reduce((sum, fee) => sum + fee.amount, 0) ?? 0;
+  }, [initialValues]);
 
   const {
     register,
@@ -332,8 +364,8 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       end_soc_percentage: initialValues?.end_soc_percentage?.toString() || '',
       provider_id: initialValues?.provider_id || '',
       tariff_plan_id: resolveInitialPlanId(legacyInitialValues),
-      kwh_billed: initialValues?.kwh_billed?.toString() || '',
-      kwh_added: initialValues?.kwh_added?.toString() || '',
+      kwh_billed: formatDecimalInputValue(initialValues?.kwh_billed),
+      kwh_added: formatDecimalInputValue(initialValues?.kwh_added),
       odometer_km: initialValues?.odometer_km?.toString() || '',
       notes: initialValues?.notes || '',
       cpo_name: initialValues?.ad_hoc_pricing?.cpoName || '',
@@ -344,8 +376,8 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         ? (initialValues.ad_hoc_pricing.pricePerSession / 100).toFixed(2).replace('.', ',')
         : '',
       ad_hoc_receipt_url: initialValues?.ad_hoc_pricing?.receiptUrl ?? '',
-      ad_hoc_other_fees: initialValues?.ad_hoc_pricing?.otherFees?.[0]?.amount != null
-        ? (initialValues.ad_hoc_pricing.otherFees[0].amount / 100).toFixed(2).replace('.', ',')
+      ad_hoc_other_fees: initialAdHocOtherFeesTotal > 0
+        ? (initialAdHocOtherFeesTotal / 100).toFixed(2).replace('.', ',')
         : '',
     },
   });
@@ -356,17 +388,33 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   const selectedChargingType = useWatch({ control, name: 'charging_type' });
   const selectedPricingMode = useWatch({ control, name: 'pricing_mode' });
   const selectedSessionDate = useWatch({ control, name: 'session_timestamp' });
+  const isEditMode = Boolean(initialValues?.id);
+  const existingSession = isEditMode ? initialValues as ChargingSession : undefined;
+  const pricingSourceLabel = selectedPricingSource === 'ad_hoc' ? 'Ad-Hoc' : 'Charging Plan';
   const isChargingPlanPricing = selectedPricingSource === 'plan';
   const providerPlans = React.useMemo(
     () => plans.filter(plan => plan.provider_id === selectedProviderId),
     [plans, selectedProviderId]
   );
+  const isUsingExistingProviderSelection = Boolean(
+    existingSession && selectedProviderId === existingSession.provider_id
+  );
+  const hasHistoricalProviderFallback = Boolean(
+    existingSession
+    && !providers.some((provider) => provider.id === existingSession.provider_id)
+  );
+  const hasHistoricalPlanFallback = Boolean(
+    existingSession?.tariff_plan_id
+    && isUsingExistingProviderSelection
+    && !providerPlans.some((plan) => plan.id === existingSession.tariff_plan_id)
+  );
   const selectedPlan = React.useMemo(
     () => plans.find(plan => plan.id === selectedPlanId),
     [plans, selectedPlanId]
   );
+  const selectablePlanCount = providerPlans.length + (hasHistoricalPlanFallback ? 1 : 0);
   const shouldDisablePlanSelect = selectedPricingSource === 'plan'
-    && providerPlans.length <= 1;
+    && selectablePlanCount <= 1;
   const selectedChargingRate = toChargingRateValue(selectedChargingType, selectedPricingMode);
   const planRateOptions = React.useMemo(
     () => buildChargingRateOptions(selectedPlan),
@@ -392,7 +440,9 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     }
 
     const currentPlanStillValid = providerPlans.some(plan => plan.id === currentPlanId);
-    if (currentPlanStillValid) {
+    const isPersistedEditPlan = isUsingExistingProviderSelection
+      && existingSession?.tariff_plan_id === currentPlanId;
+    if (currentPlanStillValid || isPersistedEditPlan) {
       return;
     }
 
@@ -402,7 +452,15 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     }
 
     setValue('tariff_plan_id', '');
-  }, [selectedPricingSource, selectedProviderId, providerPlans, getValues, setValue]);
+  }, [
+    selectedPricingSource,
+    selectedProviderId,
+    providerPlans,
+    existingSession,
+    getValues,
+    isUsingExistingProviderSelection,
+    setValue,
+  ]);
 
   React.useEffect(() => {
     if (selectedPricingSource !== 'plan') {
@@ -462,11 +520,16 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       // not be able to create orphaned local records.
       if (!user) return;
 
+      const sessionTimestamp = resolveSubmittedSessionTimestamp(
+        values.session_timestamp,
+        existingSession
+      );
+
       // Convert browser-friendly strings into the numeric domain fields expected
       // by prepareSession. Decimal fields accept both German and English input.
       const sessionBase = {
         user_id: user.id,
-        session_timestamp: parseDateInputAsUtc(values.session_timestamp),
+        session_timestamp: sessionTimestamp,
         charging_type: values.charging_type,
         kwh_billed: parseFloat(values.kwh_billed.replace(',', '.')),
         kwh_added: values.kwh_added ? parseFloat(values.kwh_added.replace(',', '.')) : undefined,
@@ -478,38 +541,74 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
 
       const providerId = values.provider_id;
       if (!providerId) return;
-      const provider = providers.find(p => p.id === providerId);
-      if (!provider) return;
 
       if (values.session_mode === 'plan') {
-        const plan = plans.find((plan) => plan.id === values.tariff_plan_id);
-        if (!plan) return;
-        const sessionDate = parseDateInputAsUtc(values.session_timestamp);
-        const snapshot = buildTariffPriceSnapshot(plan, provider.name, values.pricing_mode, values.charging_type);
-        const activeSelection = await getActivePlanSelectionAt(providerId, user.id, sessionDate);
-        const planSelection = (!activeSelection || activeSelection.tariff_plan_id !== plan.id)
-          ? await setActivePlanSelection({
+        const tariffPlanId = values.tariff_plan_id;
+        if (!tariffPlanId) {
+          setError('tariff_plan_id', {
+            type: 'manual',
+            message: 'Plan is required',
+          });
+          return;
+        }
+
+        const planSelectionDate = parseDateInputAsUtc(values.session_timestamp);
+        const planInput = {
+          ...sessionBase,
+          provider_id: providerId,
+          session_mode: 'plan' as const,
+          tariff_plan_id: tariffPlanId,
+          pricing_context: values.pricing_mode,
+        };
+        const pricingIdentityChanged = existingSession
+          ? hasPlanPricingIdentityChanged(existingSession, planInput)
+          : true;
+
+        if (existingSession && !pricingIdentityChanged) {
+          await onSubmit({
+            session: prepareSessionEdit(existingSession, {
+              ...planInput,
+              plan_selection_id: existingSession.plan_selection_id,
+              price_snapshot: existingSession.price_snapshot,
+            }),
+          });
+          return;
+        }
+
+        const provider = providers.find((candidate) => candidate.id === providerId);
+        const plan = plans.find((candidate) => candidate.id === tariffPlanId);
+        if (!provider || !plan) {
+          throw new Error('Select an active provider and charging plan to change historical pricing');
+        }
+
+        const snapshot = buildTariffPriceSnapshot(
+          plan,
+          provider.name,
+          values.pricing_mode,
+          values.charging_type
+        );
+        const activeSelection = await getActivePlanSelectionAt(providerId, user.id, planSelectionDate);
+        const planSelectionChange = (!activeSelection || activeSelection.tariff_plan_id !== plan.id)
+          ? {
             userId: user.id,
             providerId,
             tariffPlanId: plan.id,
-            validFrom: sessionDate,
-            priceSnapshot: snapshot
-          })
-          : activeSelection;
-        const session = prepareSession(
-          {
-            ...sessionBase,
-            provider_id: providerId,
-            session_mode: 'plan',
-            tariff_plan_id: plan.id,
-            plan_selection_id: planSelection.id,
-            price_snapshot: snapshot,
-            pricing_context: values.pricing_mode,
-          },
-          plan,
-          provider
-        );
-        await onSubmit(session);
+            validFrom: planSelectionDate,
+            priceSnapshot: snapshot,
+          } satisfies SetActivePlanSelectionInput
+          : undefined;
+        const input = {
+          ...planInput,
+          plan_selection_id: activeSelection?.tariff_plan_id === plan.id ? activeSelection.id : undefined,
+          price_snapshot: snapshot,
+        };
+        const session = existingSession
+          ? prepareSessionEdit(existingSession, input, plan, provider)
+          : prepareSession(input, plan, provider);
+        await onSubmit({
+          session,
+          planSelectionChange,
+        });
         return;
       }
 
@@ -519,30 +618,40 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       }
       const sessionFee = parseDecimalToCents(values.ad_hoc_session_fee);
       const otherFeesAmount = parseDecimalToCents(values.ad_hoc_other_fees);
+      const shouldPreserveExistingOtherFees = existingSession?.session_mode === 'ad_hoc'
+        && (otherFeesAmount ?? 0) === initialAdHocOtherFeesTotal;
+      const otherFees = shouldPreserveExistingOtherFees
+        ? existingSession.ad_hoc_pricing?.otherFees
+        : otherFeesAmount == null
+          ? undefined
+          : [{ label: 'Other fees', amount: otherFeesAmount }];
 
-      const session = prepareSession({
+      const input = {
         ...sessionBase,
         provider_id: providerId,
-        session_mode: 'ad_hoc',
+        session_mode: 'ad_hoc' as const,
         tariff_plan_id: null,
         plan_selection_id: null,
         price_snapshot: {
           label: 'Ad-Hoc',
           kWhPrice: pricePerKwh,
           sessionFee: sessionFee,
-          blockingFee: otherFeesAmount
+          blockingFee: otherFeesAmount,
         },
-        pricing_context: 'ad_hoc',
+        pricing_context: 'ad_hoc' as const,
         ad_hoc_pricing: {
           cpoName: values.cpo_name?.trim() || null,
           pricePerKwh,
           pricePerSession: sessionFee,
           receiptUrl: values.ad_hoc_receipt_url || null,
           notes: values.notes || null,
-          otherFees: otherFeesAmount == null ? undefined : [{ label: 'Other fees', amount: otherFeesAmount }],
+          otherFees,
         },
-      });
-      await onSubmit(session);
+      };
+      const session = existingSession
+        ? prepareSessionEdit(existingSession, input)
+        : prepareSession(input);
+      await onSubmit({ session });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to save session. Please try again.';
       setError('root.submit', {
@@ -624,45 +733,67 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
           {/* Pricing source */}
-          <Controller
-            name="session_mode"
-            control={control}
-            render={({ field }) => (
-              <TactileMatrix
-                label="Pricing Source"
-                value={field.value}
-                onChange={field.onChange}
-                options={[
-                  { label: 'Charging Plan', value: 'plan' },
-                  { label: 'Ad-Hoc', value: 'ad_hoc' },
-                ]}
-              />
-            )}
-          />
+          {isEditMode ? (
+            <div className="flex flex-col">
+              <span className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
+                Pricing Source
+              </span>
+              <div className="min-h-[44px] border-b border-secondary/20 py-2 text-xl font-medium text-primary">
+                {pricingSourceLabel}
+              </div>
+            </div>
+          ) : (
+            <Controller
+              name="session_mode"
+              control={control}
+              render={({ field }) => (
+                <TactileMatrix
+                  label="Pricing Source"
+                  value={field.value}
+                  onChange={field.onChange}
+                  options={[
+                    { label: 'Charging Plan', value: 'plan' },
+                    { label: 'Ad-Hoc', value: 'ad_hoc' },
+                  ]}
+                />
+              )}
+            />
+          )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-        {selectedPricingSource === 'plan' ? (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {selectedPricingSource === 'plan' ? (
             <>
               {/* Provider */}
               <div className="flex flex-col">
                 <label htmlFor="provider_id" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
                   Provider <span className="text-primary" aria-hidden="true">*</span>
                 </label>
-                <select
-                  id="provider_id"
-                  {...register('provider_id')}
-                  required
-                  aria-required="true"
-                  className={`w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors ${
-                    selectedProviderId ? 'text-primary' : 'text-primary/70'
-                  }`}
-                >
-                  <option value="">Select Provider</option>
-                  {providers.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
+                <Controller
+                  name="provider_id"
+                  control={control}
+                  render={({ field }) => (
+                    <select
+                      id="provider_id"
+                      {...field}
+                      required
+                      aria-required="true"
+                      className={`w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors ${
+                        selectedProviderId ? 'text-primary' : 'text-primary/70'
+                      }`}
+                    >
+                      <option value="">Select Provider</option>
+                      {hasHistoricalProviderFallback && existingSession && (
+                        <option value={existingSession.provider_id}>
+                          {existingSession.provider_name_snapshot}
+                        </option>
+                      )}
+                      {providers.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  )}
+                />
                 {errors.provider_id && (
                   <p className="text-sm text-red-500 font-medium mt-1.5">{errors.provider_id.message}</p>
                 )}
@@ -673,26 +804,39 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                 <label htmlFor="tariff_plan_id" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
                   Plan <span className="text-primary" aria-hidden="true">*</span>
                 </label>
-                <select
-                  id="tariff_plan_id"
-                  {...register('tariff_plan_id')}
-                  required={isChargingPlanPricing}
-                  aria-required={isChargingPlanPricing ? 'true' : 'false'}
-                  disabled={shouldDisablePlanSelect}
-                  className={`w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors disabled:text-secondary/55 disabled:cursor-not-allowed ${
-                    selectedPlanId ? 'text-primary' : 'text-primary/70'
-                  }`}
-                >
-                  <option
-                    value=""
-                    disabled={Boolean(selectedProviderId && providerPlans.length > 0)}
-                  >
-                    Select Plan
-                  </option>
-                  {providerPlans.map(plan => (
-                      <option key={plan.id} value={plan.id}>{plan.name}</option>
-                    ))}
-                </select>
+                <Controller
+                  name="tariff_plan_id"
+                  control={control}
+                  render={({ field }) => (
+                    <select
+                      id="tariff_plan_id"
+                      {...field}
+                      required={isChargingPlanPricing}
+                      aria-required={isChargingPlanPricing ? 'true' : 'false'}
+                      disabled={shouldDisablePlanSelect}
+                      className={`w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors disabled:text-secondary/55 disabled:cursor-not-allowed ${
+                        selectedPlanId ? 'text-primary' : 'text-primary/70'
+                      }`}
+                    >
+                      <option
+                        value=""
+                        disabled={Boolean(selectedProviderId && providerPlans.length > 0)}
+                      >
+                        Select Plan
+                      </option>
+                      {hasHistoricalPlanFallback && existingSession?.tariff_plan_id && (
+                        <option value={existingSession.tariff_plan_id}>
+                          {existingSession.charging_plan_name_snapshot
+                            ?? existingSession.price_snapshot?.label
+                            ?? 'Historical Plan'}
+                        </option>
+                      )}
+                      {providerPlans.map(plan => (
+                        <option key={plan.id} value={plan.id}>{plan.name}</option>
+                      ))}
+                    </select>
+                  )}
+                />
                 {errors.tariff_plan_id && (
                   <p className="text-sm text-red-500 font-medium mt-1.5">{errors.tariff_plan_id.message}</p>
                 )}
@@ -701,6 +845,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
               {planRateOptions.length > 0 && (
                 <TactileMatrix
                   label="Charging Rate"
+                  className="lg:col-span-2"
                   value={selectedChargingRate}
                   onChange={(value) => {
                     const nextRate = parseChargingRateValue(value);
@@ -717,20 +862,31 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                 <label htmlFor="provider_id" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
                   Provider <span className="text-primary" aria-hidden="true">*</span>
                 </label>
-                <select
-                  id="provider_id"
-                  {...register('provider_id')}
-                  required
-                  aria-required="true"
-                  className={`w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors ${
-                    selectedProviderId ? 'text-primary' : 'text-primary/70'
-                  }`}
-                >
-                  <option value="">Select Provider</option>
-                  {providers.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
+                <Controller
+                  name="provider_id"
+                  control={control}
+                  render={({ field }) => (
+                    <select
+                      id="provider_id"
+                      {...field}
+                      required
+                      aria-required="true"
+                      className={`w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors ${
+                        selectedProviderId ? 'text-primary' : 'text-primary/70'
+                      }`}
+                    >
+                      <option value="">Select Provider</option>
+                      {hasHistoricalProviderFallback && existingSession && (
+                        <option value={existingSession.provider_id}>
+                          {existingSession.provider_name_snapshot}
+                        </option>
+                      )}
+                      {providers.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  )}
+                />
                 {errors.provider_id && (
                   <p className="text-sm text-red-500 font-medium mt-1.5">{errors.provider_id.message}</p>
                 )}

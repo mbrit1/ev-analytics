@@ -26,6 +26,15 @@ function shouldContinueAfterFailure(item: SyncOutbox, result: { success: false }
 }
 
 type RemoteChargingSessionPayload = Omit<ChargingSession, 'pricing_context'>;
+type RemoteChargingSession = Omit<
+  ChargingSession,
+  'session_timestamp' | 'created_at' | 'updated_at' | 'deleted_at'
+> & {
+  session_timestamp: Date | string;
+  created_at: Date | string;
+  updated_at: Date | string;
+  deleted_at?: Date | string;
+};
 
 function getRetryDelayMs(retryCount: number): number {
   const exponentialDelay = BASE_RETRY_DELAY_MS * (2 ** Math.max(0, retryCount - 1));
@@ -50,6 +59,16 @@ function toRemoteChargingSessionPayload(session: ChargingSession): RemoteChargin
   const remotePayload = { ...session };
   delete remotePayload.pricing_context;
   return remotePayload;
+}
+
+function normalizeRemoteChargingSession(session: RemoteChargingSession): ChargingSession {
+  return {
+    ...session,
+    session_timestamp: new Date(session.session_timestamp),
+    created_at: new Date(session.created_at),
+    updated_at: new Date(session.updated_at),
+    deleted_at: session.deleted_at == null ? undefined : new Date(session.deleted_at),
+  };
 }
 
 /**
@@ -199,7 +218,11 @@ export async function initialSync(): Promise<void> {
       if (data && data.length > 0) {
         if (tableName === 'providers') await db.providers.bulkPut(data);
         if (tableName === 'charging_plans') await db.charging_plans.bulkPut(data);
-        if (tableName === 'sessions') await db.sessions.bulkPut(data);
+        if (tableName === 'sessions') {
+          await db.sessions.bulkPut(
+            (data as RemoteChargingSession[]).map(normalizeRemoteChargingSession)
+          );
+        }
       }
     }
   }

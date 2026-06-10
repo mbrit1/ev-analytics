@@ -4,6 +4,23 @@ import { groupSessionsByMonth } from '../model/types';
 import { formatCurrency, formatCentsToDecimal, formatKwh } from '../../../shared/lib';
 import { Calendar, Zap, Info } from 'lucide-react';
 import { Slab } from '../../../shared/ui';
+import { type ChargingSession } from '../../../infra/db';
+
+interface ChargingHistoryProps {
+  /** Opens the selected persisted session for editing. */
+  onSelectSession?: (session: ChargingSession) => void;
+}
+
+function buildSessionEditLabel(session: ChargingSession): string {
+  const providerName = session.provider_name_snapshot || 'Unknown provider';
+  const sessionDate = new Date(session.session_timestamp).toLocaleDateString('de-DE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+
+  return `Edit session ${providerName} ${sessionDate}`;
+}
 
 /**
  * Displays locally saved charging sessions with their calculated cost and sync state.
@@ -12,7 +29,7 @@ import { Slab } from '../../../shared/ui';
  * saved sessions appear immediately while the pending badge reflects whether an
  * outbox entry still needs remote sync.
  */
-export const ChargingHistory: React.FC = () => {
+export const ChargingHistory: React.FC<ChargingHistoryProps> = ({ onSelectSession }) => {
   const { sessions, isLoading } = useSessions();
   const monthGroups = groupSessionsByMonth(sessions);
 
@@ -53,11 +70,8 @@ export const ChargingHistory: React.FC = () => {
           </header>
 
           <div className="space-y-4">
-            {group.sessions.map((session) => (
-              <Slab
-                key={session.id}
-                className="p-6"
-              >
+            {group.sessions.map((session) => {
+              const cardContent = (
                 <div className="flex justify-between items-center">
                   <div className="space-y-1.5">
                     <div className="flex items-center text-[10px] font-bold uppercase tracking-widest text-secondary">
@@ -73,7 +87,11 @@ export const ChargingHistory: React.FC = () => {
                     </h3>
                     <div className="flex flex-wrap items-center gap-3">
                       <p className="text-sm text-secondary font-medium">
-                        {(session.session_mode === 'ad_hoc' ? 'Ad-Hoc' : (session.price_snapshot?.label ?? session.charging_plan_name_snapshot ?? 'Charging Plan'))} • {session.charging_type}
+                        {(session.session_mode === 'ad_hoc'
+                          ? 'Ad-Hoc'
+                          : (session.price_snapshot?.label
+                            ?? session.charging_plan_name_snapshot
+                            ?? 'Charging Plan'))} • {session.charging_type}
                       </p>
                       {session.session_mode === 'ad_hoc' && (() => {
                         const cpoName = session.ad_hoc_pricing?.cpoName?.trim();
@@ -108,8 +126,30 @@ export const ChargingHistory: React.FC = () => {
                     </div>
                   </div>
                 </div>
-              </Slab>
-            ))}
+              );
+
+              return (
+                <Slab
+                  key={session.id}
+                  padding="none"
+                >
+                  {onSelectSession ? (
+                    <button
+                      type="button"
+                      onClick={() => onSelectSession(session)}
+                      aria-label={buildSessionEditLabel(session)}
+                      className="group w-full min-h-[44px] cursor-pointer rounded-[inherit] p-6 text-left transition-colors hover:bg-secondary/5 active:bg-secondary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+                    >
+                      {cardContent}
+                    </button>
+                  ) : (
+                    <div className="p-6">
+                      {cardContent}
+                    </div>
+                  )}
+                </Slab>
+              );
+            })}
           </div>
         </section>
       ))}

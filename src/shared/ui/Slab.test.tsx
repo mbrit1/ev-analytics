@@ -54,4 +54,14 @@ describe('Slab', () => {
     expect(slabElement).toHaveClass('bg-surface');
     expect(slabElement).toHaveClass('custom-class');
   });
+
+  it('removes default padding when the padding mode is none', () => {
+    // Arrange: Request a slab whose child owns the internal spacing.
+    // Act: Render the slab without default padding.
+    const { container } = render(<Slab padding="none">Content</Slab>);
+    const slabElement = container.firstChild as HTMLElement;
+
+    // Assert: The default padding utility is not emitted.
+    expect(slabElement).not.toHaveClass('p-8');
+  });
 });

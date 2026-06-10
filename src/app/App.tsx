@@ -1,7 +1,15 @@
 import { BarChart3, BatteryCharging, Loader2, LogOut, Plus } from 'lucide-react'
 import { useState, useEffect, lazy, Suspense } from 'react'
 import { useAuth, LoginForm } from '../features/auth'
-import { ChargingHistory, SessionForm, saveSession } from '../features/charging-sessions'
+import {
+  ChargingHistory,
+  SessionForm,
+  saveSession,
+  saveSessionWithPlanSelection,
+  type SessionPersistenceRequest,
+  updateSession,
+  updateSessionWithPlanSelection,
+} from '../features/charging-sessions'
 import { startSyncRuntime, SyncStatusIndicator, useSyncStatus } from '../features/offline-sync'
 import { type ChargingSession } from '../infra/db'
 import { MobileContextAction, Navigation, Slab } from '../shared/ui'
@@ -11,6 +19,11 @@ const TariffList = lazy(async () => {
   const module = await import('../features/charging-plans/components/TariffList')
   return { default: module.TariffList }
 })
+
+type SessionFormState =
+  | { mode: 'closed' }
+  | { mode: 'create' }
+  | { mode: 'edit'; session: ChargingSession }
 
 /**
  * Root application shell for the authenticated EV Analytics experience.
@@ -23,10 +36,11 @@ function App() {
   const { user, loading, signOut } = useAuth()
   const syncStatus = useSyncStatus()
   const [activeTab, setActiveTab] = useState<NavigationTab>('sessions')
-  const [isSessionFormOpen, setIsSessionFormOpen] = useState(false)
+  const [sessionFormState, setSessionFormState] = useState<SessionFormState>({ mode: 'closed' })
   const [isCreatingTariff, setIsCreatingTariff] = useState(false)
   const [isTariffFormOpen, setIsTariffFormOpen] = useState(false)
   const [logoutError, setLogoutError] = useState<string | null>(null)
+  const isSessionFormOpen = sessionFormState.mode !== 'closed'
 
   useEffect(() => {
     // Runtime is auth-gated and manages initial hydration plus background outbox
@@ -58,6 +72,10 @@ function App() {
   const handleTabChange = (tab: NavigationTab) => {
     setActiveTab(tab)
 
+    if (tab !== 'sessions') {
+      setSessionFormState({ mode: 'closed' })
+    }
+
     if (tab !== 'tariffs') {
       setIsCreatingTariff(false)
     }
@@ -80,11 +98,35 @@ function App() {
     }
   }
 
-  const handleSessionSubmit = async (session: ChargingSession) => {
-    // saveSession persists locally and queues remote sync, so the form can close
-    // immediately after the local transaction succeeds.
-    await saveSession(session);
-    setIsSessionFormOpen(false);
+  const handleOpenCreateSession = () => {
+    setSessionFormState({ mode: 'create' })
+  }
+
+  const handleOpenEditSession = (session: ChargingSession) => {
+    setSessionFormState({ mode: 'edit', session })
+  }
+
+  const handleCloseSessionForm = () => {
+    setSessionFormState({ mode: 'closed' })
+  }
+
+  const handleSessionSubmit = async (request: SessionPersistenceRequest) => {
+    // Session writes persist locally and queue remote sync, so the form can
+    // close immediately after the local transaction succeeds.
+    if (sessionFormState.mode === 'edit') {
+      if (request.planSelectionChange) {
+        await updateSessionWithPlanSelection(request)
+      } else {
+        await updateSession(request.session)
+      }
+    } else {
+      if (request.planSelectionChange) {
+        await saveSessionWithPlanSelection(request)
+      } else {
+        await saveSession(request.session)
+      }
+    }
+    setSessionFormState({ mode: 'closed' })
   }
 
   const blockingSyncRetryText = syncStatus.nextRetryAt != null
@@ -119,7 +161,7 @@ function App() {
         />
         <MobileContextAction
           activeTab={activeTab}
-          onAddSession={() => setIsSessionFormOpen(true)}
+          onAddSession={handleOpenCreateSession}
           onAddTariff={() => {
             setActiveTab('tariffs')
             setIsCreatingTariff(true)
@@ -215,7 +257,7 @@ function App() {
                     <h1 className="text-2xl font-bold tracking-tight text-primary">Charging History</h1>
                     {!isSessionFormOpen && (
                       <button
-                        onClick={() => setIsSessionFormOpen(true)}
+                        onClick={handleOpenCreateSession}
                         className="hidden md:flex items-center px-4 py-2 bg-accent text-white font-bold rounded-xl hover:opacity-90 transition-all shadow-md shadow-accent/20 min-h-[44px]"
                       >
                         <Plus className="w-5 h-5 mr-2" />
@@ -225,12 +267,13 @@ function App() {
                   </div>
 
                   {isSessionFormOpen ? (
-                    <SessionForm 
-                      onSubmit={handleSessionSubmit} 
-                      onCancel={() => setIsSessionFormOpen(false)} 
+                    <SessionForm
+                      onSubmit={handleSessionSubmit}
+                      onCancel={handleCloseSessionForm}
+                      initialValues={sessionFormState.mode === 'edit' ? sessionFormState.session : undefined}
                     />
                   ) : (
-                    <ChargingHistory />
+                    <ChargingHistory onSelectSession={handleOpenEditSession} />
                   )}
                 </div>
               )}
