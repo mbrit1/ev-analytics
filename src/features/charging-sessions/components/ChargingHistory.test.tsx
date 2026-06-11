@@ -1,6 +1,6 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { ChargingHistory } from './ChargingHistory';
 import { db, type ChargingSession } from '../../../infra/db';
 import { saveSession } from '../services/sessionService';
@@ -17,6 +17,11 @@ vi.mock('../../auth', () => ({
  * from the Dexie live-query subscription used by {@link useSessions}.
  */
 describe('ChargingHistory', () => {
+  const scrollIntoViewMock = vi.fn();
+  const scrollToMock = vi.fn();
+  const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+  const originalScrollTo = window.scrollTo;
+
   function buildSession(
     id: string,
     sessionTimestamp: string,
@@ -56,6 +61,21 @@ describe('ChargingHistory', () => {
     // Arrange: Start each test from a clean IndexedDB state.
     await db.delete();
     await db.open();
+    scrollIntoViewMock.mockReset();
+    scrollToMock.mockReset();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoViewMock,
+    });
+    vi.stubGlobal('scrollTo', scrollToMock);
+  });
+
+  afterEach(() => {
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: originalScrollIntoView,
+    });
+    vi.stubGlobal('scrollTo', originalScrollTo);
   });
 
   it('keeps the empty state unchanged when there are no sessions', async () => {
@@ -215,5 +235,320 @@ describe('ChargingHistory', () => {
     expect(onSelectSession).toHaveBeenNthCalledWith(2, expect.objectContaining({
       id: 'session-edit',
     }));
+  });
+
+  it('restores a requested session after the live query renders it, then completes once', async () => {
+    // Arrange: render with a pending restore target before the session exists.
+    const onRestorationComplete = vi.fn();
+    render(
+      <ChargingHistory
+        onSelectSession={vi.fn()}
+        restorationRequest={{
+          type: 'session',
+          sessionId: 'session-restore',
+        }}
+        onRestorationComplete={onRestorationComplete}
+      />
+    );
+    expect(await screen.findByText('No Sessions Yet')).toBeInTheDocument();
+
+    const session = buildSession('session-restore', '2026-05-30T10:00:00.000Z');
+
+    // Act: save the target session after the component has already subscribed.
+    await act(async () => {
+      await saveSession(session);
+    });
+
+    const trigger = await screen.findByRole('button', {
+      name: 'Edit session Tesla 30.05.2026',
+    });
+
+    // Assert: restoration waits for the card, avoids smooth scrolling, focuses it, and completes once.
+    await waitFor(() => {
+      expect(scrollIntoViewMock).toHaveBeenCalledWith({
+        behavior: 'auto',
+        block: 'center',
+      });
+    });
+    expect(trigger).toHaveFocus();
+    expect(onRestorationComplete).toHaveBeenCalledTimes(1);
+    expect(trigger).toHaveAttribute('data-session-id', 'session-restore');
+  });
+
+  it('does not complete restoration until the requested session exists', async () => {
+    // Arrange: render with a restore target that is not yet present.
+    const onRestorationComplete = vi.fn();
+    render(
+      <ChargingHistory
+        restorationRequest={{
+          type: 'session',
+          sessionId: 'session-missing',
+        }}
+        onRestorationComplete={onRestorationComplete}
+      />
+    );
+    expect(await screen.findByText('No Sessions Yet')).toBeInTheDocument();
+
+    const otherSession = buildSession('session-other', '2026-05-30T10:00:00.000Z');
+
+    // Act: save a different session so the list re-renders without the target.
+    await act(async () => {
+      await saveSession(otherSession);
+    });
+
+    await screen.findByText('Tesla');
+
+    // Assert: nothing restores or completes until the requested target appears.
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+    expect(onRestorationComplete).not.toHaveBeenCalled();
+  });
+
+  it('runs restoration once per request even if the same target re-renders again', async () => {
+    // Arrange: save the target before mounting so the first render can restore immediately.
+    const onRestorationComplete = vi.fn();
+    const session = buildSession('session-once', '2026-05-30T10:00:00.000Z');
+    await act(async () => {
+      await saveSession(session);
+    });
+
+    const { rerender } = render(
+      <ChargingHistory
+        onSelectSession={vi.fn()}
+        restorationRequest={{
+          type: 'session',
+          sessionId: 'session-once',
+        }}
+        onRestorationComplete={onRestorationComplete}
+      />
+    );
+
+    await screen.findByRole('button', {
+      name: 'Edit session Tesla 30.05.2026',
+    });
+
+    await waitFor(() => {
+      expect(onRestorationComplete).toHaveBeenCalledTimes(1);
+    });
+
+    // Act: re-render with the same request object contents after the card already exists.
+    rerender(
+      <ChargingHistory
+        onSelectSession={vi.fn()}
+        restorationRequest={{
+          type: 'session',
+          sessionId: 'session-once',
+        }}
+        onRestorationComplete={onRestorationComplete}
+      />
+    );
+
+    // Assert: the same restore request is not re-applied.
+    await waitFor(() => {
+      expect(scrollIntoViewMock).toHaveBeenCalledTimes(1);
+    });
+    expect(onRestorationComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('allows a new implicit restoration request for the same session after the prior request is cleared', async () => {
+    // Arrange: render one visible session and complete an initial implicit restoration.
+    const onRestorationComplete = vi.fn();
+    const session = buildSession('session-repeat', '2026-05-30T10:00:00.000Z');
+    await act(async () => {
+      await saveSession(session);
+    });
+
+    const { rerender } = render(
+      <ChargingHistory
+        onSelectSession={vi.fn()}
+        restorationRequest={{
+          type: 'session',
+          sessionId: 'session-repeat',
+        }}
+        onRestorationComplete={onRestorationComplete}
+      />
+    );
+
+    await screen.findByRole('button', {
+      name: 'Edit session Tesla 30.05.2026',
+    });
+    await waitFor(() => {
+      expect(onRestorationComplete).toHaveBeenCalledTimes(1);
+    });
+
+    // Act: clear the request, then issue a fresh implicit request for the same session.
+    rerender(<ChargingHistory onSelectSession={vi.fn()} />);
+    rerender(
+      <ChargingHistory
+        onSelectSession={vi.fn()}
+        restorationRequest={{
+          type: 'session',
+          sessionId: 'session-repeat',
+        }}
+        onRestorationComplete={onRestorationComplete}
+      />
+    );
+
+    // Assert: the second request is treated as a new attempt.
+    await waitFor(() => {
+      expect(scrollIntoViewMock).toHaveBeenCalledTimes(2);
+    });
+    expect(onRestorationComplete).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not re-run an explicit restoration request key after a different request completes', async () => {
+    // Arrange: save two sessions to exercise explicit dedupe across interleaved requests.
+    const onRestorationComplete = vi.fn();
+    await act(async () => {
+      await saveSession(buildSession('session-a', '2026-05-30T10:00:00.000Z'));
+      await saveSession(buildSession('session-b', '2026-05-31T10:00:00.000Z', {
+        provider_name_snapshot: 'Ionity',
+      }));
+    });
+
+    const { rerender } = render(
+      <ChargingHistory
+        onSelectSession={vi.fn()}
+        restorationRequest={{
+          type: 'session',
+          sessionId: 'session-a',
+          requestKey: 'restore-a',
+        }}
+        onRestorationComplete={onRestorationComplete}
+      />
+    );
+
+    await screen.findByRole('button', {
+      name: 'Edit session Tesla 30.05.2026',
+    });
+    await waitFor(() => {
+      expect(onRestorationComplete).toHaveBeenCalledTimes(1);
+    });
+
+    rerender(
+      <ChargingHistory
+        onSelectSession={vi.fn()}
+        restorationRequest={{
+          type: 'session',
+          sessionId: 'session-b',
+          requestKey: 'restore-b',
+        }}
+        onRestorationComplete={onRestorationComplete}
+      />
+    );
+    await waitFor(() => {
+      expect(onRestorationComplete).toHaveBeenCalledTimes(2);
+    });
+
+    // Act: issue the original explicit request key again.
+    rerender(
+      <ChargingHistory
+        onSelectSession={vi.fn()}
+        restorationRequest={{
+          type: 'session',
+          sessionId: 'session-a',
+          requestKey: 'restore-a',
+        }}
+        onRestorationComplete={onRestorationComplete}
+      />
+    );
+
+    // Assert: explicit request keys are one-shot even after other requests complete.
+    await waitFor(() => {
+      expect(scrollIntoViewMock).toHaveBeenCalledTimes(2);
+    });
+    expect(onRestorationComplete).toHaveBeenCalledTimes(2);
+  });
+
+  it('restores a saved scroll position immediately and optionally focuses the prior session card', async () => {
+    // Arrange: save one session so the focus target exists.
+    const onRestorationComplete = vi.fn();
+    const session = buildSession('session-position', '2026-05-30T10:00:00.000Z');
+    await act(async () => {
+      await saveSession(session);
+    });
+
+    // Act: render history with a position-based restoration request.
+    render(
+      <ChargingHistory
+        onSelectSession={vi.fn()}
+        restorationRequest={{
+          type: 'position',
+          scrollY: 640,
+          focusSessionId: 'session-position',
+        }}
+        onRestorationComplete={onRestorationComplete}
+      />
+    );
+
+    const trigger = await screen.findByRole('button', {
+      name: 'Edit session Tesla 30.05.2026',
+    });
+
+    // Assert: the previous window offset is restored without smooth scrolling and the card regains focus.
+    await waitFor(() => {
+      expect(scrollToMock).toHaveBeenCalledWith({ top: 640, behavior: 'auto' });
+    });
+    expect(trigger).toHaveFocus();
+    expect(onRestorationComplete).toHaveBeenCalledTimes(1);
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+  });
+
+  it('waits for the requested focus card before running a position restoration', async () => {
+    // Arrange: render with a pending position restore that also wants to refocus a session card.
+    const onRestorationComplete = vi.fn();
+    render(
+      <ChargingHistory
+        onSelectSession={vi.fn()}
+        restorationRequest={{
+          type: 'position',
+          scrollY: 640,
+          focusSessionId: 'session-delayed-focus',
+        }}
+        onRestorationComplete={onRestorationComplete}
+      />
+    );
+    expect(await screen.findByText('No Sessions Yet')).toBeInTheDocument();
+
+    // Assert: nothing restores until the focus target exists.
+    expect(scrollToMock).not.toHaveBeenCalled();
+    expect(onRestorationComplete).not.toHaveBeenCalled();
+
+    // Act: save the requested session after the component has mounted.
+    await act(async () => {
+      await saveSession(buildSession('session-delayed-focus', '2026-05-30T10:00:00.000Z'));
+    });
+
+    const trigger = await screen.findByRole('button', {
+      name: 'Edit session Tesla 30.05.2026',
+    });
+
+    // Assert: the request restores position only after the card can also take focus.
+    await waitFor(() => {
+      expect(scrollToMock).toHaveBeenCalledWith({ top: 640, behavior: 'auto' });
+    });
+    expect(trigger).toHaveFocus();
+    expect(onRestorationComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it('completes a position-only restoration request after the loading state settles, even when history is empty', async () => {
+    // Arrange: render with a position request before the live query has produced any cards.
+    const onRestorationComplete = vi.fn();
+    render(
+      <ChargingHistory
+        onSelectSession={vi.fn()}
+        restorationRequest={{
+          type: 'position',
+          scrollY: 420,
+        }}
+        onRestorationComplete={onRestorationComplete}
+      />
+    );
+    expect(await screen.findByText('No Sessions Yet')).toBeInTheDocument();
+
+    // Assert: once loading settles, the request restores position and clears even without cards.
+    await waitFor(() => {
+      expect(scrollToMock).toHaveBeenCalledWith({ top: 420, behavior: 'auto' });
+    });
+    expect(onRestorationComplete).toHaveBeenCalledTimes(1);
   });
 });

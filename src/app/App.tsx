@@ -1,5 +1,5 @@
 import { BarChart3, BatteryCharging, Loader2, LogOut, Plus } from 'lucide-react'
-import { useState, useEffect, lazy, Suspense } from 'react'
+import { useState, useEffect, lazy, Suspense, useRef } from 'react'
 import { useAuth, LoginForm } from '../features/auth'
 import {
   ChargingHistory,
@@ -25,6 +25,10 @@ type SessionFormState =
   | { mode: 'create' }
   | { mode: 'edit'; session: ChargingSession }
 
+type HistoryRestoreRequest =
+  | { type: 'position'; scrollY: number; focusSessionId?: string | null }
+  | { type: 'session'; sessionId: string }
+
 /**
  * Root application shell for the authenticated EV Analytics experience.
  *
@@ -37,10 +41,12 @@ function App() {
   const syncStatus = useSyncStatus()
   const [activeTab, setActiveTab] = useState<NavigationTab>('sessions')
   const [sessionFormState, setSessionFormState] = useState<SessionFormState>({ mode: 'closed' })
+  const [historyRestoreRequest, setHistoryRestoreRequest] = useState<HistoryRestoreRequest | null>(null)
   const [isCreatingTariff, setIsCreatingTariff] = useState(false)
   const [isTariffFormOpen, setIsTariffFormOpen] = useState(false)
   const [logoutError, setLogoutError] = useState<string | null>(null)
   const isSessionFormOpen = sessionFormState.mode !== 'closed'
+  const historyScrollSnapshotRef = useRef(0)
 
   useEffect(() => {
     // Runtime is auth-gated and manages initial hydration plus background outbox
@@ -74,6 +80,7 @@ function App() {
 
     if (tab !== 'sessions') {
       setSessionFormState({ mode: 'closed' })
+      setHistoryRestoreRequest(null)
     }
 
     if (tab !== 'tariffs') {
@@ -99,15 +106,33 @@ function App() {
   }
 
   const handleOpenCreateSession = () => {
+    historyScrollSnapshotRef.current = window.scrollY
+    setHistoryRestoreRequest(null)
     setSessionFormState({ mode: 'create' })
   }
 
   const handleOpenEditSession = (session: ChargingSession) => {
+    historyScrollSnapshotRef.current = window.scrollY
+    setHistoryRestoreRequest(null)
     setSessionFormState({ mode: 'edit', session })
   }
 
   const handleCloseSessionForm = () => {
+    const focusSessionId = sessionFormState.mode === 'edit'
+      ? sessionFormState.session.id
+      : null
     setSessionFormState({ mode: 'closed' })
+
+    if (focusSessionId == null && historyScrollSnapshotRef.current <= 0) {
+      setHistoryRestoreRequest(null)
+      return
+    }
+
+    setHistoryRestoreRequest({
+      type: 'position',
+      scrollY: historyScrollSnapshotRef.current,
+      focusSessionId,
+    })
   }
 
   const handleSessionSubmit = async (request: SessionPersistenceRequest) => {
@@ -127,6 +152,7 @@ function App() {
       }
     }
     setSessionFormState({ mode: 'closed' })
+    setHistoryRestoreRequest({ type: 'session', sessionId: request.session.id })
   }
 
   const blockingSyncRetryText = syncStatus.nextRetryAt != null
@@ -273,7 +299,11 @@ function App() {
                       initialValues={sessionFormState.mode === 'edit' ? sessionFormState.session : undefined}
                     />
                   ) : (
-                    <ChargingHistory onSelectSession={handleOpenEditSession} />
+                    <ChargingHistory
+                      onSelectSession={handleOpenEditSession}
+                      restorationRequest={historyRestoreRequest ?? undefined}
+                      onRestorationComplete={() => setHistoryRestoreRequest(null)}
+                    />
                   )}
                 </div>
               )}

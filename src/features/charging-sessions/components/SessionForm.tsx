@@ -337,6 +337,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   const { plans } = useChargingPlans();
   const { providers } = useProviders();
   const hiddenDateInputRef = React.useRef<HTMLInputElement | null>(null);
+  const headingRef = React.useRef<HTMLHeadingElement | null>(null);
 
   const initialAdHocOtherFeesTotal = React.useMemo(() => {
     return initialValues?.ad_hoc_pricing?.otherFees?.reduce((sum, fee) => sum + fee.amount, 0) ?? 0;
@@ -390,6 +391,8 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   const selectedSessionDate = useWatch({ control, name: 'session_timestamp' });
   const isEditMode = Boolean(initialValues?.id);
   const existingSession = isEditMode ? initialValues as ChargingSession : undefined;
+  const closeActionLabel = isEditMode ? 'Close session editor' : 'Close new session form';
+  const cancelActionLabel = isEditMode ? 'Discard changes' : 'Back to history';
   const pricingSourceLabel = selectedPricingSource === 'ad_hoc' ? 'Ad-Hoc' : 'Charging Plan';
   const isChargingPlanPricing = selectedPricingSource === 'plan';
   const providerPlans = React.useMemo(
@@ -510,6 +513,16 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     }
     input.focus();
     input.click();
+  }, []);
+
+  React.useLayoutEffect(() => {
+    const heading = headingRef.current;
+    if (!heading) {
+      return;
+    }
+
+    heading.scrollIntoView({ block: 'start', behavior: 'auto' });
+    heading.focus({ preventScroll: true });
   }, []);
 
   const handleFormSubmit = async (values: SessionFormValues) => {
@@ -665,7 +678,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     <Slab>
       <div className="flex items-center justify-between mb-8">
         <div className="flex flex-col">
-          <h2 className="text-2xl font-bold text-primary">
+          <h2 ref={headingRef} tabIndex={-1} className="text-2xl font-bold text-primary">
             {initialValues?.id ? 'Edit Session' : 'New Session'}
           </h2>
           <p className="text-sm text-secondary mt-1">
@@ -675,7 +688,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         <button
           onClick={onCancel}
           className="p-2 text-secondary/40 hover:text-secondary rounded-full hover:bg-secondary/10 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
-          aria-label="Cancel"
+          aria-label={closeActionLabel}
         >
           <X className="w-6 h-6" />
         </button>
@@ -1038,7 +1051,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
             onClick={onCancel}
             className="flex-1 py-4 px-6 bg-secondary/10 text-primary font-bold rounded-xl hover:bg-secondary/20 transition-all min-h-[56px]"
           >
-            Cancel
+            {cancelActionLabel}
           </button>
         </div>
       </form>

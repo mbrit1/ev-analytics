@@ -6,9 +6,35 @@ import { Calendar, Zap, Info } from 'lucide-react';
 import { Slab } from '../../../shared/ui';
 import { type ChargingSession } from '../../../infra/db';
 
+interface SessionCardRestorationRequest {
+  /** Unique key for one restoration attempt; defaults to the target session id. */
+  requestKey?: string | number;
+  /** Session card to reveal after the live query re-renders. */
+  sessionId: string;
+  type: 'session';
+}
+
+interface ScrollPositionRestorationRequest {
+  /** Unique key for one restoration attempt; defaults to the saved scroll position. */
+  requestKey?: string | number;
+  /** Window scroll offset captured before the form opened. */
+  scrollY: number;
+  /** Optional session card to focus after restoring the previous position. */
+  focusSessionId?: string | null;
+  type: 'position';
+}
+
+type ChargingHistoryRestorationRequest =
+  | SessionCardRestorationRequest
+  | ScrollPositionRestorationRequest;
+
 interface ChargingHistoryProps {
   /** Opens the selected persisted session for editing. */
   onSelectSession?: (session: ChargingSession) => void;
+  /** One-shot request to restore history context after form close/save. */
+  restorationRequest?: ChargingHistoryRestorationRequest;
+  /** Clears the parent request once the requested restoration has completed. */
+  onRestorationComplete?: () => void;
 }
 
 function buildSessionEditLabel(session: ChargingSession): string {
@@ -29,9 +55,101 @@ function buildSessionEditLabel(session: ChargingSession): string {
  * saved sessions appear immediately while the pending badge reflects whether an
  * outbox entry still needs remote sync.
  */
-export const ChargingHistory: React.FC<ChargingHistoryProps> = ({ onSelectSession }) => {
+export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
+  onSelectSession,
+  restorationRequest,
+  onRestorationComplete,
+}) => {
   const { sessions, isLoading } = useSessions();
+  const sessionCardRefs = React.useRef(new Map<string, HTMLElement>());
+  const activeImplicitRestorationKeyRef = React.useRef<string | null>(null);
+  const completedExplicitRestorationKeysRef = React.useRef(new Set<string>());
   const monthGroups = groupSessionsByMonth(sessions);
+  const implicitRestorationKey = restorationRequest == null
+    ? null
+    : String(
+      restorationRequest.type === 'session'
+        ? restorationRequest.sessionId
+        : `position:${restorationRequest.scrollY}:${restorationRequest.focusSessionId ?? ''}`
+    );
+  const explicitRestorationKey = restorationRequest?.requestKey == null
+    ? null
+    : String(restorationRequest.requestKey);
+
+  React.useEffect(() => {
+    if (restorationRequest == null) {
+      activeImplicitRestorationKeyRef.current = null;
+      return;
+    }
+
+    if (
+      explicitRestorationKey != null
+      && completedExplicitRestorationKeysRef.current.has(explicitRestorationKey)
+    ) {
+      return;
+    }
+
+    if (
+      explicitRestorationKey == null
+      && implicitRestorationKey != null
+      && activeImplicitRestorationKeyRef.current === implicitRestorationKey
+    ) {
+      return;
+    }
+
+    if (isLoading) {
+      return;
+    }
+
+    if (restorationRequest.type === 'position') {
+      const focusTarget = restorationRequest.focusSessionId == null
+        ? null
+        : sessionCardRefs.current.get(restorationRequest.focusSessionId);
+
+      if (restorationRequest.focusSessionId != null && focusTarget == null) {
+        return;
+      }
+
+      window.scrollTo({ top: restorationRequest.scrollY, behavior: 'auto' });
+
+      if (focusTarget != null && typeof focusTarget.focus === 'function') {
+        focusTarget.focus({ preventScroll: true });
+      }
+
+      if (explicitRestorationKey != null) {
+        completedExplicitRestorationKeysRef.current.add(explicitRestorationKey);
+      } else {
+        activeImplicitRestorationKeyRef.current = implicitRestorationKey;
+      }
+      onRestorationComplete?.();
+      return;
+    }
+
+    if (sessions.length === 0) {
+      return;
+    }
+
+    const sessionCard = sessionCardRefs.current.get(restorationRequest.sessionId);
+    if (sessionCard == null) {
+      return;
+    }
+
+    sessionCard.scrollIntoView({
+      behavior: 'auto',
+      block: 'center',
+    });
+
+    if (typeof sessionCard.focus === 'function') {
+      sessionCard.focus({ preventScroll: true });
+    }
+
+    if (explicitRestorationKey != null) {
+      completedExplicitRestorationKeysRef.current.add(explicitRestorationKey);
+    } else {
+      activeImplicitRestorationKeyRef.current = implicitRestorationKey;
+    }
+    onRestorationComplete?.();
+  }, [explicitRestorationKey, implicitRestorationKey, isLoading, onRestorationComplete, restorationRequest, sessions]);
 
   if (isLoading) {
     return (
@@ -138,12 +256,35 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({ onSelectSessio
                       type="button"
                       onClick={() => onSelectSession(session)}
                       aria-label={buildSessionEditLabel(session)}
+                      id={`charging-session-${session.id}`}
+                      data-session-id={session.id}
+                      ref={(element) => {
+                        if (element == null) {
+                          sessionCardRefs.current.delete(session.id);
+                          return;
+                        }
+
+                        sessionCardRefs.current.set(session.id, element);
+                      }}
                       className="group w-full min-h-[44px] cursor-pointer rounded-[inherit] p-6 text-left transition-colors hover:bg-secondary/5 active:bg-secondary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
                     >
                       {cardContent}
                     </button>
                   ) : (
-                    <div className="p-6">
+                    <div
+                      id={`charging-session-${session.id}`}
+                      data-session-id={session.id}
+                      ref={(element) => {
+                        if (element == null) {
+                          sessionCardRefs.current.delete(session.id);
+                          return;
+                        }
+
+                        sessionCardRefs.current.set(session.id, element);
+                      }}
+                      className="p-6"
+                      tabIndex={-1}
+                    >
                       {cardContent}
                     </div>
                   )}
