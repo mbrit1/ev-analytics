@@ -102,8 +102,14 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
   },
 }));
 vi.mock('../features/charging-sessions', () => ({
-  ChargingHistory: ({ onSelectSession }: {
+  ChargingHistory: ({
+    onSelectSession,
+    restorationRequest,
+    onRestorationComplete,
+  }: {
     onSelectSession?: (session: ChargingSession) => void;
+    restorationRequest?: { type: 'position'; scrollY: number; focusSessionId?: string | null } | { type: 'session'; sessionId: string } | null;
+    onRestorationComplete?: () => void;
   }) => (
     <div>
       Charging History
@@ -112,6 +118,20 @@ vi.mock('../features/charging-sessions', () => ({
         onClick={() => onSelectSession?.(existingSession as ChargingSession)}
       >
         Open Existing Session
+      </button>
+      <button
+        type="button"
+        data-testid="restore-position"
+        onClick={() => onRestorationComplete?.()}
+      >
+        {restorationRequest?.type === 'position' ? `Restore Position ${restorationRequest.scrollY}` : 'No Position Restore'}
+      </button>
+      <button
+        type="button"
+        data-testid="restore-session"
+        onClick={() => onRestorationComplete?.()}
+      >
+        {restorationRequest?.type === 'session' ? `Restore Session ${restorationRequest.sessionId}` : 'No Session Restore'}
       </button>
     </div>
   ),
@@ -202,6 +222,7 @@ vi.mock('../features/offline-sync', () => ({
  */
 describe('App mobile action dock', () => {
   const mockSignOut = vi.fn();
+  const mockScrollTo = vi.fn();
 
   const authenticatedUser = {
     id: 'user-1',
@@ -214,6 +235,12 @@ describe('App mobile action dock', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal('scrollTo', mockScrollTo);
+    Object.defineProperty(window, 'scrollY', {
+      configurable: true,
+      writable: true,
+      value: 0,
+    });
     mockSignOut.mockResolvedValue({ error: null });
     mockSaveSession.mockReset();
     mockUpdateSession.mockReset();
@@ -302,6 +329,7 @@ describe('App mobile action dock', () => {
   it('opens the selected session and cancel returns to history without persistence', async () => {
     // Arrange: open edit mode.
     const user = userEvent.setup();
+    Object.defineProperty(window, 'scrollY', { configurable: true, writable: true, value: 840 });
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Open Existing Session' }));
     expect(screen.getByText('Edit Session Form')).toBeInTheDocument();
@@ -309,8 +337,9 @@ describe('App mobile action dock', () => {
     // Act: cancel.
     await user.click(screen.getByRole('button', { name: 'Cancel Session Form' }));
 
-    // Assert: history returns and no write occurs.
+    // Assert: history returns, requests prior-position restoration, and no write occurs.
     expect(screen.getByRole('heading', { name: 'Charging History' })).toBeInTheDocument();
+    expect(screen.getByTestId('restore-position')).toHaveTextContent('Restore Position 840');
     expect(mockSaveSession).not.toHaveBeenCalled();
     expect(mockUpdateSession).not.toHaveBeenCalled();
   });
@@ -324,13 +353,35 @@ describe('App mobile action dock', () => {
     // Act: submit the prepared edit, return to history, then start create mode.
     await user.click(screen.getByRole('button', { name: 'Trigger Session Submit' }));
     await screen.findByRole('heading', { name: 'Charging History' });
-    await user.click(screen.getByText('Add Session Pill'));
 
-    // Assert: update receives the prepared session and edit state does not leak.
+    // Assert: update receives the prepared session and restoration targets the edited card.
     expect(mockUpdateSession).toHaveBeenCalledWith(submittedSession.session);
     expect(mockSaveSession).not.toHaveBeenCalled();
+    expect(screen.getByTestId('restore-session')).toHaveTextContent('Restore Session session-existing');
+
+    // Act: reopen create mode after returning to history.
+    await user.click(screen.getByText('Add Session Pill'));
+
+    // Assert: edit state does not leak into the blank create form.
     expect(screen.getByText('Session Form')).toBeInTheDocument();
     expect(screen.queryByText('Edit Session Form')).not.toBeInTheDocument();
+  });
+
+  it('clears the pending history restoration request after the history acknowledges it', async () => {
+    // Arrange: return from edit mode into history with a pending restoration request.
+    const user = userEvent.setup();
+    Object.defineProperty(window, 'scrollY', { configurable: true, writable: true, value: 512 });
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Open Existing Session' }));
+    await user.click(screen.getByRole('button', { name: 'Cancel Session Form' }));
+    expect(screen.getByTestId('restore-position')).toHaveTextContent('Restore Position 512');
+
+    // Act: simulate the history component consuming the restore request.
+    await user.click(screen.getByTestId('restore-position'));
+
+    // Assert: the request is one-shot and no longer present after acknowledgement.
+    expect(screen.getByTestId('restore-position')).toHaveTextContent('No Position Restore');
+    expect(screen.getByTestId('restore-session')).toHaveTextContent('No Session Restore');
   });
 
   it('keeps edit mode open when the local update rejects', async () => {

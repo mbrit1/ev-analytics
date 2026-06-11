@@ -1,6 +1,6 @@
 import { StrictMode } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionForm } from './SessionForm';
 import { getActivePlanSelectionAt, setActivePlanSelection, useChargingPlans, useProviders } from '../../charging-plans';
 import { type ChargingPlan, type ChargingSession, type Provider } from '../../../infra/db';
@@ -22,6 +22,8 @@ vi.mock('../../auth', () => ({
 describe('SessionForm', () => {
   const mockOnSubmit = vi.fn<(request: SessionPersistenceRequest) => Promise<void>>();
   const mockOnCancel = vi.fn();
+  const mockScrollIntoView = vi.fn();
+  const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
   const getLabelByTextContent = (labelText: string) =>
     screen.getByText((_, element) => element?.tagName === 'LABEL' && element.textContent?.replace(/\s+/g, ' ').trim() === labelText);
 
@@ -58,6 +60,7 @@ describe('SessionForm', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    HTMLElement.prototype.scrollIntoView = mockScrollIntoView;
     vi.mocked(useChargingPlans).mockReturnValue({
       plans: [
         {
@@ -120,6 +123,10 @@ describe('SessionForm', () => {
     }));
   });
 
+  afterEach(() => {
+    HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+  });
+
   it('renders correctly with required fields', () => {
     // Arrange: Render the form with mocked providers, tariffs, and auth state.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
@@ -132,6 +139,46 @@ describe('SessionForm', () => {
     expect(screen.queryByText(/charging rate/i)).toBeNull();
     expect(screen.getByLabelText(/kwh billed/i)).toBeDefined();
     expect(screen.getByText(/required fields/i)).toBeDefined();
+  });
+
+  it('moves focus to the form heading and scrolls it into view on mount', async () => {
+    // Arrange: render a fresh session form and spy on heading focus.
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus');
+
+    // Act: mount the form in the document.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    const heading = screen.getByRole('heading', { name: 'New Session' });
+
+    // Assert: the heading becomes the stable top anchor for edit/create mode.
+    await waitFor(() => {
+      expect(mockScrollIntoView).toHaveBeenCalledWith({ block: 'start', behavior: 'auto' });
+    });
+    expect(heading).toHaveAttribute('tabindex', '-1');
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+  });
+
+  it('uses create-mode labels for the shared close and cancel actions', () => {
+    // Arrange: render the form without an existing session id.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Assert: both controls expose the create-specific wording.
+    expect(screen.getByRole('button', { name: 'Close new session form' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Back to history' })).toBeInTheDocument();
+  });
+
+  it('uses edit-mode labels for the shared close and cancel actions', () => {
+    // Arrange: render the form with an existing session id.
+    render(
+      <SessionForm
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        initialValues={buildSessionFixture()}
+      />
+    );
+
+    // Assert: both controls expose the edit-specific wording.
+    expect(screen.getByRole('button', { name: 'Close session editor' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Discard changes' })).toBeInTheDocument();
   });
 
   it('shows charging-plan provider/plan and combined charging-rate controls by default', () => {
