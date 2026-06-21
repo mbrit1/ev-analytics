@@ -4,7 +4,10 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Save, X, Calendar, FileText } from 'lucide-react';
 import {
+  buildLogicalTariffs,
   getActivePlanSelectionAt,
+  getLogicalTariffKey,
+  parseUtcDateInput,
   type SetActivePlanSelectionInput,
   useChargingPlans,
   useProviders,
@@ -12,7 +15,6 @@ import {
 import { useAuth } from '../../auth';
 import { type ChargingPlan, type ChargingSession, type TariffPriceSnapshot } from '../../../infra/db';
 import {
-  hasPlanPricingIdentityChanged,
   prepareSession,
   prepareSessionEdit,
   type SessionPersistenceRequest,
@@ -32,8 +34,8 @@ const sessionSchema = z.object({
   /** Selected provider determines the available tariff options in plan mode. */
   provider_id: z.string().min(1, 'Provider is required'),
   session_mode: z.enum(['plan', 'ad_hoc']),
-  /** Selected plan supplies the price snapshots used for cost calculation. */
-  tariff_plan_id: z.string().optional(),
+  /** Selected logical tariff resolves to a raw version on the chosen date. */
+  logical_tariff_key: z.string().optional(),
   charging_type: z.enum(['AC', 'DC']),
   pricing_mode: z.enum(['standard', 'roaming']),
   /** Required billed energy; accepts comma or period decimal separators. */
@@ -109,10 +111,10 @@ const sessionSchema = z.object({
   }
 
   if (values.session_mode === 'plan') {
-    if (!values.tariff_plan_id) {
+    if (!values.logical_tariff_key) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['tariff_plan_id'],
+        path: ['logical_tariff_key'],
         message: 'Plan is required',
       });
     }
@@ -222,13 +224,6 @@ function resolveSubmittedSessionTimestamp(
   return parseDateInputAsUtc(dateInput);
 }
 
-function resolveInitialPlanId(initialValues?: LegacySessionInitialValues): string {
-  if (resolveInitialPricingSource(initialValues) === 'ad_hoc') {
-    return '';
-  }
-  return initialValues?.tariff_plan_id ?? initialValues?.tariff_id ?? '';
-}
-
 function resolveInitialPricingSource(initialValues?: LegacySessionInitialValues): SessionFormValues['session_mode'] {
   if (initialValues?.session_mode) {
     return initialValues.session_mode;
@@ -259,6 +254,23 @@ function parseDecimalToCents(value?: string): number | undefined {
 
 function formatDecimalInputValue(value?: number): string {
   return value == null ? '' : value.toString().replace('.', ',');
+}
+
+function resolveInitialLogicalKey(
+  initialValues: LegacySessionInitialValues | undefined,
+  plans: ChargingPlan[]
+): string {
+  if (resolveInitialPricingSource(initialValues) === 'ad_hoc') {
+    return '';
+  }
+
+  const rawPlanId = initialValues?.tariff_plan_id ?? initialValues?.tariff_id;
+  if (!rawPlanId) {
+    return '';
+  }
+
+  const plan = plans.find((candidate) => candidate.id === rawPlanId);
+  return plan ? getLogicalTariffKey(plan) : `historical::${rawPlanId}`;
 }
 
 function resolvePlanSnapshotKwhPrice(
@@ -338,6 +350,8 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   const { providers } = useProviders();
   const hiddenDateInputRef = React.useRef<HTMLInputElement | null>(null);
   const headingRef = React.useRef<HTMLHeadingElement | null>(null);
+  const hasUserChangedProviderRef = React.useRef(false);
+  const hasUserChangedLogicalSelectionRef = React.useRef(false);
 
   const initialAdHocOtherFeesTotal = React.useMemo(() => {
     return initialValues?.ad_hoc_pricing?.otherFees?.reduce((sum, fee) => sum + fee.amount, 0) ?? 0;
@@ -364,7 +378,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       start_soc_percentage: initialValues?.start_soc_percentage?.toString() || '',
       end_soc_percentage: initialValues?.end_soc_percentage?.toString() || '',
       provider_id: initialValues?.provider_id || '',
-      tariff_plan_id: resolveInitialPlanId(legacyInitialValues),
+      logical_tariff_key: '',
       kwh_billed: formatDecimalInputValue(initialValues?.kwh_billed),
       kwh_added: formatDecimalInputValue(initialValues?.kwh_added),
       odometer_km: initialValues?.odometer_km?.toString() || '',
@@ -385,7 +399,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
 
   const selectedProviderId = useWatch({ control, name: 'provider_id' });
   const selectedPricingSource = useWatch({ control, name: 'session_mode' });
-  const selectedPlanId = useWatch({ control, name: 'tariff_plan_id' });
+  const selectedLogicalTariffKey = useWatch({ control, name: 'logical_tariff_key' });
   const selectedChargingType = useWatch({ control, name: 'charging_type' });
   const selectedPricingMode = useWatch({ control, name: 'pricing_mode' });
   const selectedSessionDate = useWatch({ control, name: 'session_timestamp' });
@@ -399,6 +413,15 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     () => plans.filter(plan => plan.provider_id === selectedProviderId),
     [plans, selectedProviderId]
   );
+  const resolvedSelectedSessionDate = selectedSessionDate || formatDateInputValue(new Date());
+  const logicalTariffsForProvider = React.useMemo(
+    () => buildLogicalTariffs(providerPlans, parseUtcDateInput(resolvedSelectedSessionDate)),
+    [providerPlans, resolvedSelectedSessionDate]
+  );
+  const initialLogicalKey = React.useMemo(
+    () => resolveInitialLogicalKey(legacyInitialValues, plans),
+    [legacyInitialValues, plans]
+  );
   const isUsingExistingProviderSelection = Boolean(
     existingSession && selectedProviderId === existingSession.provider_id
   );
@@ -406,62 +429,109 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     existingSession
     && !providers.some((provider) => provider.id === existingSession.provider_id)
   );
+  const historicalLogicalTariffKey = existingSession?.tariff_plan_id
+    ? `historical::${existingSession.tariff_plan_id}`
+    : '';
   const hasHistoricalPlanFallback = Boolean(
     existingSession?.tariff_plan_id
     && isUsingExistingProviderSelection
     && !providerPlans.some((plan) => plan.id === existingSession.tariff_plan_id)
   );
-  const selectedPlan = React.useMemo(
-    () => plans.find(plan => plan.id === selectedPlanId),
-    [plans, selectedPlanId]
+  const selectedLogicalTariff = React.useMemo(
+    () => logicalTariffsForProvider.find((logical) => logical.key === selectedLogicalTariffKey),
+    [logicalTariffsForProvider, selectedLogicalTariffKey]
   );
-  const selectablePlanCount = providerPlans.length + (hasHistoricalPlanFallback ? 1 : 0);
+  const effectivePlan = selectedLogicalTariff?.currentVersion ?? null;
+  const isHistoricalLogicalSelection = Boolean(
+    historicalLogicalTariffKey && selectedLogicalTariffKey === historicalLogicalTariffKey
+  );
+  const selectablePlanCount = logicalTariffsForProvider.length + (hasHistoricalPlanFallback ? 1 : 0);
   const shouldDisablePlanSelect = selectedPricingSource === 'plan'
     && selectablePlanCount <= 1;
   const selectedChargingRate = toChargingRateValue(selectedChargingType, selectedPricingMode);
   const planRateOptions = React.useMemo(
-    () => buildChargingRateOptions(selectedPlan),
-    [selectedPlan]
+    () => buildChargingRateOptions(effectivePlan ?? undefined),
+    [effectivePlan]
   );
+  const logicalTariffGapMessage = (
+    isChargingPlanPricing
+    && Boolean(selectedLogicalTariffKey)
+    && Boolean(selectedLogicalTariff)
+    && !isHistoricalLogicalSelection
+    && !effectivePlan
+  )
+    ? 'No tariff version applies on the selected date'
+    : undefined;
+  const hasGapSelectionError = errors.logical_tariff_key?.message === 'No tariff version applies on the selected date';
+  const providerErrorId = errors.provider_id ? 'session-provider-error' : undefined;
+  const planErrorId = errors.logical_tariff_key ? 'session-plan-error' : undefined;
+  const planGapMessageId = !errors.logical_tariff_key && logicalTariffGapMessage
+    ? 'session-plan-gap-message'
+    : undefined;
+  const planDescribedBy = [planErrorId, planGapMessageId].filter(Boolean).join(' ') || undefined;
   const sessionDateField = register('session_timestamp');
 
   React.useEffect(() => {
+    if (
+      hasGapSelectionError
+      && (
+        selectedPricingSource !== 'plan'
+        || !selectedLogicalTariffKey
+        || isHistoricalLogicalSelection
+        || effectivePlan
+      )
+    ) {
+      clearErrors('logical_tariff_key');
+    }
+  }, [
+    clearErrors,
+    effectivePlan,
+    hasGapSelectionError,
+    isHistoricalLogicalSelection,
+    selectedLogicalTariffKey,
+    selectedPricingSource,
+  ]);
+
+  React.useEffect(() => {
     if (selectedPricingSource === 'ad_hoc') {
-      if (getValues('tariff_plan_id')) {
-        setValue('tariff_plan_id', '');
+      if (getValues('logical_tariff_key')) {
+        setValue('logical_tariff_key', '');
       }
       return;
     }
 
-    const currentPlanId = getValues('tariff_plan_id');
+    const currentLogicalKey = getValues('logical_tariff_key');
 
     if (!selectedProviderId) {
-      if (currentPlanId) {
-        setValue('tariff_plan_id', '');
+      if (currentLogicalKey) {
+        setValue('logical_tariff_key', '');
       }
       return;
     }
 
-    const currentPlanStillValid = providerPlans.some(plan => plan.id === currentPlanId);
-    const isPersistedEditPlan = isUsingExistingProviderSelection
-      && existingSession?.tariff_plan_id === currentPlanId;
-    if (currentPlanStillValid || isPersistedEditPlan) {
+    const currentLogicalTariffStillValid = logicalTariffsForProvider.some(
+      (logicalTariff) => logicalTariff.key === currentLogicalKey
+    );
+    const isPersistedHistoricalSelection = hasHistoricalPlanFallback
+      && historicalLogicalTariffKey === currentLogicalKey;
+    if (currentLogicalTariffStillValid || isPersistedHistoricalSelection) {
       return;
     }
 
-    if (providerPlans.length === 1) {
-      setValue('tariff_plan_id', providerPlans[0].id, { shouldDirty: true });
+    if (logicalTariffsForProvider.length === 1) {
+      setValue('logical_tariff_key', logicalTariffsForProvider[0].key, { shouldDirty: true });
       return;
     }
 
-    setValue('tariff_plan_id', '');
+    setValue('logical_tariff_key', '');
   }, [
+    existingSession,
     selectedPricingSource,
     selectedProviderId,
-    providerPlans,
-    existingSession,
     getValues,
-    isUsingExistingProviderSelection,
+    hasHistoricalPlanFallback,
+    historicalLogicalTariffKey,
+    logicalTariffsForProvider,
     setValue,
   ]);
 
@@ -470,19 +540,57 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       return;
     }
 
-    if (!selectedPlan) {
+    const initialProviderId = legacyInitialValues?.provider_id;
+    const initialRawPlanId = legacyInitialValues?.tariff_plan_id ?? legacyInitialValues?.tariff_id;
+    if (!initialProviderId || !initialRawPlanId) {
+      return;
+    }
+
+    if (getValues('provider_id') !== initialProviderId) {
+      return;
+    }
+
+    if (hasUserChangedProviderRef.current || hasUserChangedLogicalSelectionRef.current) {
+      return;
+    }
+
+    const currentLogicalKey = getValues('logical_tariff_key');
+    if (
+      currentLogicalKey
+      && !['', `historical::${initialRawPlanId}`, initialLogicalKey].includes(currentLogicalKey)
+    ) {
+      return;
+    }
+
+    if (currentLogicalKey !== initialLogicalKey) {
+      setValue('logical_tariff_key', initialLogicalKey, { shouldDirty: false });
+    }
+  }, [
+    getValues,
+    initialLogicalKey,
+    legacyInitialValues,
+    selectedPricingSource,
+    setValue,
+  ]);
+
+  React.useEffect(() => {
+    if (selectedPricingSource !== 'plan') {
+      return;
+    }
+
+    if (!effectivePlan) {
       return;
     }
 
     const currentChargingType = getValues('charging_type');
     const currentPricingMode = getValues('pricing_mode');
     const currentOption = parseChargingRateValue(toChargingRateValue(currentChargingType, currentPricingMode));
-    if (hasPlanPriceForMode(selectedPlan, currentOption.pricingMode, currentOption.chargingType)) {
+    if (hasPlanPriceForMode(effectivePlan, currentOption.pricingMode, currentOption.chargingType)) {
       return;
     }
 
     const nextOption = chargingRateOptions.find((option) => (
-      hasPlanPriceForMode(selectedPlan, option.pricingMode, option.chargingType)
+      hasPlanPriceForMode(effectivePlan, option.pricingMode, option.chargingType)
     ));
 
     if (!nextOption) {
@@ -495,7 +603,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     if (nextOption.pricingMode !== currentPricingMode) {
       setValue('pricing_mode', nextOption.pricingMode, { shouldDirty: true });
     }
-  }, [getValues, selectedPlan, selectedPricingSource, setValue]);
+  }, [effectivePlan, getValues, selectedPricingSource, setValue]);
 
   const sessionDateLabel = React.useMemo(() => {
     const raw = selectedSessionDate || formatDateInputValue(new Date());
@@ -556,9 +664,8 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       if (!providerId) return;
 
       if (values.session_mode === 'plan') {
-        const tariffPlanId = values.tariff_plan_id;
-        if (!tariffPlanId) {
-          setError('tariff_plan_id', {
+        if (!values.logical_tariff_key) {
+          setError('logical_tariff_key', {
             type: 'manual',
             message: 'Plan is required',
           });
@@ -566,21 +673,30 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         }
 
         const planSelectionDate = parseDateInputAsUtc(values.session_timestamp);
+        const visibleDateMatchesExisting = Boolean(
+          existingSession
+          && formatDateInputValue(existingSession.session_timestamp) === values.session_timestamp
+        );
+        const planIdentityIsUnchanged = Boolean(
+          existingSession
+          && providerId === existingSession.provider_id
+          && values.logical_tariff_key === initialLogicalKey
+          && visibleDateMatchesExisting
+          && values.charging_type === existingSession.charging_type
+          && values.pricing_mode === (existingSession.pricing_context ?? 'standard')
+        );
         const planInput = {
           ...sessionBase,
           provider_id: providerId,
           session_mode: 'plan' as const,
-          tariff_plan_id: tariffPlanId,
           pricing_context: values.pricing_mode,
         };
-        const pricingIdentityChanged = existingSession
-          ? hasPlanPricingIdentityChanged(existingSession, planInput)
-          : true;
 
-        if (existingSession && !pricingIdentityChanged) {
+        if (existingSession && planIdentityIsUnchanged) {
           await onSubmit({
             session: prepareSessionEdit(existingSession, {
               ...planInput,
+              tariff_plan_id: existingSession.tariff_plan_id!,
               plan_selection_id: existingSession.plan_selection_id,
               price_snapshot: existingSession.price_snapshot,
             }),
@@ -589,35 +705,45 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         }
 
         const provider = providers.find((candidate) => candidate.id === providerId);
-        const plan = plans.find((candidate) => candidate.id === tariffPlanId);
-        if (!provider || !plan) {
+        if (!effectivePlan) {
+          setError('logical_tariff_key', {
+            type: 'manual',
+            message: 'No tariff version applies on the selected date',
+          });
+          return;
+        }
+
+        if (!provider) {
           throw new Error('Select an active provider and charging plan to change historical pricing');
         }
 
         const snapshot = buildTariffPriceSnapshot(
-          plan,
+          effectivePlan,
           provider.name,
           values.pricing_mode,
           values.charging_type
         );
         const activeSelection = await getActivePlanSelectionAt(providerId, user.id, planSelectionDate);
-        const planSelectionChange = (!activeSelection || activeSelection.tariff_plan_id !== plan.id)
+        // Logical tariff selection is date-derived in the browser, but
+        // provider-plan selection history still persists the raw effective plan id.
+        const planSelectionChange = (!activeSelection || activeSelection.tariff_plan_id !== effectivePlan.id)
           ? {
             userId: user.id,
             providerId,
-            tariffPlanId: plan.id,
+            tariffPlanId: effectivePlan.id,
             validFrom: planSelectionDate,
             priceSnapshot: snapshot,
           } satisfies SetActivePlanSelectionInput
           : undefined;
         const input = {
           ...planInput,
-          plan_selection_id: activeSelection?.tariff_plan_id === plan.id ? activeSelection.id : undefined,
+          tariff_plan_id: effectivePlan.id,
+          plan_selection_id: activeSelection?.tariff_plan_id === effectivePlan.id ? activeSelection.id : undefined,
           price_snapshot: snapshot,
         };
         const session = existingSession
-          ? prepareSessionEdit(existingSession, input, plan, provider)
-          : prepareSession(input, plan, provider);
+          ? prepareSessionEdit(existingSession, input, effectivePlan, provider)
+          : prepareSession(input, effectivePlan, provider);
         await onSubmit({
           session,
           planSelectionChange,
@@ -789,8 +915,14 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                     <select
                       id="provider_id"
                       {...field}
+                      onChange={(event) => {
+                        hasUserChangedProviderRef.current = true;
+                        field.onChange(event);
+                      }}
                       required
                       aria-required="true"
+                      aria-invalid={errors.provider_id ? 'true' : 'false'}
+                      aria-describedby={providerErrorId}
                       className={`w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors ${
                         selectedProviderId ? 'text-primary' : 'text-primary/70'
                       }`}
@@ -808,50 +940,61 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                   )}
                 />
                 {errors.provider_id && (
-                  <p className="text-sm text-red-500 font-medium mt-1.5">{errors.provider_id.message}</p>
+                  <p id={providerErrorId} className="text-sm text-red-500 font-medium mt-1.5">{errors.provider_id.message}</p>
                 )}
               </div>
 
               {/* Plan */}
               <div className="flex flex-col">
-                <label htmlFor="tariff_plan_id" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
+                <label htmlFor="logical_tariff_key" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
                   Plan <span className="text-primary" aria-hidden="true">*</span>
                 </label>
                 <Controller
-                  name="tariff_plan_id"
+                  name="logical_tariff_key"
                   control={control}
                   render={({ field }) => (
                     <select
-                      id="tariff_plan_id"
+                      id="logical_tariff_key"
                       {...field}
+                      onChange={(event) => {
+                        hasUserChangedLogicalSelectionRef.current = true;
+                        field.onChange(event);
+                      }}
                       required={isChargingPlanPricing}
                       aria-required={isChargingPlanPricing ? 'true' : 'false'}
+                      aria-invalid={errors.logical_tariff_key ? 'true' : 'false'}
+                      aria-describedby={planDescribedBy}
                       disabled={shouldDisablePlanSelect}
                       className={`w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors disabled:text-secondary/55 disabled:cursor-not-allowed ${
-                        selectedPlanId ? 'text-primary' : 'text-primary/70'
+                        selectedLogicalTariffKey ? 'text-primary' : 'text-primary/70'
                       }`}
                     >
                       <option
                         value=""
-                        disabled={Boolean(selectedProviderId && providerPlans.length > 0)}
+                        disabled={Boolean(selectedProviderId && selectablePlanCount > 0)}
                       >
                         Select Plan
                       </option>
-                      {hasHistoricalPlanFallback && existingSession?.tariff_plan_id && (
-                        <option value={existingSession.tariff_plan_id}>
-                          {existingSession.charging_plan_name_snapshot
-                            ?? existingSession.price_snapshot?.label
+                      {hasHistoricalPlanFallback && historicalLogicalTariffKey && (
+                        <option value={historicalLogicalTariffKey}>
+                          {existingSession?.charging_plan_name_snapshot
+                            ?? existingSession?.price_snapshot?.label
                             ?? 'Historical Plan'}
                         </option>
                       )}
-                      {providerPlans.map(plan => (
-                        <option key={plan.id} value={plan.id}>{plan.name}</option>
+                      {logicalTariffsForProvider.map((logicalTariff) => (
+                        <option key={logicalTariff.key} value={logicalTariff.key}>
+                          {logicalTariff.name || 'Unnamed tariff'}
+                        </option>
                       ))}
                     </select>
                   )}
                 />
-                {errors.tariff_plan_id && (
-                  <p className="text-sm text-red-500 font-medium mt-1.5">{errors.tariff_plan_id.message}</p>
+                {errors.logical_tariff_key && (
+                  <p id={planErrorId} className="text-sm text-red-500 font-medium mt-1.5">{errors.logical_tariff_key.message}</p>
+                )}
+                {!errors.logical_tariff_key && logicalTariffGapMessage && (
+                  <p id={planGapMessageId} className="text-sm text-red-500 font-medium mt-1.5">{logicalTariffGapMessage}</p>
                 )}
               </div>
 
@@ -882,8 +1025,14 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                     <select
                       id="provider_id"
                       {...field}
+                      onChange={(event) => {
+                        hasUserChangedProviderRef.current = true;
+                        field.onChange(event);
+                      }}
                       required
                       aria-required="true"
+                      aria-invalid={errors.provider_id ? 'true' : 'false'}
+                      aria-describedby={providerErrorId}
                       className={`w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors ${
                         selectedProviderId ? 'text-primary' : 'text-primary/70'
                       }`}
@@ -901,7 +1050,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                   )}
                 />
                 {errors.provider_id && (
-                  <p className="text-sm text-red-500 font-medium mt-1.5">{errors.provider_id.message}</p>
+                  <p id={providerErrorId} className="text-sm text-red-500 font-medium mt-1.5">{errors.provider_id.message}</p>
                 )}
               </div>
               <ThinInput

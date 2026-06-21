@@ -32,6 +32,20 @@ describe('ThinInput', () => {
     expect(screen.getByText('Value is too low')).toBeInTheDocument();
   });
 
+  it('connects the input to its validation message with aria attributes', () => {
+    // Arrange: Render an invalid field with a visible error.
+    render(<ThinInput label="Odometer" error="Value is too low" />);
+
+    // Act: Look up the input and the rendered validation message.
+    const input = screen.getByLabelText('Odometer');
+    const error = screen.getByText('Value is too low');
+
+    // Assert: Assistive tech receives the invalid state and error relationship.
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(error).toHaveAttribute('id');
+    expect(input).toHaveAttribute('aria-describedby', error.getAttribute('id'));
+  });
+
   it('forwards the ref to the input element', () => {
     // Arrange: Create a ref
     const ref = createRef<HTMLInputElement>();
@@ -81,5 +95,18 @@ describe('ThinInput', () => {
     expect(wrapper).toHaveClass('md:flex-row');
     expect(wrapper).toHaveClass('md:items-center');
     expect(wrapper).toHaveClass('md:border-b');
+  });
+
+  it('keeps horizontal-layout errors visible and connected to the input', () => {
+    // Arrange: Render a horizontal field with a validation error.
+    render(<ThinInput label="kWh Billed" layout="horizontal" error="Enter a value" />);
+
+    // Act: Look up the input and the inline error.
+    const input = screen.getByLabelText('kWh Billed');
+    const error = screen.getByText('Enter a value');
+
+    // Assert: Horizontal mode still exposes a valid accessible error relationship.
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(input).toHaveAttribute('aria-describedby', error.getAttribute('id'));
   });
 });

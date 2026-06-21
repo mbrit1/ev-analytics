@@ -149,8 +149,8 @@ export const TemporaryPromotionForm: React.FC<TemporaryPromotionFormProps> = ({
         )}
         <section className="space-y-6" aria-labelledby="promotion-section">
           <h3 id="promotion-section" className="text-[13px] font-semibold text-secondary uppercase tracking-wider">Promotion Window</h3>
-          <ThinInput label="Promo Start" requiredIndicator type="date" min={earliestVersionStart} {...register('promo_start')} error={errors.promo_start?.message} />
-          <ThinInput label="Promo End" requiredIndicator type="date" {...register('promo_end')} error={errors.promo_end?.message} />
+          <ThinInput label="Promo Start" required requiredIndicator type="date" min={earliestVersionStart} {...register('promo_start')} error={errors.promo_start?.message} />
+          <ThinInput label="Promo End" required requiredIndicator type="date" {...register('promo_end')} error={errors.promo_end?.message} />
           <ThinInput label="AC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('ac_price')} error={errors.ac_price?.message} />
           <ThinInput label="DC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('dc_price')} error={errors.dc_price?.message} />
           <ThinInput label="Roaming AC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('roaming_ac_price')} error={errors.roaming_ac_price?.message} />

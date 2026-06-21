@@ -2,13 +2,28 @@ import { StrictMode } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionForm } from './SessionForm';
-import { getActivePlanSelectionAt, setActivePlanSelection, type UseChargingPlansResult, useChargingPlans, useProviders } from '../../charging-plans';
+import {
+  getActivePlanSelectionAt,
+  getLogicalTariffKey,
+  setActivePlanSelection,
+  useChargingPlans,
+  useProviders,
+} from '../../charging-plans';
 import { type ChargingPlan, type ChargingSession, type Provider } from '../../../infra/db';
 import type { SessionPersistenceRequest } from '../services/sessionService';
 
 // Mock dependent hooks so form tests can exercise validation and submission UI
 // without requiring tariff/provider IndexedDB state.
-vi.mock('../../charging-plans');
+vi.mock('../../charging-plans', async () => {
+  const actual = await vi.importActual<typeof import('../../charging-plans')>('../../charging-plans');
+  return {
+    ...actual,
+    getActivePlanSelectionAt: vi.fn(),
+    setActivePlanSelection: vi.fn(),
+    useChargingPlans: vi.fn(),
+    useProviders: vi.fn(),
+  };
+});
 vi.mock('../../auth', () => ({
   useAuth: () => ({ user: { id: 'user-1' }, loading: false, session: null, signIn: vi.fn(), signOut: vi.fn() })
 }));
@@ -24,8 +39,88 @@ describe('SessionForm', () => {
   const mockOnCancel = vi.fn();
   const mockScrollIntoView = vi.fn();
   const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+  const originalNavigatorOnLine = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
   const getLabelByTextContent = (labelText: string) =>
     screen.getByText((_, element) => element?.tagName === 'LABEL' && element.textContent?.replace(/\s+/g, ' ').trim() === labelText);
+  const utc = (date: string): Date => new Date(`${date}T00:00:00.000Z`);
+
+  function buildPlanFixture(overrides: Partial<ChargingPlan> = {}): ChargingPlan {
+    return {
+      id: 'plan-fixture',
+      user_id: 'user-1',
+      provider_id: 'p1',
+      name: 'P1 Home',
+      valid_from: utc('2024-01-01'),
+      valid_to: null,
+      ac_price_per_kwh: 40,
+      dc_price_per_kwh: 60,
+      roaming_ac_price_per_kwh: 50,
+      roaming_dc_price_per_kwh: 70,
+      monthly_base_fee: 0,
+      session_fee: 0,
+      created_at: utc('2024-01-01'),
+      updated_at: utc('2024-01-01'),
+      ...overrides,
+    };
+  }
+
+  function buildVersionedPlans(): ChargingPlan[] {
+    return [
+      buildPlanFixture({
+        id: 'baseline',
+        name: 'P1 Home',
+        valid_from: utc('2026-01-01'),
+        valid_to: utc('2026-08-10'),
+        ac_price_per_kwh: 40,
+        dc_price_per_kwh: 60,
+        roaming_ac_price_per_kwh: 50,
+        roaming_dc_price_per_kwh: 70,
+      }),
+      buildPlanFixture({
+        id: 'promo',
+        name: 'P1 Home',
+        valid_from: utc('2026-08-10'),
+        valid_to: utc('2026-09-01'),
+        ac_price_per_kwh: 35,
+        dc_price_per_kwh: 55,
+        roaming_ac_price_per_kwh: 45,
+        roaming_dc_price_per_kwh: 65,
+      }),
+      buildPlanFixture({
+        id: 'restore',
+        name: 'P1 Home',
+        valid_from: utc('2026-09-01'),
+        valid_to: null,
+      }),
+      buildPlanFixture({
+        id: 't2',
+        name: 'P1 Flex',
+        provider_id: 'p1',
+        ac_price_per_kwh: 44,
+        dc_price_per_kwh: 64,
+        roaming_ac_price_per_kwh: 54,
+        roaming_dc_price_per_kwh: 74,
+      }),
+      buildPlanFixture({
+        id: 't3',
+        name: 'P2 Solo',
+        provider_id: 'p2',
+        ac_price_per_kwh: 39,
+        dc_price_per_kwh: 59,
+        roaming_ac_price_per_kwh: 49,
+        roaming_dc_price_per_kwh: 69,
+      }),
+    ];
+  }
+
+  function setChargingPlansMock(plans: ChargingPlan[]): void {
+    vi.mocked(useChargingPlans).mockReturnValue({
+      plans,
+      isLoading: false,
+      addChargingPlan: vi.fn(),
+      removeChargingPlan: vi.fn(),
+    });
+  }
 
   function buildSessionFixture(overrides: Partial<ChargingSession> = {}): ChargingSession {
     const timestamp = new Date('2026-06-01T00:00:00.000Z');
@@ -58,65 +153,28 @@ describe('SessionForm', () => {
     };
   }
 
-  function buildChargingPlansResult(
-    overrides: Partial<UseChargingPlansResult> = {}
-  ): UseChargingPlansResult {
-    return {
-      plans: [],
-      logicalTariffs: [],
-      isLoading: false,
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-      updateCurrentVersion: vi.fn(),
-      createSuccessorVersion: vi.fn(),
-      updateLogicalTariffDetails: vi.fn(),
-      schedulePermanentChange: vi.fn(),
-      schedulePromotion: vi.fn(),
-      deleteLogicalTariff: vi.fn(),
-      ...overrides,
-    };
-  }
-
   beforeEach(() => {
     vi.clearAllMocks();
     HTMLElement.prototype.scrollIntoView = mockScrollIntoView;
-    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans: [
-        {
-          id: 't1',
-          name: 'P1 Home',
-          provider_id: 'p1',
-          ac_price_per_kwh: 40,
-          dc_price_per_kwh: 60,
-          roaming_ac_price_per_kwh: 50,
-          roaming_dc_price_per_kwh: 70,
-          monthly_base_fee: 0,
-          session_fee: 0
-        },
-        {
-          id: 't2',
-          name: 'P1 Flex',
-          provider_id: 'p1',
-          ac_price_per_kwh: 44,
-          dc_price_per_kwh: 64,
-          roaming_ac_price_per_kwh: 54,
-          roaming_dc_price_per_kwh: 74,
-          monthly_base_fee: 0,
-          session_fee: 0
-        },
-        {
-          id: 't3',
-          name: 'P2 Solo',
-          provider_id: 'p2',
-          ac_price_per_kwh: 39,
-          dc_price_per_kwh: 59,
-          roaming_ac_price_per_kwh: 49,
-          roaming_dc_price_per_kwh: 69,
-          monthly_base_fee: 0,
-          session_fee: 0
-        }
-      ] as unknown as ChargingPlan[],
-    }));
+    setChargingPlansMock([
+      buildPlanFixture({
+        id: 't1',
+        name: 'P1 Home',
+      }),
+      buildPlanFixture({
+        id: 't2',
+        name: 'P1 Flex',
+      }),
+      buildPlanFixture({
+        id: 't3',
+        name: 'P2 Solo',
+        provider_id: 'p2',
+        ac_price_per_kwh: 39,
+        dc_price_per_kwh: 59,
+        roaming_ac_price_per_kwh: 49,
+        roaming_dc_price_per_kwh: 69,
+      }),
+    ]);
     vi.mocked(useProviders).mockReturnValue({
       providers: [
         { id: 'p1', name: 'ChargePoint' },
@@ -141,6 +199,14 @@ describe('SessionForm', () => {
 
   afterEach(() => {
     HTMLElement.prototype.scrollIntoView = originalScrollIntoView;
+    if (originalNavigatorOnLine) {
+      Object.defineProperty(window.navigator, 'onLine', originalNavigatorOnLine);
+      return;
+    }
+    Object.defineProperty(window.navigator, 'onLine', {
+      configurable: true,
+      value: undefined,
+    });
   });
 
   it('renders correctly with required fields', () => {
@@ -250,6 +316,25 @@ describe('SessionForm', () => {
     expect(screen.queryByText(/charging rate/i)).toBeNull();
   });
 
+  it('connects custom plan-field validation errors to the provider and plan controls', async () => {
+    // Arrange: Render a fresh session form in charging-plan mode.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Act: Submit without choosing a provider or plan.
+    fireEvent.click(screen.getByRole('button', { name: 'Save Session' }));
+
+    // Assert: Both custom selects expose invalid state and describe their own error text.
+    const provider = screen.getByLabelText(/provider/i);
+    const providerError = await screen.findByText('Provider is required');
+    expect(provider).toHaveAttribute('aria-invalid', 'true');
+    expect(provider).toHaveAttribute('aria-describedby', providerError.getAttribute('id'));
+
+    const plan = screen.getByLabelText(/^plan\s*\*?$/i);
+    const planError = await screen.findByText('Plan is required');
+    expect(plan).toHaveAttribute('aria-invalid', 'true');
+    expect(plan).toHaveAttribute('aria-describedby', planError.getAttribute('id'));
+  });
+
   it('shows required markers for default charging-plan required fields', () => {
     // Arrange: Render form in charging-plan mode.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
@@ -356,8 +441,11 @@ describe('SessionForm', () => {
     // Act: Render edit form with legacy initial values.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
 
-    // Assert: Legacy tariff id is applied to the plan select control.
-    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('t1');
+    // Assert: Legacy tariff id maps to the active logical tariff selection.
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue(getLogicalTariffKey({
+      provider_id: 'p1',
+      name: 'P1 Home',
+    }));
   });
 
   it('keeps edit provider and plan selected when active options hydrate', () => {
@@ -368,10 +456,12 @@ describe('SessionForm', () => {
       session_mode: 'plan',
     });
     vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: true });
-    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
+    vi.mocked(useChargingPlans).mockReturnValue({
       plans: [],
       isLoading: true,
-    }));
+      addChargingPlan: vi.fn(),
+      removeChargingPlan: vi.fn(),
+    });
 
     const { rerender } = render(
       <StrictMode>
@@ -384,27 +474,19 @@ describe('SessionForm', () => {
     );
 
     expect(screen.getByLabelText(/provider/i)).toHaveValue('p1');
-    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('t1');
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('historical::t1');
 
     // Act: Replace historical fallbacks with asynchronously hydrated active options.
     vi.mocked(useProviders).mockReturnValue({
       providers: [{ id: 'p1', name: 'ChargePoint' }] as unknown as Provider[],
       isLoading: false,
     });
-    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans: [{
+    setChargingPlansMock([
+      buildPlanFixture({
         id: 't1',
         name: 'P1 Home',
-        provider_id: 'p1',
-        ac_price_per_kwh: 40,
-        dc_price_per_kwh: 60,
-        roaming_ac_price_per_kwh: 50,
-        roaming_dc_price_per_kwh: 70,
-        monthly_base_fee: 0,
-        session_fee: 0,
-      }] as unknown as ChargingPlan[],
-      isLoading: false,
-    }));
+      }),
+    ]);
     rerender(
       <StrictMode>
         <SessionForm
@@ -417,7 +499,125 @@ describe('SessionForm', () => {
 
     // Assert: Native select values remain aligned with form state.
     expect(screen.getByLabelText(/provider/i)).toHaveValue('p1');
-    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('t1');
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue(getLogicalTariffKey({
+      provider_id: 'p1',
+      name: 'P1 Home',
+    }));
+  });
+
+  it('renders one logical tariff option per provider plus normalized tariff name', () => {
+    // Arrange: provider p1 has three raw versions of one logical tariff and one separate tariff.
+    setChargingPlansMock(buildVersionedPlans());
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Act: select provider p1 and inspect the logical tariff options.
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    const logicalOptions = Array.from(screen.getByLabelText(/^plan\s*\*?$/i).querySelectorAll('option'))
+      .filter((option) => option.value);
+
+    // Assert: raw versions collapse into one logical choice per tariff identity.
+    expect(logicalOptions).toHaveLength(2);
+    expect(logicalOptions.map((option) => option.textContent)).toEqual(['P1 Flex', 'P1 Home']);
+  });
+
+  it('changing the date updates displayed rates and submits the effective raw tariff version id', async () => {
+    // Arrange: choose a logical tariff with multiple effective versions.
+    setChargingPlansMock(buildVersionedPlans());
+    const logicalKey = getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: logicalKey } });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+
+    // Assert: the baseline date shows baseline pricing first.
+    expect(screen.getByRole('radio', { name: /domestic ac\s+0,40 €\/kwh/i })).toBeInTheDocument();
+
+    // Act: move into the promotion window and submit.
+    fireEvent.change(screen.getByLabelText(/date/i), { target: { value: '2026-08-10' } });
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: displayed prices and submitted raw persistence id follow the effective version.
+    expect(screen.getByRole('radio', { name: /domestic ac\s+0,35 €\/kwh/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+        session: expect.objectContaining({
+          tariff_plan_id: 'promo',
+        }),
+      }));
+    });
+  });
+
+  it('shows a gap warning and blocks save when no tariff version applies on the selected date', async () => {
+    // Arrange: create a logical tariff with a gap between raw versions.
+    setChargingPlansMock([
+      buildPlanFixture({
+        id: 'gap-before',
+        name: 'P1 Home',
+        valid_from: utc('2026-01-01'),
+        valid_to: utc('2026-08-10'),
+      }),
+      buildPlanFixture({
+        id: 'gap-after',
+        name: 'P1 Home',
+        valid_from: utc('2026-08-15'),
+        valid_to: null,
+      }),
+    ]);
+    const logicalKey = getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: logicalKey } });
+    fireEvent.change(screen.getByLabelText(/date/i), { target: { value: '2026-08-12' } });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    const planSelect = screen.getByLabelText(/^plan\s*\*?$/i);
+    const gapWarning = screen.getByText('No tariff version applies on the selected date');
+
+    // Assert: The visible pre-submit gap guidance is announced by the plan select.
+    expect(gapWarning).toHaveAttribute('id');
+    expect(planSelect).toHaveAttribute('aria-describedby', gapWarning.getAttribute('id'));
+
+    // Act: attempt to save in the uncovered date gap.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: the form warns and does not submit a repriced session.
+    expect(screen.getByText('No tariff version applies on the selected date')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockOnSubmit).not.toHaveBeenCalled();
+    });
+  });
+
+  it('clears the gap warning after the user picks a date with an effective version', async () => {
+    // Arrange: select a logical tariff whose chosen date starts in a gap.
+    setChargingPlansMock([
+      buildPlanFixture({
+        id: 'gap-before',
+        name: 'P1 Home',
+        valid_from: utc('2026-01-01'),
+        valid_to: utc('2026-08-10'),
+      }),
+      buildPlanFixture({
+        id: 'gap-after',
+        name: 'P1 Home',
+        valid_from: utc('2026-08-15'),
+        valid_to: null,
+      }),
+    ]);
+    const logicalKey = getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: logicalKey } });
+    fireEvent.change(screen.getByLabelText(/date/i), { target: { value: '2026-08-12' } });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+    expect(screen.getByText('No tariff version applies on the selected date')).toBeInTheDocument();
+
+    // Act: move to a date covered by the later version.
+    fireEvent.change(screen.getByLabelText(/date/i), { target: { value: '2026-08-15' } });
+
+    // Assert: the stale gap message is cleared before another submit.
+    await waitFor(() => {
+      expect(screen.queryByText('No tariff version applies on the selected date')).not.toBeInTheDocument();
+    });
   });
 
   it('reopens persisted roaming sessions with roaming pricing context', async () => {
@@ -454,10 +654,12 @@ describe('SessionForm', () => {
   it('renders pricing source as read-only while keeping persisted plan values visible', () => {
     // Arrange: the persisted provider and plan are absent from active hook results.
     vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });
-    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
+    vi.mocked(useChargingPlans).mockReturnValue({
       plans: [],
       isLoading: false,
-    }));
+      addChargingPlan: vi.fn(),
+      removeChargingPlan: vi.fn(),
+    });
     const initialValues = buildSessionFixture({
       id: 'session-plan-edit',
       provider_id: 'retired-provider',
@@ -475,7 +677,7 @@ describe('SessionForm', () => {
     expect(screen.queryByRole('radio', { name: /charging plan/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('radio', { name: /ad-hoc/i })).not.toBeInTheDocument();
     expect(screen.getByLabelText(/provider/i)).toHaveValue('retired-provider');
-    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('retired-plan');
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('historical::retired-plan');
   });
 
   it('does not keep a historical plan selectable after changing edit mode to another provider', async () => {
@@ -491,18 +693,21 @@ describe('SessionForm', () => {
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
 
     // Assert: the historical plan is initially represented for the original provider.
-    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('retired-plan');
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('historical::retired-plan');
 
     // Act: switch the provider to a different provider that has its own live plan.
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p2' } });
 
     // Assert: the stale historical plan is cleared and replaced by the valid p2 plan.
     await waitFor(() => {
-      expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('t3');
+      expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue(getLogicalTariffKey({
+        provider_id: 'p2',
+        name: 'P2 Solo',
+      }));
     });
     const optionValues = Array.from(screen.getByLabelText(/^plan\s*\*?$/i).querySelectorAll('option'))
       .map((option) => option.getAttribute('value'));
-    expect(optionValues).not.toContain('retired-plan');
+    expect(optionValues).not.toContain('historical::retired-plan');
   });
 
   it('preserves snapshots and skips plan-selection writes for an unchanged plan edit', async () => {
@@ -525,15 +730,19 @@ describe('SessionForm', () => {
 
     // Assert: no plan-selection mutation occurs and historical prices calculate the total.
     await waitFor(() => {
-      expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
-        session: expect.objectContaining({
-          id: 'session-plan-stable',
-          plan_selection_id: 'selection-old',
-          price_snapshot: { label: 'Historical Plan', kWhPrice: 40, sessionFee: 100 },
-          total_cost: 1300,
-        }),
-      }));
+      expect(mockOnSubmit).toHaveBeenCalledTimes(1);
     });
+    expect(mockOnSubmit.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      session: expect.objectContaining({
+        id: 'session-plan-stable',
+        tariff_plan_id: 't1',
+        plan_selection_id: 'selection-old',
+        price_snapshot: { label: 'Historical Plan', kWhPrice: 40, sessionFee: 100 },
+        total_cost: 1300,
+        session_timestamp: initialValues.session_timestamp,
+      }),
+    }));
+    expect(mockOnSubmit.mock.calls[0]?.[0]?.planSelectionChange).toBeUndefined();
     expect(setActivePlanSelection).not.toHaveBeenCalled();
   });
 
@@ -555,15 +764,47 @@ describe('SessionForm', () => {
 
     // Assert: unchanged visible date keeps the persisted timestamp and avoids repricing writes.
     await waitFor(() => {
-      expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
-        session: expect.objectContaining({
-          session_timestamp: originalTimestamp,
-          plan_selection_id: 'selection-original',
-          total_cost: 1200,
-        }),
-      }));
+      expect(mockOnSubmit).toHaveBeenCalledTimes(1);
     });
+    expect(mockOnSubmit.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      session: expect.objectContaining({
+        tariff_plan_id: initialValues.tariff_plan_id,
+        session_timestamp: originalTimestamp,
+        plan_selection_id: 'selection-original',
+        total_cost: 1200,
+      }),
+    }));
+    expect(mockOnSubmit.mock.calls[0]?.[0]?.planSelectionChange).toBeUndefined();
     expect(setActivePlanSelection).not.toHaveBeenCalled();
+  });
+
+  it('changing only billed kWh keeps the existing logical selection and omits planSelectionChange', async () => {
+    // Arrange: edit a persisted plan session without changing provider, date, or rate.
+    const initialValues = buildSessionFixture({
+      id: 'session-billed-only',
+      tariff_plan_id: 't1',
+      plan_selection_id: 'selection-preserved',
+      price_snapshot: { label: 'Historical Plan', kWhPrice: 40, sessionFee: 0 },
+      applied_price_per_kwh: 40,
+    });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '31' } });
+
+    // Act: save the usage-only edit.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: the request preserves raw selection identity and avoids selection-history churn.
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledTimes(1);
+    });
+    expect(mockOnSubmit.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      session: expect.objectContaining({
+        tariff_plan_id: 't1',
+        plan_selection_id: 'selection-preserved',
+        price_snapshot: { label: 'Historical Plan', kWhPrice: 40, sessionFee: 0 },
+      }),
+    }));
+    expect(mockOnSubmit.mock.calls[0]?.[0]?.planSelectionChange).toBeUndefined();
   });
 
   it('submits a plan-selection change request after a deliberate plan pricing change', async () => {
@@ -602,6 +843,47 @@ describe('SessionForm', () => {
         validFrom: expectedPlanSelectionDate,
       }),
     }));
+  });
+
+  it('changing the visible date can resolve a new raw version and create planSelectionChange without relying on connectivity state', async () => {
+    // Arrange: edit an existing logical tariff while the browser reports offline.
+    Object.defineProperty(window.navigator, 'onLine', {
+      configurable: true,
+      value: false,
+    });
+    setChargingPlansMock(buildVersionedPlans());
+    const initialValues = buildSessionFixture({
+      id: 'session-date-reprice',
+      session_timestamp: utc('2026-08-09'),
+      tariff_plan_id: 'baseline',
+      plan_selection_id: 'selection-baseline',
+      charging_plan_name_snapshot: 'P1 Home',
+      price_snapshot: { label: 'ChargePoint P1 Home', kWhPrice: 40, sessionFee: 0 },
+      applied_price_per_kwh: 40,
+      applied_ac_price_per_kwh: 40,
+      applied_dc_price_per_kwh: 60,
+      applied_roaming_ac_price_per_kwh: 50,
+      applied_roaming_dc_price_per_kwh: 70,
+    });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+    fireEvent.change(screen.getByLabelText(/date/i), { target: { value: '2026-08-10' } });
+
+    // Act: save after crossing into the promotion effective date.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: offline mode still resolves locally and submits the effective raw version.
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+        session: expect.objectContaining({
+          tariff_plan_id: 'promo',
+        }),
+        planSelectionChange: expect.objectContaining({
+          tariffPlanId: 'promo',
+          validFrom: utc('2026-08-10'),
+        }),
+      }));
+    });
+    expect(getActivePlanSelectionAt).toHaveBeenCalledWith('p1', 'user-1', utc('2026-08-10'));
   });
 
   it('keeps edit mode open and shows the submit error when persistence rejects', async () => {
@@ -821,7 +1103,9 @@ describe('SessionForm', () => {
     // Arrange: Render form with required provider/tariff defaults.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
-    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }) },
+    });
     fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10,0' } });
     fireEvent.change(screen.getByLabelText(/start soc/i), { target: { value: '' } });
     fireEvent.change(screen.getByLabelText(/end soc/i), { target: { value: '' } });
@@ -909,7 +1193,9 @@ describe('SessionForm', () => {
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p2' } });
 
     // Assert: the single matching plan is selected automatically.
-    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('t3');
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue(
+      getLogicalTariffKey({ provider_id: 'p2', name: 'P2 Solo' })
+    );
     expect(screen.getByLabelText(/^plan\s*\*?$/i)).toBeDisabled();
   });
 
@@ -941,7 +1227,9 @@ describe('SessionForm', () => {
     expect(screen.queryByRole('radio', { name: /roaming dc/i })).toBeNull();
 
     // Act: choose a plan.
-    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }) },
+    });
 
     // Assert: once a plan is selected, supported rate choices become available with prices.
     expect(screen.getByRole('radio', { name: /domestic ac\s+0,40 €\/kwh/i })).not.toBeDisabled();
@@ -965,13 +1253,17 @@ describe('SessionForm', () => {
     // Arrange: choose provider p1 and its plan first.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
-    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }) },
+    });
 
     // Act: switch provider to p2.
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p2' } });
 
     // Assert: stale selection is replaced with the only valid p2 plan.
-    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('t3');
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue(
+      getLogicalTariffKey({ provider_id: 'p2', name: 'P2 Solo' })
+    );
   });
 
   it('shows validation feedback when ad-hoc price per kwh format is invalid', async () => {
@@ -1021,7 +1313,9 @@ describe('SessionForm', () => {
     // Arrange: pick provider+plan and set invalid zero billed kWh.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
-    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }) },
+    });
     fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '0' } });
 
     // Act
@@ -1038,7 +1332,9 @@ describe('SessionForm', () => {
     // Arrange: pick provider+plan and set invalid negative added kWh.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
-    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }) },
+    });
     fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
     fireEvent.change(screen.getByLabelText(/kwh added/i), { target: { value: '-1' } });
 
@@ -1056,7 +1352,9 @@ describe('SessionForm', () => {
     // Arrange: pick provider+plan and set reversed SoC values.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
-    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }) },
+    });
     fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
     fireEvent.change(screen.getByLabelText(/start soc/i), { target: { value: '80' } });
     fireEvent.change(screen.getByLabelText(/end soc/i), { target: { value: '60' } });
@@ -1075,7 +1373,9 @@ describe('SessionForm', () => {
     // Arrange: fill required plan-mode fields.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
-    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }) },
+    });
     fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10,0' } });
 
     // Act: select roaming DC as the combined rate and submit.
@@ -1102,26 +1402,21 @@ describe('SessionForm', () => {
 
   it('renders only combined charging rates backed by tariff prices', () => {
     // Arrange: Render a plan that has domestic AC and roaming DC pricing only.
-    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans: [
-        {
-          id: 't1',
-          name: 'P1 Home',
-          provider_id: 'p1',
-          ac_price_per_kwh: 40,
-          dc_price_per_kwh: null,
-          roaming_ac_price_per_kwh: null,
-          roaming_dc_price_per_kwh: 70,
-          monthly_base_fee: 0,
-          session_fee: 0
-        }
-      ] as unknown as ChargingPlan[],
-      isLoading: false,
-    }));
+    setChargingPlansMock([
+      buildPlanFixture({
+        id: 't1',
+        name: 'P1 Home',
+        dc_price_per_kwh: undefined,
+        roaming_ac_price_per_kwh: undefined,
+        roaming_dc_price_per_kwh: 70,
+      }),
+    ]);
 
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
-    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }) },
+    });
 
     // Assert: Only priced rates are rendered, in the approved label order.
     const rateOptions = screen.getAllByRole('radio', { name: /(domestic|roaming)/i });
@@ -1136,26 +1431,22 @@ describe('SessionForm', () => {
 
   it('auto-selects the only available charging rate', async () => {
     // Arrange: Render a plan that has domestic AC pricing only.
-    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans: [
-        {
-          id: 't2',
-          name: 'P1 AC Only',
-          provider_id: 'p1',
-          ac_price_per_kwh: 42,
-          dc_price_per_kwh: null,
-          roaming_ac_price_per_kwh: null,
-          roaming_dc_price_per_kwh: null,
-          monthly_base_fee: 0,
-          session_fee: 0
-        }
-      ] as unknown as ChargingPlan[],
-      isLoading: false,
-    }));
+    setChargingPlansMock([
+      buildPlanFixture({
+        id: 't2',
+        name: 'P1 AC Only',
+        ac_price_per_kwh: 42,
+        dc_price_per_kwh: undefined,
+        roaming_ac_price_per_kwh: undefined,
+        roaming_dc_price_per_kwh: undefined,
+      }),
+    ]);
 
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
-    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: 't2' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 AC Only' }) },
+    });
     fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
 
     // Assert: the one available rate is visible and selected.

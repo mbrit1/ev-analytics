@@ -84,6 +84,8 @@ describe('TemporaryPromotionForm', () => {
     expect(screen.getByLabelText(/roaming dc price/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/monthly base fee/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/session fee/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/promo start/i)).toBeRequired();
+    expect(screen.getByLabelText(/promo end/i)).toBeRequired();
   });
 
   it('converts comma decimals to integer cents on submit', async () => {

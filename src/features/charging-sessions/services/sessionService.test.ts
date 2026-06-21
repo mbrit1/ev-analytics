@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { EVAnalyticsDB, db as sharedDb, type ChargingPlan, type Provider, type ChargingSession, type AdHocPricingSnapshot } from '../../../infra/db'
+import { resolveEffectivePlanForDate } from '../../charging-plans'
 import {
   hasPlanPricingIdentityChanged,
   prepareSession,
@@ -65,6 +66,46 @@ describe('sessionService', () => {
     pricePerSession: 199,
     otherFees: [{ label: 'Parking', amount: 50, notes: 'First hour' }]
   };
+
+  const utc = (date: string): Date => new Date(`${date}T00:00:00.000Z`);
+
+  function buildVersionFixture(overrides: Partial<ChargingPlan> = {}): ChargingPlan {
+    return {
+      ...mockChargingPlan,
+      id: 'version-fixture',
+      name: 'Versioned Plan',
+      valid_from: utc('2026-01-01'),
+      valid_to: null,
+      created_at: utc('2026-01-01'),
+      updated_at: utc('2026-01-01'),
+      ...overrides,
+    };
+  }
+
+  function buildPromotionChain(): ChargingPlan[] {
+    return [
+      buildVersionFixture({
+        id: 'baseline',
+        valid_from: utc('2026-01-01'),
+        valid_to: utc('2026-08-10'),
+      }),
+      buildVersionFixture({
+        id: 'promo',
+        valid_from: utc('2026-08-10'),
+        valid_to: utc('2026-09-01'),
+        ac_price_per_kwh: 39,
+        dc_price_per_kwh: 49,
+        roaming_ac_price_per_kwh: 59,
+        roaming_dc_price_per_kwh: 69,
+        monthly_base_fee: 199,
+      }),
+      buildVersionFixture({
+        id: 'restore',
+        valid_from: utc('2026-09-01'),
+        valid_to: null,
+      }),
+    ];
+  }
 
   function buildSessionFixture(overrides: Partial<ChargingSession> = {}): ChargingSession {
     return {
@@ -181,6 +222,17 @@ describe('sessionService', () => {
     } as unknown as Parameters<typeof prepareSession>[0];
 
     expect(() => prepareSession(input, mockChargingPlan, mockProvider)).not.toThrow();
+  });
+
+  it('resolves baseline, promotion, and restoration on their effective dates', () => {
+    // Arrange: build a baseline -> promo -> restore version chain.
+    const versions = buildPromotionChain();
+
+    // Act/Assert: the shared resolver switches on the exact effective dates.
+    expect(resolveEffectivePlanForDate(versions, utc('2026-08-09'))?.id).toBe('baseline');
+    expect(resolveEffectivePlanForDate(versions, utc('2026-08-10'))?.id).toBe('promo');
+    expect(resolveEffectivePlanForDate(versions, utc('2026-08-31'))?.id).toBe('promo');
+    expect(resolveEffectivePlanForDate(versions, utc('2026-09-01'))?.id).toBe('restore');
   });
 
   it('forbids tariff_plan_id and plan_selection_id for ad_hoc mode', () => {
