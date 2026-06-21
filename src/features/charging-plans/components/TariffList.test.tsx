@@ -1,416 +1,585 @@
-import { render, screen, fireEvent } from '@testing-library/react';
+import { useState } from 'react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TariffList } from './TariffList';
-import { type UseChargingPlansResult, useChargingPlans } from '../hooks/useChargingPlans';
+import { useChargingPlans } from '../hooks/useChargingPlans';
 import { useProviders } from '../hooks/useProviders';
+import { useAuth } from '../../auth';
+import type { ChargingPlan } from '../../../infra/db';
+import type { LogicalTariff } from '../model/logicalTariffs';
 
 vi.mock('../hooks/useChargingPlans');
 vi.mock('../hooks/useProviders');
-const mockTariffFormLoader = vi.fn((...args: unknown[]) => {
-  void args;
-  return <div>Tariff Form</div>;
-});
+vi.mock('../../auth');
 vi.mock('./TariffFormLoader', () => ({
-  TariffFormLoader: (props: unknown) => mockTariffFormLoader(props),
+  TariffFormLoader: (props: unknown) => {
+    const resolved = props as { mode?: string; initialValues?: { name?: string }; onCancel?: () => void };
+    const [error, setError] = useState<string | null>(null);
+
+    const handleSubmit = async () => {
+      try {
+        if (resolved.mode === 'details') {
+          await (resolved as {
+            onSubmit?: (values: {
+              nextProviderId: string;
+              nextName: string;
+              affiliation?: string;
+              notes?: string;
+            }) => Promise<void>;
+          }).onSubmit?.({
+            nextProviderId: 'p2',
+            nextName: 'Renamed Tariff',
+            affiliation: 'Family',
+            notes: 'Updated note',
+          });
+        } else {
+          await (resolved as { onSubmit?: (plan: ChargingPlan) => Promise<void> }).onSubmit?.(buildPlan({
+            id: 'created-plan',
+            user_id: '',
+            provider_id: 'p1',
+            name: 'Created Tariff',
+          }));
+        }
+      } catch (submissionError) {
+        setError(submissionError instanceof Error ? submissionError.message : 'Failed');
+      }
+    };
+
+    return (
+      <div>
+        Tariff Form
+        {resolved.mode ? `:${resolved.mode}` : ''}
+        {resolved.initialValues?.name ? `:${resolved.initialValues.name}` : ''}
+        {error && <div role="alert">{error}</div>}
+        <button type="button" onClick={handleSubmit}>Submit</button>
+        <button type="button" onClick={resolved.onCancel}>Cancel</button>
+      </div>
+    );
+  },
+}));
+vi.mock('./PermanentPriceChangeForm', () => ({
+  PermanentPriceChangeForm: (props: unknown) => {
+    const resolved = props as {
+      onCancel?: () => void;
+      onSubmit?: (values: {
+        effectiveFrom: Date;
+        prices: {
+          ac_price_per_kwh?: number;
+          dc_price_per_kwh?: number;
+          roaming_ac_price_per_kwh?: number;
+          roaming_dc_price_per_kwh?: number;
+          monthly_base_fee: number;
+          session_fee: number;
+        };
+      }) => Promise<void>;
+    };
+    const [error, setError] = useState<string | null>(null);
+
+    const handleSubmit = async () => {
+      try {
+        await resolved.onSubmit?.({
+          effectiveFrom: utc('2026-08-15'),
+          prices: {
+            ac_price_per_kwh: 31,
+            dc_price_per_kwh: 51,
+            monthly_base_fee: 0,
+            session_fee: 0,
+          },
+        });
+      } catch (submissionError) {
+        setError(submissionError instanceof Error ? submissionError.message : 'Failed');
+      }
+    };
+
+    return (
+      <div>
+        Permanent Price Change Form
+        {error && <div role="alert">{error}</div>}
+        <button type="button" onClick={handleSubmit}>Submit</button>
+        <button type="button" onClick={resolved.onCancel}>Cancel</button>
+      </div>
+    );
+  },
+}));
+vi.mock('./TemporaryPromotionForm', () => ({
+  TemporaryPromotionForm: (props: unknown) => {
+    const resolved = props as {
+      onCancel?: () => void;
+      onSubmit?: (values: {
+        promoStart: Date;
+        promoEndInclusive: Date;
+        prices: {
+          ac_price_per_kwh?: number;
+          dc_price_per_kwh?: number;
+          roaming_ac_price_per_kwh?: number;
+          roaming_dc_price_per_kwh?: number;
+          monthly_base_fee: number;
+          session_fee: number;
+        };
+      }) => Promise<void>;
+    };
+    const [error, setError] = useState<string | null>(null);
+
+    const handleSubmit = async () => {
+      try {
+        await resolved.onSubmit?.({
+          promoStart: utc('2026-08-10'),
+          promoEndInclusive: utc('2026-08-31'),
+          prices: {
+            ac_price_per_kwh: 19,
+            dc_price_per_kwh: 39,
+            monthly_base_fee: 0,
+            session_fee: 0,
+          },
+        });
+      } catch (submissionError) {
+        setError(submissionError instanceof Error ? submissionError.message : 'Failed');
+      }
+    };
+
+    return (
+      <div>
+        Temporary Promotion Form
+        {error && <div role="alert">{error}</div>}
+        <button type="button" onClick={handleSubmit}>Submit</button>
+        <button type="button" onClick={resolved.onCancel}>Cancel</button>
+      </div>
+    );
+  },
 }));
 
+const utc = (value: string): Date => new Date(`${value}T00:00:00.000Z`);
+
+const buildPlan = (overrides: Partial<ChargingPlan> = {}): ChargingPlan => ({
+  id: overrides.id ?? 'plan-1',
+  user_id: overrides.user_id ?? 'user-1',
+  provider_id: overrides.provider_id ?? 'provider-1',
+  name: overrides.name ?? 'Lidl',
+  valid_from: overrides.valid_from ?? utc('2026-01-01'),
+  valid_to: overrides.valid_to ?? null,
+  ac_price_per_kwh: overrides.ac_price_per_kwh,
+  dc_price_per_kwh: overrides.dc_price_per_kwh,
+  roaming_ac_price_per_kwh: overrides.roaming_ac_price_per_kwh,
+  roaming_dc_price_per_kwh: overrides.roaming_dc_price_per_kwh,
+  monthly_base_fee: overrides.monthly_base_fee ?? 0,
+  session_fee: overrides.session_fee ?? 0,
+  affiliation: overrides.affiliation,
+  notes: overrides.notes,
+  created_at: overrides.created_at ?? utc('2026-01-01'),
+  updated_at: overrides.updated_at ?? utc('2026-01-01'),
+  deleted_at: overrides.deleted_at,
+});
+
+const buildLogicalTariff = (overrides: Partial<LogicalTariff> = {}): LogicalTariff => {
+  const baseline = buildPlan({
+    id: 'baseline',
+    provider_id: 'p1',
+    name: 'Lidl',
+    valid_from: utc('2026-01-01'),
+    valid_to: utc('2026-08-15'),
+    ac_price_per_kwh: 29,
+    dc_price_per_kwh: 49,
+    monthly_base_fee: 0,
+    session_fee: 0,
+  });
+  const successor = buildPlan({
+    id: 'successor',
+    provider_id: 'p1',
+    name: 'Lidl',
+    valid_from: utc('2026-08-15'),
+    ac_price_per_kwh: 35,
+    dc_price_per_kwh: 55,
+    monthly_base_fee: 0,
+    session_fee: 0,
+  });
+
+  return {
+    key: overrides.key ?? 'p1::lidl',
+    providerId: overrides.providerId ?? 'p1',
+    name: overrides.name ?? 'Lidl',
+    versions: overrides.versions ?? [baseline, successor],
+    currentVersion: overrides.currentVersion ?? baseline,
+    nextVersion: overrides.nextVersion ?? successor,
+    badge: overrides.badge ?? {
+      kind: 'upcoming_change',
+      date: '2026-08-15',
+      label: 'Upcoming change on 15 Aug',
+    },
+    history: overrides.history ?? [
+      {
+        plan: baseline,
+        labels: ['Current'],
+        startDate: '2026-01-01',
+        endDateInclusive: '2026-08-14',
+      },
+      {
+        plan: successor,
+        labels: ['Scheduled'],
+        startDate: '2026-08-15',
+        endDateInclusive: null,
+      },
+    ],
+  };
+};
+
+type ChargingPlansHookValue = ReturnType<typeof useChargingPlans>;
+
+const buildHookValue = (
+  overrides: Partial<ChargingPlansHookValue> = {},
+): ChargingPlansHookValue => {
+  const logicalTariff = buildLogicalTariff();
+
+  return {
+    plans: overrides.plans ?? logicalTariff.versions,
+    logicalTariffs: overrides.logicalTariffs ?? [logicalTariff],
+    isLoading: overrides.isLoading ?? false,
+    addChargingPlan: overrides.addChargingPlan ?? vi.fn(),
+    removeChargingPlan: overrides.removeChargingPlan ?? vi.fn(),
+    updateCurrentVersion: overrides.updateCurrentVersion ?? vi.fn(),
+    createSuccessorVersion: overrides.createSuccessorVersion ?? vi.fn(),
+    updateLogicalTariffDetails: overrides.updateLogicalTariffDetails ?? vi.fn(),
+    schedulePermanentChange: overrides.schedulePermanentChange ?? vi.fn(),
+    schedulePromotion: overrides.schedulePromotion ?? vi.fn(),
+    deleteLogicalTariff: overrides.deleteLogicalTariff ?? vi.fn(),
+  };
+};
+
+const renderTariffList = (
+  props: Partial<{
+    isCreatingTariff: boolean;
+    onCreateTariffChange: (isCreatingTariff: boolean) => void;
+    onFormOpenChange?: (isOpen: boolean) => void;
+  }> = {},
+) => render(
+  <TariffList
+    isCreatingTariff={props.isCreatingTariff ?? false}
+    onCreateTariffChange={props.onCreateTariffChange ?? vi.fn()}
+    onFormOpenChange={props.onFormOpenChange}
+  />,
+);
+
+async function openMenuAndChoose(label: string): Promise<void> {
+  const user = userEvent.setup();
+  // Arrange: Open the tariff action menu from the rendered card.
+  await user.click(screen.getByRole('button', { name: /tariff actions for ionity lidl/i }));
+
+  // Act: Choose the requested action from the overflow menu.
+  await user.click(screen.getByRole('button', { name: new RegExp(label, 'i') }));
+
+  // Assert: Caller-specific expectations run in the parent test.
+}
+
+async function openMenu(): Promise<void> {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: /tariff actions for ionity lidl/i }));
+}
+
 /**
- * Test suite for tariff list rendering and pricing-card hierarchy.
+ * Test suite for grouped logical-tariff overview cards and their version workflow surfaces.
+ *
+ * Verifies one-card grouping, reachable history, overflow actions, and confirmed deletion.
  */
 describe('TariffList', () => {
-  const emptyStateHeadline = 'No Tariffs Yet'
-  const emptyStateBody = 'Your saved tariffs will appear here once you add your first tariff.'
-  const buildChargingPlansResult = (
-    overrides: Partial<UseChargingPlansResult> = {}
-  ): UseChargingPlansResult => ({
-    plans: [],
-    logicalTariffs: [],
-    isLoading: false,
-    addChargingPlan: vi.fn(),
-    removeChargingPlan: vi.fn(),
-    updateCurrentVersion: vi.fn(),
-    createSuccessorVersion: vi.fn(),
-    updateLogicalTariffDetails: vi.fn(),
-    schedulePermanentChange: vi.fn(),
-    schedulePromotion: vi.fn(),
-    deleteLogicalTariff: vi.fn(),
-    ...overrides,
-  })
-
-  const renderTariffList = (
-    props: Partial<{
-      isCreatingTariff: boolean;
-      onCreateTariffChange: (isCreatingTariff: boolean) => void;
-      onFormOpenChange?: (isOpen: boolean) => void;
-    }> = {}
-  ) => {
-    const onCreateTariffChange = props.onCreateTariffChange ?? vi.fn()
-
-    return render(
-      <TariffList
-        isCreatingTariff={props.isCreatingTariff ?? false}
-        onCreateTariffChange={onCreateTariffChange}
-        onFormOpenChange={props.onFormOpenChange}
-      />
-    )
-  }
-
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(useProviders).mockReturnValue({
-      providers: [{ id: 'p1', name: 'Ionity', user_id: 'u1', created_at: new Date('2026-01-01T00:00:00.000Z'), updated_at: new Date('2026-01-01T00:00:00.000Z') }],
+      providers: [
+        {
+          id: 'p1',
+          name: 'Ionity',
+          user_id: 'user-1',
+          created_at: utc('2026-01-01'),
+          updated_at: utc('2026-01-01'),
+        },
+      ],
       isLoading: false,
+    });
+    vi.mocked(useAuth).mockReturnValue({
+      user: {
+        id: 'user-1',
+        email: 'test@example.com',
+        app_metadata: {},
+        user_metadata: {},
+        aud: 'authenticated',
+        created_at: '2026-01-01T00:00:00.000Z',
+      } as never,
+      session: null,
+      loading: false,
+      signIn: vi.fn(),
+      signOut: vi.fn(),
     });
   });
 
-  it('does not render fixed tariff costs and shows domestic prices first', () => {
-    // Arrange: Prepare one tariff with domestic, roaming, and fee values.
-    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans: [
-        {
-          id: 't1',
-          user_id: 'u1',
-          provider_id: 'p1',
-          name: 'Primary Plan',
-          valid_from: new Date(),
-          valid_to: null,
-          ac_price_per_kwh: 39,
-          dc_price_per_kwh: 59,
-          roaming_ac_price_per_kwh: 79,
-          roaming_dc_price_per_kwh: 99,
-          monthly_base_fee: 499,
-          session_fee: 129,
-          created_at: new Date('2026-01-01T00:00:00.000Z'),
-          updated_at: new Date('2026-01-01T00:00:00.000Z'),
-        },
-      ],
-    }));
-
-    // Act: Render tariff list.
-    renderTariffList();
-
-    // Assert: No fixed-cost section; primary domestic rows and optional rows are shown.
-    expect(screen.queryByText(/fixed tariff costs/i)).not.toBeInTheDocument();
-    expect(screen.getByText(/domestic ac/i)).toBeInTheDocument();
-    expect(screen.getByText(/domestic dc/i)).toBeInTheDocument();
-    expect(screen.getByText(/roaming ac/i)).toBeInTheDocument();
-    expect(screen.getByText(/roaming dc/i)).toBeInTheDocument();
-    expect(screen.getByText(/monthly base fee/i)).toBeInTheDocument();
-    expect(screen.getByText(/session fee/i)).toBeInTheDocument();
-    expect(screen.queryByText(emptyStateHeadline)).not.toBeInTheDocument();
-  });
-
-  it('opens form with preloaded tariff when Edit is clicked', () => {
-    // Arrange: Render one tariff and keep loader spy available for prop checks.
-    const plan = {
-      id: 't1',
-      user_id: 'u1',
+  it('renders one card for all versions and displays the current price', () => {
+    // Arrange: Expose one logical tariff with current and upcoming versions.
+    const baseline = buildPlan({
+      id: 'baseline',
       provider_id: 'p1',
-      name: 'Primary Plan',
-      valid_from: new Date(),
-          valid_to: null,
-      ac_price_per_kwh: 39,
-      dc_price_per_kwh: 59 ,
-      monthly_base_fee: 0,
-      session_fee: 129 ,
-      created_at: new Date('2026-01-01T00:00:00.000Z'),
-      updated_at: new Date('2026-01-01T00:00:00.000Z'),
-    };
-    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans: [plan],
-    }));
-
-    renderTariffList();
-
-    // Act: Trigger edit mode from card actions.
-    fireEvent.click(screen.getByRole('button', { name: /edit ionity primary plan/i }));
-
-    // Assert: Form opens and receives initial values for selected plan.
-    expect(screen.getByText('Tariff Form')).toBeInTheDocument();
-    expect(mockTariffFormLoader).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        initialValues: expect.objectContaining({ id: 't1', name: 'Primary Plan' }),
-      })
-    );
-  });
-
-  it('uses shared action button styling for list-level and row-level actions', () => {
-    // Arrange: Render one tariff so top and row actions are visible.
-    const removeChargingPlan = vi.fn();
-    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans: [
-        {
-          id: 't1',
-          user_id: 'u1',
-          provider_id: 'p1',
-          name: 'Primary Plan',
-          valid_from: new Date(),
-          valid_to: null,
-          ac_price_per_kwh: 39,
-      dc_price_per_kwh: 59 ,
-      monthly_base_fee: 0,
-      session_fee: 129 ,
-          created_at: new Date('2026-01-01T00:00:00.000Z'),
-          updated_at: new Date('2026-01-01T00:00:00.000Z'),
-        },
-      ],
-      removeChargingPlan,
-    }));
-    renderTariffList();
-
-    // Assert: Primary add action and secondary row actions expose shared styling hooks.
-    expect(screen.getByRole('button', { name: /add tariff/i }).className).toContain('bg-accent');
-    expect(screen.getByRole('button', { name: /edit/i }).className).toContain('bg-secondary/10');
-    expect(screen.getByRole('button', { name: /delete/i }).className).toContain('border-secondary/20');
-    expect(screen.getByRole('button', { name: /add tariff/i }).className).toContain('rounded-xl');
-    expect(screen.getByRole('button', { name: /edit/i }).className).toContain('rounded-xl');
-    expect(screen.getByRole('button', { name: /delete/i }).className).toContain('rounded-xl');
-  });
-
-  it('hides optional pricing rows when amounts are zero', () => {
-    // Arrange: Render tariff with optional amounts set to zero.
-    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans: [
-        {
-          id: 't1',
-          user_id: 'u1',
-          provider_id: 'p1',
-          name: 'Zero Optional Plan',
-          valid_from: new Date(),
-          valid_to: null,
-          ac_price_per_kwh: 45,
-          dc_price_per_kwh: 45,
-          roaming_ac_price_per_kwh: 0,
-          roaming_dc_price_per_kwh: 0,
-          monthly_base_fee: 0,
-          session_fee: 0,
-          created_at: new Date('2026-01-01T00:00:00.000Z'),
-          updated_at: new Date('2026-01-01T00:00:00.000Z'),
-        },
-      ],
-    }));
-
-    // Act: Render tariff list.
-    renderTariffList();
-
-    // Assert: Optional rows are hidden when values are zero.
-    expect(screen.queryByText(/roaming ac/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/roaming dc/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/monthly base fee/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/session fee/i)).not.toBeInTheDocument();
-  });
-
-  it('renders provider name as card title and only shows non-empty variant subtitle', () => {
-    // Arrange: Two tariffs for same provider, only one has a non-empty variant name.
-    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans: [
-        {
-          id: 't1',
-          user_id: 'u1',
-          provider_id: 'p1',
-          name: '   ',
-          valid_from: new Date(),
-          valid_to: null,
-          ac_price_per_kwh: 45, dc_price_per_kwh: 45 ,
-      monthly_base_fee: 0,
-      session_fee: 0,
-          created_at: new Date('2026-01-01T00:00:00.000Z'),
-          updated_at: new Date('2026-01-01T00:00:00.000Z'),
-        },
-        {
-          id: 't2',
-          user_id: 'u1',
-          provider_id: 'p1',
-          name: 'Weekend Saver',
-          valid_from: new Date(),
-          valid_to: null,
-          ac_price_per_kwh: 51, dc_price_per_kwh: 61 ,
-      monthly_base_fee: 0,
-      session_fee: 0,
-          created_at: new Date('2026-01-01T00:00:00.000Z'),
-          updated_at: new Date('2026-01-01T00:00:00.000Z'),
-        },
-      ],
-    }));
-
-    // Act: Render tariff list.
-    renderTariffList();
-
-    // Assert: Provider title is shown; static subtitle is absent; variant appears only when non-empty.
-    expect(screen.getAllByRole('heading', { name: 'Ionity', level: 2 })).toHaveLength(2);
-    expect(screen.queryByText(/^tariff$/i)).not.toBeInTheDocument();
-    expect(screen.getByText('Weekend Saver')).toBeInTheDocument();
-    expect(screen.queryByText(/^\s+$/)).not.toBeInTheDocument();
-  });
-
-  it('handles empty and whitespace-only plan names without rendering subtitle', () => {
-    // Arrange: Provider exists, but variant names are empty or blank.
-    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans: [
-        {
-          id: 't1',
-          user_id: 'u1',
-          provider_id: 'p1',
-          name: '',
-          valid_from: new Date(),
-          valid_to: null,
-          ac_price_per_kwh: 45, dc_price_per_kwh: 45 ,
-      monthly_base_fee: 0,
-      session_fee: 0,
-          created_at: new Date('2026-01-01T00:00:00.000Z'),
-          updated_at: new Date('2026-01-01T00:00:00.000Z'),
-        },
-        {
-          id: 't2',
-          user_id: 'u1',
-          provider_id: 'p1',
-          name: '   ',
-          valid_from: new Date(),
-          valid_to: null,
-          ac_price_per_kwh: 51, dc_price_per_kwh: 61 ,
-      monthly_base_fee: 0,
-      session_fee: 0,
-          created_at: new Date('2026-01-01T00:00:00.000Z'),
-          updated_at: new Date('2026-01-01T00:00:00.000Z'),
-        },
-      ],
-    }));
-
-    // Act: Render list.
-    renderTariffList();
-
-    // Assert: No variant subtitle for undefined/whitespace and labels stay stable with provider name.
-    expect(screen.queryByText(/^tariff$/i)).not.toBeInTheDocument();
-    expect(screen.queryByText('   ')).not.toBeInTheDocument();
-    expect(screen.getAllByRole('button', { name: /^edit ionity$/i })).toHaveLength(2);
-    expect(screen.getAllByRole('button', { name: /^delete ionity$/i })).toHaveLength(2);
-  });
-
-  it('falls back to provider_id when provider lookup misses', () => {
-    // Arrange: No providers returned so title/labels should use provider_id fallback.
-    vi.mocked(useProviders).mockReturnValue({
-      providers: [],
-      isLoading: false,
+      name: 'Lidl',
+      valid_from: utc('2026-01-01'),
+      valid_to: utc('2026-08-15'),
+      ac_price_per_kwh: 29,
+      dc_price_per_kwh: 49,
     });
-    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans: [
-        {
-          id: 't1',
-          user_id: 'u1',
-          provider_id: 'provider-fallback',
-          name: 'Night Saver',
-          valid_from: new Date(),
-          valid_to: null,
-          ac_price_per_kwh: 45, dc_price_per_kwh: 45 ,
-      monthly_base_fee: 0,
-      session_fee: 0,
-          created_at: new Date('2026-01-01T00:00:00.000Z'),
-          updated_at: new Date('2026-01-01T00:00:00.000Z'),
-        },
+    const successor = buildPlan({
+      id: 'successor',
+      provider_id: 'p1',
+      name: 'Lidl',
+      valid_from: utc('2026-08-15'),
+      ac_price_per_kwh: 39,
+      dc_price_per_kwh: 59,
+    });
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [
+        buildLogicalTariff({
+          versions: [baseline, successor],
+          currentVersion: baseline,
+          nextVersion: successor,
+        }),
       ],
+      plans: [baseline, successor],
     }));
 
-    // Act: Render list.
+    // Act: Render the grouped tariff list.
     renderTariffList();
 
-    // Assert: Uses provider_id as title and in action labels when lookup is missing.
-    expect(screen.getByRole('heading', { name: 'provider-fallback', level: 2 })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /edit provider-fallback night saver/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /delete provider-fallback night saver/i })).toBeInTheDocument();
+    // Assert: The list shows one grouped card, the upcoming badge, and the current price.
+    expect(screen.getAllByRole('button', { name: /edit ionity lidl/i })).toHaveLength(1);
+    expect(screen.getByText('Upcoming change on 15 Aug')).toBeInTheDocument();
+    expect(screen.getByText('0,29 €')).toBeInTheDocument();
   });
 
-  it('opens the create form when the parent requests tariff creation', () => {
-    // Arrange: Render the list with a pending parent-owned create request.
-    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans: [],
+  it('opens reachable version history from the card', async () => {
+    // Arrange: Render a logical tariff with promotion and restoration history labels.
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [
+        buildLogicalTariff({
+          badge: {
+            kind: 'promo',
+            date: '2026-08-31',
+            label: 'Promo until 31 Aug',
+          },
+          history: [
+            {
+              plan: buildPlan({ id: 'baseline', valid_to: utc('2026-08-10'), ac_price_per_kwh: 29 }),
+              labels: ['Past'],
+              startDate: '2026-01-01',
+              endDateInclusive: '2026-08-09',
+            },
+            {
+              plan: buildPlan({ id: 'promo', valid_from: utc('2026-08-10'), valid_to: utc('2026-09-01'), ac_price_per_kwh: 19 }),
+              labels: ['Promotion', 'Current'],
+              startDate: '2026-08-10',
+              endDateInclusive: '2026-08-31',
+            },
+            {
+              plan: buildPlan({ id: 'restore', valid_from: utc('2026-09-01'), ac_price_per_kwh: 29 }),
+              labels: ['Restored', 'Scheduled'],
+              startDate: '2026-09-01',
+              endDateInclusive: null,
+            },
+          ],
+        }),
+      ],
     }));
+    const user = userEvent.setup();
 
-    // Act: Mount the tariff list with the create flag enabled.
+    // Act: Open the explicit history trigger from the card.
+    renderTariffList();
+    await user.click(screen.getByRole('button', { name: /view history for ionity lidl/i }));
+
+    // Assert: The history surface becomes reachable and shows role labels.
+    expect(screen.getByRole('heading', { name: /tariff history/i })).toBeInTheDocument();
+    expect(screen.getByText('Promotion')).toBeInTheDocument();
+    expect(screen.getByText('Restored')).toBeInTheDocument();
+  });
+
+  it('requires explicit confirmation before deleting the logical tariff', async () => {
+    // Arrange: Render one logical tariff and capture the delete mutation.
+    const deleteLogicalTariff = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ deleteLogicalTariff }));
+    const user = userEvent.setup();
+    renderTariffList();
+
+    // Act: Open the delete dialog, then confirm deletion explicitly.
+    await openMenuAndChoose('Delete tariff');
+    expect(deleteLogicalTariff).not.toHaveBeenCalled();
+    expect(screen.getByText(/all scheduled changes and promotions/i)).toBeInTheDocument();
+    expect(screen.getByText(/historical charging sessions will keep their saved prices/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /delete complete tariff/i }));
+
+    // Assert: The logical delete runs only after confirmation.
+    await waitFor(() => expect(deleteLogicalTariff).toHaveBeenCalledTimes(1));
+  });
+
+  it('opens details, permanent change, and promotion surfaces from their actions', async () => {
+    // Arrange: Render one logical tariff card with grouped actions.
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue());
+    const user = userEvent.setup();
+
+    // Act: Open the details surface from the visible action.
+    renderTariffList();
+    await user.click(screen.getByRole('button', { name: /edit ionity lidl/i }));
+    expect(screen.getByText(/tariff form:details:lidl/i)).toBeInTheDocument();
+
+    // Act: Re-render and open the permanent change surface from the overflow action.
+    cleanup();
+    renderTariffList();
+    await openMenu();
+    expect(screen.getByRole('button', { name: /edit details/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /change price permanently/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /run temporary promotion/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /delete tariff/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /edit details/i }));
+    expect(screen.getByText(/tariff form:details:lidl/i)).toBeInTheDocument();
+
+    cleanup();
+    renderTariffList();
+    await openMenuAndChoose('Change price permanently');
+    expect(screen.getByText('Permanent Price Change Form')).toBeInTheDocument();
+
+    // Act: Re-render and open the promotion surface from the overflow action.
+    cleanup();
+    renderTariffList();
+    await openMenuAndChoose('Run temporary promotion');
+
+    // Assert: Each required action reaches the expected child surface.
+    expect(screen.getByText('Temporary Promotion Form')).toBeInTheDocument();
+  });
+
+  it('submits logical details updates and closes the surface on success', async () => {
+    // Arrange: Render one logical tariff and capture the update mutation.
+    const updateLogicalTariffDetails = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ updateLogicalTariffDetails }));
+    const user = userEvent.setup();
+    renderTariffList();
+
+    // Act: Open details mode and submit the mocked details payload.
+    await user.click(screen.getByRole('button', { name: /edit ionity lidl/i }));
+    await user.click(screen.getByRole('button', { name: /submit/i }));
+
+    // Assert: The parent wires logical identity context into the mutation and closes after success.
+    await waitFor(() => expect(updateLogicalTariffDetails).toHaveBeenCalledWith({
+      userId: 'user-1',
+      providerId: 'p1',
+      name: 'Lidl',
+      nextProviderId: 'p2',
+      nextName: 'Renamed Tariff',
+      affiliation: 'Family',
+      notes: 'Updated note',
+    }));
+    expect(screen.queryByText(/tariff form:details:lidl/i)).not.toBeInTheDocument();
+  });
+
+  it('submits a permanent change, keeps errors visible on failure, and closes on success', async () => {
+    // Arrange: First reject, then resolve, so the surface exercises both parent paths.
+    const schedulePermanentChange = vi.fn()
+      .mockRejectedValueOnce(new Error('Conflict while scheduling change'))
+      .mockResolvedValueOnce(undefined);
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ schedulePermanentChange }));
+    const user = userEvent.setup();
+    renderTariffList();
+
+    // Act: Submit once to hit the failure path, then submit again to succeed.
+    await openMenuAndChoose('Change price permanently');
+    await user.click(screen.getByRole('button', { name: /submit/i }));
+
+    // Assert: The child stays mounted and shows the propagated error.
+    expect(await screen.findByRole('alert')).toHaveTextContent('Conflict while scheduling change');
+    expect(screen.getByText('Permanent Price Change Form')).toBeInTheDocument();
+
+    // Act: Retry with the next successful response.
+    await user.click(screen.getByRole('button', { name: /submit/i }));
+
+    // Assert: The mutation receives logical identity plus version payload and the surface closes.
+    await waitFor(() => expect(schedulePermanentChange).toHaveBeenLastCalledWith({
+      userId: 'user-1',
+      providerId: 'p1',
+      name: 'Lidl',
+      effectiveFrom: utc('2026-08-15'),
+      prices: {
+        ac_price_per_kwh: 31,
+        dc_price_per_kwh: 51,
+        monthly_base_fee: 0,
+        session_fee: 0,
+      },
+    }));
+    expect(screen.queryByText('Permanent Price Change Form')).not.toBeInTheDocument();
+  });
+
+  it('submits a promotion workflow and closes the surface on success', async () => {
+    // Arrange: Render one logical tariff and capture the promotion mutation.
+    const schedulePromotion = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ schedulePromotion }));
+    const user = userEvent.setup();
+    renderTariffList();
+
+    // Act: Open the promotion form and submit the mocked payload.
+    await openMenuAndChoose('Run temporary promotion');
+    await user.click(screen.getByRole('button', { name: /submit/i }));
+
+    // Assert: The promotion mutation receives logical identity and closes on success.
+    await waitFor(() => expect(schedulePromotion).toHaveBeenCalledWith({
+      userId: 'user-1',
+      providerId: 'p1',
+      name: 'Lidl',
+      promoStart: utc('2026-08-10'),
+      promoEndInclusive: utc('2026-08-31'),
+      prices: {
+        ac_price_per_kwh: 19,
+        dc_price_per_kwh: 39,
+        monthly_base_fee: 0,
+        session_fee: 0,
+      },
+    }));
+    expect(screen.queryByText('Temporary Promotion Form')).not.toBeInTheDocument();
+  });
+
+  it('assigns the authenticated user id when creating a new tariff', async () => {
+    // Arrange: Render the create flow with a blank incoming user id from the form shell.
+    const addChargingPlan = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ addChargingPlan }));
+    const user = userEvent.setup();
     renderTariffList({ isCreatingTariff: true });
 
-    // Assert: The create form opens deterministically once the list renders.
-    expect(screen.getByText('Tariff Form')).toBeInTheDocument();
-    expect(screen.queryByText(emptyStateHeadline)).not.toBeInTheDocument();
+    // Act: Submit the mocked create form payload.
+    await user.click(screen.getByRole('button', { name: /submit/i }));
+
+    // Assert: The saved plan is attributed to the authenticated local user.
+    await waitFor(() => expect(addChargingPlan).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'created-plan',
+      provider_id: 'p1',
+      name: 'Created Tariff',
+      user_id: 'user-1',
+    })));
   });
 
-  it('keeps existing tariff cards visible when the parent requests create mode', () => {
-    // Arrange: A non-empty list should stay visible under the parent-opened create form.
-    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans: [
-        {
-          id: 't1',
-          user_id: 'u1',
-          provider_id: 'p1',
-          name: 'Primary Plan',
-          valid_from: new Date(),
-          valid_to: null,
-          ac_price_per_kwh: 39,
-          dc_price_per_kwh: 59,
-          monthly_base_fee: 0,
-          session_fee: 0,
-          created_at: new Date('2026-01-01T00:00:00.000Z'),
-          updated_at: new Date('2026-01-01T00:00:00.000Z'),
-        },
-      ],
-    }));
+  it('resets an active surface when the logical tariff disappears on rerender', async () => {
+    // Arrange: Open details for an initially available logical tariff.
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue());
+    const user = userEvent.setup();
+    const view = renderTariffList();
 
-    // Act: Mount the tariff list with the create flag enabled.
-    renderTariffList({ isCreatingTariff: true });
+    await user.click(screen.getByRole('button', { name: /edit ionity lidl/i }));
+    expect(screen.getByText(/tariff form:details:lidl/i)).toBeInTheDocument();
 
-    // Assert: The create form opens, the existing list remains visible, and no empty state appears.
-    expect(screen.getByText('Tariff Form')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Ionity', level: 2 })).toBeInTheDocument();
-    expect(screen.queryByText(emptyStateHeadline)).not.toBeInTheDocument();
-  });
-
-  it('renders a sessions-style empty state and keeps the add action visible when no plans exist', () => {
-    // Arrange: No plans and no open form should show the informative empty state.
-    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
+    // Act: Simulate a live-query update where that logical tariff no longer exists.
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [],
       plans: [],
     }));
+    view.rerender(
+      <TariffList
+        isCreatingTariff={false}
+        onCreateTariffChange={vi.fn()}
+      />,
+    );
 
-    // Act: Render the tariffs screen in its closed, empty state.
-    renderTariffList();
-
-    // Assert: The empty-state headline, copy, and desktop CTA are all visible.
-    const addTariffButton = screen.getByRole('button', { name: /add tariff/i });
-
-    expect(screen.getByText(emptyStateHeadline)).toBeInTheDocument();
-    expect(screen.getByText(emptyStateBody)).toBeInTheDocument();
-    expect(addTariffButton).toBeInTheDocument();
-    expect(addTariffButton.className).toContain('hidden');
-    expect(addTariffButton.className).toContain('md:flex');
-    expect(screen.queryByText('Tariff Form')).not.toBeInTheDocument();
-  });
-
-  it('keeps existing list behavior when the form is open and suppresses the empty state', () => {
-    // Arrange: A non-empty list should stay visible under the edit form.
-    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans: [
-        {
-          id: 't1',
-          user_id: 'u1',
-          provider_id: 'p1',
-          name: 'Primary Plan',
-          valid_from: new Date(),
-          valid_to: null,
-          ac_price_per_kwh: 39,
-          dc_price_per_kwh: 59,
-          monthly_base_fee: 0,
-          session_fee: 0,
-          created_at: new Date('2026-01-01T00:00:00.000Z'),
-          updated_at: new Date('2026-01-01T00:00:00.000Z'),
-        },
-      ],
-    }));
-
-    // Act: Open the edit form from an existing tariff card.
-    renderTariffList();
-    fireEvent.click(screen.getByRole('button', { name: /edit ionity primary plan/i }));
-
-    // Assert: The form opens, the existing list remains visible, and no empty state appears.
-    expect(screen.getByText('Tariff Form')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Ionity', level: 2 })).toBeInTheDocument();
-    expect(screen.queryByText(emptyStateHeadline)).not.toBeInTheDocument();
+    // Assert: The stale surface no longer blocks the empty state or add action.
+    expect(screen.queryByText(/tariff form:details:lidl/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /add tariff/i })).toBeInTheDocument();
+    expect(screen.getByText(/no tariffs yet/i)).toBeInTheDocument();
   });
 });
