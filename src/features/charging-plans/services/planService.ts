@@ -1,7 +1,8 @@
 import { type Table } from 'dexie';
-import { db, type ChargingPlan, type SyncOutbox, type SyncPayload } from '../../../infra/db';
+import { db, type ChargingPlan, type ProviderPlanSelection, type SyncOutbox, type SyncPayload } from '../../../infra/db';
 import {
   addUtcDays,
+  buildCurrentChargingPlans,
   formatUtcDate,
   getLogicalTariffKey,
   hydrateChargingPlanDates,
@@ -61,6 +62,7 @@ export interface UpdateLogicalTariffDetailsInput extends LogicalTariffIdentityIn
 
 type PlanTable = Table<ChargingPlan, string>;
 type OutboxTable = Table<SyncOutbox, number>;
+type SelectionTable = Table<ProviderPlanSelection, string>;
 
 function assertIntegerCents(value: number, fieldName: string): void {
   if (!Number.isInteger(value)) {
@@ -109,14 +111,39 @@ async function putPlanAndQueue(
   outbox: OutboxTable,
   plan: ChargingPlan,
   action: 'INSERT' | 'UPDATE' | 'DELETE',
-  now: Date
+  now: Date,
+  options?: {
+    validate?: boolean;
+  }
 ): Promise<void> {
-  validatePlan(plan);
+  if (options?.validate !== false) {
+    validatePlan(plan);
+  }
   await plans.put(plan);
   await outbox.add({
     table_name: 'charging_plans',
     action,
     payload: plan as SyncPayload,
+    timestamp: now,
+    retry_count: 0,
+    last_attempt_at: undefined,
+    next_attempt_at: undefined,
+    last_error: undefined
+  });
+}
+
+async function putSelectionAndQueue(
+  selections: SelectionTable,
+  outbox: OutboxTable,
+  selection: ProviderPlanSelection,
+  action: 'INSERT' | 'UPDATE' | 'DELETE',
+  now: Date
+): Promise<void> {
+  await selections.put(selection);
+  await outbox.add({
+    table_name: 'provider_plan_selections',
+    action,
+    payload: selection as SyncPayload,
     timestamp: now,
     retry_count: 0,
     last_attempt_at: undefined,
@@ -326,6 +353,11 @@ export async function saveChargingPlan(plan: ChargingPlan): Promise<void> {
 }
 
 export async function getChargingPlans(userId: string): Promise<ChargingPlan[]> {
+  const versions = await getChargingPlanVersions(userId);
+  return buildCurrentChargingPlans(versions, { at: new Date() });
+}
+
+export async function getChargingPlanVersions(userId: string): Promise<ChargingPlan[]> {
   const plans = await db.charging_plans
     .filter((plan) => plan.user_id === userId && !plan.deleted_at)
     .toArray();
@@ -533,8 +565,12 @@ export async function updateCurrentTariffVersion(
         roaming_dc_price_per_kwh: input.prices.roaming_dc_price_per_kwh,
         monthly_base_fee: input.prices.monthly_base_fee,
         session_fee: input.prices.session_fee,
-        affiliation: input.affiliation,
-        notes: input.notes,
+        affiliation: Object.prototype.hasOwnProperty.call(input, 'affiliation')
+          ? input.affiliation
+          : version.affiliation,
+        notes: Object.prototype.hasOwnProperty.call(input, 'notes')
+          ? input.notes
+          : version.notes,
         updated_at: now,
       };
     });
@@ -630,7 +666,7 @@ export async function createSuccessorTariffVersion(
 export async function updateLogicalTariffDetails(
   input: UpdateLogicalTariffDetailsInput
 ): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
+  await db.transaction('rw', db.charging_plans, db.provider_plan_selections, db.sync_outbox, async () => {
     const sourceVersions = await loadLogicalVersionsFromTable(
       db.charging_plans,
       input.userId,
@@ -675,11 +711,34 @@ export async function updateLogicalTariffDetails(
     for (const version of updatedVersions) {
       await putPlanAndQueue(db.charging_plans, db.sync_outbox, version, 'UPDATE', now);
     }
+
+    if (input.nextProviderId !== input.providerId) {
+      const sourceVersionIds = sourceVersions.map((version) => version.id);
+      const linkedSelections = await db.provider_plan_selections
+        .where('tariff_plan_id')
+        .anyOf(sourceVersionIds)
+        .filter((selection) => selection.user_id === input.userId && !selection.deleted_at)
+        .toArray();
+
+      for (const selection of linkedSelections) {
+        await putSelectionAndQueue(
+          db.provider_plan_selections,
+          db.sync_outbox,
+          {
+            ...selection,
+            provider_id: input.nextProviderId,
+            updated_at: now
+          },
+          'UPDATE',
+          now
+        );
+      }
+    }
   });
 }
 
 export async function deleteLogicalTariff(input: LogicalTariffIdentityInput): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
+  await db.transaction('rw', db.charging_plans, db.provider_plan_selections, db.sync_outbox, async () => {
     const versions = await loadLogicalVersionsFromTable(
       db.charging_plans,
       input.userId,
@@ -692,16 +751,35 @@ export async function deleteLogicalTariff(input: LogicalTariffIdentityInput): Pr
     }
 
     const now = new Date();
+    const sourceVersionIds = versions.map((version) => version.id);
     const deletedVersions = versions.map((version) => ({
       ...version,
       deleted_at: now,
       updated_at: now
     }));
 
-    deletedVersions.forEach(validatePlan);
+    const linkedSelections = await db.provider_plan_selections
+      .where('tariff_plan_id')
+      .anyOf(sourceVersionIds)
+      .filter((selection) => selection.user_id === input.userId && !selection.deleted_at)
+      .toArray();
+
+    for (const selection of linkedSelections) {
+      await putSelectionAndQueue(
+        db.provider_plan_selections,
+        db.sync_outbox,
+        {
+          ...selection,
+          deleted_at: now,
+          updated_at: now
+        },
+        'DELETE',
+        now
+      );
+    }
 
     for (const version of deletedVersions) {
-      await putPlanAndQueue(db.charging_plans, db.sync_outbox, version, 'DELETE', now);
+      await putPlanAndQueue(db.charging_plans, db.sync_outbox, version, 'DELETE', now, { validate: false });
     }
   });
 }

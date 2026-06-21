@@ -1,7 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TariffList } from './TariffList';
-import { useChargingPlans } from '../hooks/useChargingPlans';
+import { type UseChargingPlansResult, useChargingPlans } from '../hooks/useChargingPlans';
 import { useProviders } from '../hooks/useProviders';
 
 vi.mock('../hooks/useChargingPlans');
@@ -20,6 +20,22 @@ vi.mock('./TariffFormLoader', () => ({
 describe('TariffList', () => {
   const emptyStateHeadline = 'No Tariffs Yet'
   const emptyStateBody = 'Your saved tariffs will appear here once you add your first tariff.'
+  const buildChargingPlansResult = (
+    overrides: Partial<UseChargingPlansResult> = {}
+  ): UseChargingPlansResult => ({
+    plans: [],
+    logicalTariffs: [],
+    isLoading: false,
+    addChargingPlan: vi.fn(),
+    removeChargingPlan: vi.fn(),
+    updateCurrentVersion: vi.fn(),
+    createSuccessorVersion: vi.fn(),
+    updateLogicalTariffDetails: vi.fn(),
+    schedulePermanentChange: vi.fn(),
+    schedulePromotion: vi.fn(),
+    deleteLogicalTariff: vi.fn(),
+    ...overrides,
+  })
 
   const renderTariffList = (
     props: Partial<{
@@ -49,7 +65,7 @@ describe('TariffList', () => {
 
   it('does not render fixed tariff costs and shows domestic prices first', () => {
     // Arrange: Prepare one tariff with domestic, roaming, and fee values.
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [
         {
           id: 't1',
@@ -68,10 +84,7 @@ describe('TariffList', () => {
           updated_at: new Date('2026-01-01T00:00:00.000Z'),
         },
       ],
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-      isLoading: false,
-    });
+    }));
 
     // Act: Render tariff list.
     renderTariffList();
@@ -103,12 +116,9 @@ describe('TariffList', () => {
       created_at: new Date('2026-01-01T00:00:00.000Z'),
       updated_at: new Date('2026-01-01T00:00:00.000Z'),
     };
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [plan],
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-      isLoading: false,
-    });
+    }));
 
     renderTariffList();
 
@@ -127,7 +137,7 @@ describe('TariffList', () => {
   it('uses shared action button styling for list-level and row-level actions', () => {
     // Arrange: Render one tariff so top and row actions are visible.
     const removeChargingPlan = vi.fn();
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [
         {
           id: 't1',
@@ -144,10 +154,8 @@ describe('TariffList', () => {
           updated_at: new Date('2026-01-01T00:00:00.000Z'),
         },
       ],
-      addChargingPlan: vi.fn(),
       removeChargingPlan,
-      isLoading: false,
-    });
+    }));
     renderTariffList();
 
     // Assert: Primary add action and secondary row actions expose shared styling hooks.
@@ -161,7 +169,7 @@ describe('TariffList', () => {
 
   it('hides optional pricing rows when amounts are zero', () => {
     // Arrange: Render tariff with optional amounts set to zero.
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [
         {
           id: 't1',
@@ -180,10 +188,7 @@ describe('TariffList', () => {
           updated_at: new Date('2026-01-01T00:00:00.000Z'),
         },
       ],
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-      isLoading: false,
-    });
+    }));
 
     // Act: Render tariff list.
     renderTariffList();
@@ -197,7 +202,7 @@ describe('TariffList', () => {
 
   it('renders provider name as card title and only shows non-empty variant subtitle', () => {
     // Arrange: Two tariffs for same provider, only one has a non-empty variant name.
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [
         {
           id: 't1',
@@ -226,10 +231,7 @@ describe('TariffList', () => {
           updated_at: new Date('2026-01-01T00:00:00.000Z'),
         },
       ],
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-      isLoading: false,
-    });
+    }));
 
     // Act: Render tariff list.
     renderTariffList();
@@ -243,7 +245,7 @@ describe('TariffList', () => {
 
   it('handles empty and whitespace-only plan names without rendering subtitle', () => {
     // Arrange: Provider exists, but variant names are empty or blank.
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [
         {
           id: 't1',
@@ -272,10 +274,7 @@ describe('TariffList', () => {
           updated_at: new Date('2026-01-01T00:00:00.000Z'),
         },
       ],
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-      isLoading: false,
-    });
+    }));
 
     // Act: Render list.
     renderTariffList();
@@ -293,7 +292,7 @@ describe('TariffList', () => {
       providers: [],
       isLoading: false,
     });
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [
         {
           id: 't1',
@@ -309,10 +308,7 @@ describe('TariffList', () => {
           updated_at: new Date('2026-01-01T00:00:00.000Z'),
         },
       ],
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-      isLoading: false,
-    });
+    }));
 
     // Act: Render list.
     renderTariffList();
@@ -325,12 +321,9 @@ describe('TariffList', () => {
 
   it('opens the create form when the parent requests tariff creation', () => {
     // Arrange: Render the list with a pending parent-owned create request.
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [],
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-      isLoading: false,
-    });
+    }));
 
     // Act: Mount the tariff list with the create flag enabled.
     renderTariffList({ isCreatingTariff: true });
@@ -342,7 +335,7 @@ describe('TariffList', () => {
 
   it('keeps existing tariff cards visible when the parent requests create mode', () => {
     // Arrange: A non-empty list should stay visible under the parent-opened create form.
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [
         {
           id: 't1',
@@ -359,10 +352,7 @@ describe('TariffList', () => {
           updated_at: new Date('2026-01-01T00:00:00.000Z'),
         },
       ],
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-      isLoading: false,
-    });
+    }));
 
     // Act: Mount the tariff list with the create flag enabled.
     renderTariffList({ isCreatingTariff: true });
@@ -375,12 +365,9 @@ describe('TariffList', () => {
 
   it('renders a sessions-style empty state and keeps the add action visible when no plans exist', () => {
     // Arrange: No plans and no open form should show the informative empty state.
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [],
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-      isLoading: false,
-    });
+    }));
 
     // Act: Render the tariffs screen in its closed, empty state.
     renderTariffList();
@@ -398,7 +385,7 @@ describe('TariffList', () => {
 
   it('keeps existing list behavior when the form is open and suppresses the empty state', () => {
     // Arrange: A non-empty list should stay visible under the edit form.
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [
         {
           id: 't1',
@@ -415,10 +402,7 @@ describe('TariffList', () => {
           updated_at: new Date('2026-01-01T00:00:00.000Z'),
         },
       ],
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-      isLoading: false,
-    });
+    }));
 
     // Act: Open the edit form from an existing tariff card.
     renderTariffList();

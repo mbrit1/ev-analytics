@@ -1,11 +1,11 @@
 import { useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { buildLogicalTariffs, type LogicalTariff } from '../model/logicalTariffs';
+import { buildCurrentChargingPlans, buildLogicalTariffs, type LogicalTariff } from '../model/logicalTariffs';
 import {
   createSuccessorTariffVersion,
   deleteChargingPlan,
   deleteLogicalTariff as deleteLogicalTariffService,
-  getChargingPlans,
+  getChargingPlanVersions,
   saveChargingPlan,
   schedulePermanentTariffVersion,
   scheduleTemporaryPromotion,
@@ -27,13 +27,13 @@ export interface UseChargingPlansResult {
   isLoading: boolean;
   addChargingPlan: (plan: ChargingPlan) => Promise<void>;
   removeChargingPlan: (id: string) => Promise<void>;
-  logicalTariffs?: LogicalTariff[];
-  updateCurrentVersion?: (input: UpdateCurrentTariffVersionInput) => Promise<void>;
-  createSuccessorVersion?: (input: CreateSuccessorTariffVersionInput) => Promise<void>;
-  updateLogicalTariffDetails?: (input: UpdateLogicalTariffDetailsInput) => Promise<void>;
-  schedulePermanentChange?: (input: SchedulePermanentTariffVersionInput) => Promise<void>;
-  schedulePromotion?: (input: ScheduleTemporaryPromotionInput) => Promise<void>;
-  deleteLogicalTariff?: (input: LogicalTariffIdentityInput) => Promise<void>;
+  logicalTariffs: LogicalTariff[];
+  updateCurrentVersion: (input: UpdateCurrentTariffVersionInput) => Promise<void>;
+  createSuccessorVersion: (input: CreateSuccessorTariffVersionInput) => Promise<void>;
+  updateLogicalTariffDetails: (input: UpdateLogicalTariffDetailsInput) => Promise<void>;
+  schedulePermanentChange: (input: SchedulePermanentTariffVersionInput) => Promise<void>;
+  schedulePromotion: (input: ScheduleTemporaryPromotionInput) => Promise<void>;
+  deleteLogicalTariff: (input: LogicalTariffIdentityInput) => Promise<void>;
 }
 
 /**
@@ -45,13 +45,17 @@ export interface UseChargingPlansResult {
 export function useChargingPlans(): UseChargingPlansResult {
   const { user } = useAuth();
   const today = useUtcToday();
-  const plans = useLiveQuery(async () => {
+  const versions = useLiveQuery(async () => {
     if (!user) return [];
-    return getChargingPlans(user.id);
+    return getChargingPlanVersions(user.id);
   }, [user?.id]);
+  const plans = useMemo(
+    () => buildCurrentChargingPlans(versions ?? [], { at: today }),
+    [today, versions]
+  );
   const logicalTariffs = useMemo(
-    () => buildLogicalTariffs(plans ?? [], today),
-    [plans, today]
+    () => buildLogicalTariffs(versions ?? [], today),
+    [today, versions]
   );
 
   const addChargingPlan = async (plan: ChargingPlan) => {
@@ -89,9 +93,9 @@ export function useChargingPlans(): UseChargingPlansResult {
   };
 
   return {
-    plans: plans || [],
+    plans,
     logicalTariffs,
-    isLoading: plans === undefined,
+    isLoading: versions === undefined,
     addChargingPlan,
     removeChargingPlan,
     updateCurrentVersion,

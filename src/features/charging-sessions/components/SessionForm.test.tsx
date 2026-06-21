@@ -2,7 +2,7 @@ import { StrictMode } from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionForm } from './SessionForm';
-import { getActivePlanSelectionAt, setActivePlanSelection, useChargingPlans, useProviders } from '../../charging-plans';
+import { getActivePlanSelectionAt, setActivePlanSelection, type UseChargingPlansResult, useChargingPlans, useProviders } from '../../charging-plans';
 import { type ChargingPlan, type ChargingSession, type Provider } from '../../../infra/db';
 import type { SessionPersistenceRequest } from '../services/sessionService';
 
@@ -58,10 +58,29 @@ describe('SessionForm', () => {
     };
   }
 
+  function buildChargingPlansResult(
+    overrides: Partial<UseChargingPlansResult> = {}
+  ): UseChargingPlansResult {
+    return {
+      plans: [],
+      logicalTariffs: [],
+      isLoading: false,
+      addChargingPlan: vi.fn(),
+      removeChargingPlan: vi.fn(),
+      updateCurrentVersion: vi.fn(),
+      createSuccessorVersion: vi.fn(),
+      updateLogicalTariffDetails: vi.fn(),
+      schedulePermanentChange: vi.fn(),
+      schedulePromotion: vi.fn(),
+      deleteLogicalTariff: vi.fn(),
+      ...overrides,
+    };
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
     HTMLElement.prototype.scrollIntoView = mockScrollIntoView;
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [
         {
           id: 't1',
@@ -97,10 +116,7 @@ describe('SessionForm', () => {
           session_fee: 0
         }
       ] as unknown as ChargingPlan[],
-      isLoading: false,
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-    });
+    }));
     vi.mocked(useProviders).mockReturnValue({
       providers: [
         { id: 'p1', name: 'ChargePoint' },
@@ -352,12 +368,10 @@ describe('SessionForm', () => {
       session_mode: 'plan',
     });
     vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: true });
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [],
       isLoading: true,
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-    });
+    }));
 
     const { rerender } = render(
       <StrictMode>
@@ -377,7 +391,7 @@ describe('SessionForm', () => {
       providers: [{ id: 'p1', name: 'ChargePoint' }] as unknown as Provider[],
       isLoading: false,
     });
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [{
         id: 't1',
         name: 'P1 Home',
@@ -390,9 +404,7 @@ describe('SessionForm', () => {
         session_fee: 0,
       }] as unknown as ChargingPlan[],
       isLoading: false,
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-    });
+    }));
     rerender(
       <StrictMode>
         <SessionForm
@@ -442,12 +454,10 @@ describe('SessionForm', () => {
   it('renders pricing source as read-only while keeping persisted plan values visible', () => {
     // Arrange: the persisted provider and plan are absent from active hook results.
     vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [],
       isLoading: false,
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-    });
+    }));
     const initialValues = buildSessionFixture({
       id: 'session-plan-edit',
       provider_id: 'retired-provider',
@@ -1092,7 +1102,7 @@ describe('SessionForm', () => {
 
   it('renders only combined charging rates backed by tariff prices', () => {
     // Arrange: Render a plan that has domestic AC and roaming DC pricing only.
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [
         {
           id: 't1',
@@ -1107,9 +1117,7 @@ describe('SessionForm', () => {
         }
       ] as unknown as ChargingPlan[],
       isLoading: false,
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-    });
+    }));
 
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
@@ -1128,7 +1136,7 @@ describe('SessionForm', () => {
 
   it('auto-selects the only available charging rate', async () => {
     // Arrange: Render a plan that has domestic AC pricing only.
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [
         {
           id: 't2',
@@ -1143,9 +1151,7 @@ describe('SessionForm', () => {
         }
       ] as unknown as ChargingPlan[],
       isLoading: false,
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-    });
+    }));
 
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
