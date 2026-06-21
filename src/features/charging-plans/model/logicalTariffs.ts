@@ -45,6 +45,10 @@ export interface LogicalTariff {
   history: LogicalTariffHistoryRow[]
 }
 
+export interface CurrentChargingPlanOptions {
+  at: Date
+}
+
 const PRICE_STRUCTURE_KEYS = [
   'ac_price_per_kwh',
   'dc_price_per_kwh',
@@ -359,3 +363,23 @@ export const buildLogicalTariffs = (plans: ChargingPlan[], today: Date): Logical
       }
     })
 }
+
+export const buildCurrentChargingPlans = (
+  plans: ChargingPlan[],
+  options: CurrentChargingPlanOptions,
+): ChargingPlan[] =>
+  buildLogicalTariffs(plans, options.at)
+    .flatMap((logicalTariff) => (logicalTariff.currentVersion ? [logicalTariff.currentVersion] : []))
+    .sort((left, right) => {
+      const providerCompare = left.provider_id.localeCompare(right.provider_id)
+      if (providerCompare !== 0) {
+        return providerCompare
+      }
+
+      const nameCompare = trimTariffName(left.name).localeCompare(trimTariffName(right.name))
+      if (nameCompare !== 0) {
+        return nameCompare
+      }
+
+      return left.valid_from.getTime() - right.valid_from.getTime()
+    })

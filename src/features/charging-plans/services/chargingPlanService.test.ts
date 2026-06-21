@@ -5,6 +5,7 @@ import {
   deleteChargingPlan,
   deleteLogicalTariff,
   getChargingPlans,
+  getChargingPlanVersions,
   getEffectiveChargingPlanAt,
   saveChargingPlan,
   schedulePermanentTariffVersion,
@@ -100,6 +101,7 @@ describe('planService', () => {
   beforeEach(async () => {
     // Keep local charging-plan and outbox state isolated between fake IndexedDB tests.
     await db.charging_plans.clear()
+    await db.provider_plan_selections.clear()
     await db.sessions.clear()
     await db.sync_outbox.clear()
   })
@@ -189,7 +191,7 @@ describe('planService', () => {
     })
 
     // Assert: String-backed rows are normalized before version arithmetic runs.
-    const plans = sortedLogicalRows(await getChargingPlans('user-1'))
+    const plans = sortedLogicalRows(await getChargingPlanVersions('user-1'))
     expect(plans.map((plan) => [plan.valid_from.toISOString(), plan.valid_to?.toISOString() ?? null, plan.ac_price_per_kwh])).toEqual([
       ['2026-01-01T00:00:00.000Z', '2026-08-10T00:00:00.000Z', 49],
       ['2026-08-10T00:00:00.000Z', '2026-09-01T00:00:00.000Z', 24],
@@ -224,7 +226,7 @@ describe('planService', () => {
     }))
 
     // Assert: The save path hydrates existing date strings before overlap checks.
-    const plans = sortedLogicalRows(await getChargingPlans('user-1'))
+    const plans = sortedLogicalRows(await getChargingPlanVersions('user-1'))
     expect(plans).toHaveLength(2)
     expect(plans.map((plan) => [plan.id, plan.valid_from.toISOString(), plan.valid_to?.toISOString() ?? null])).toEqual([
       ['existing-plan', '2026-01-01T00:00:00.000Z', '2026-03-01T00:00:00.000Z'],
@@ -488,6 +490,37 @@ describe('planService', () => {
     expect((await db.sessions.get('session-1'))?.charging_plan_name_snapshot).toBe('Lidl')
   })
 
+  it('preserves existing affiliation and notes when current-version fields are omitted', async () => {
+    // Arrange: Seed one open logical tariff baseline with descriptive metadata.
+    await seedOpenBaseline({
+      id: 'baseline',
+      name: 'Lidl',
+      affiliation: 'member',
+      notes: 'keep me',
+    })
+
+    // Act: Update only the current version pricing and name.
+    await updateCurrentTariffVersion({
+      userId: 'user-1',
+      providerId: 'provider-1',
+      name: 'Lidl',
+      currentVersionId: 'baseline',
+      validFrom: utc('2026-01-01'),
+      nextName: 'Lidl Corrected',
+      prices: buildPrices({
+        ac_price_per_kwh: 55,
+        dc_price_per_kwh: 65,
+        roaming_ac_price_per_kwh: 75,
+        roaming_dc_price_per_kwh: 85,
+      }),
+    })
+
+    // Assert: Omitted descriptive fields are preserved on the current version.
+    const [plan] = sortedLogicalRows(await getChargingPlanVersions('user-1'))
+    expect(plan?.affiliation).toBe('member')
+    expect(plan?.notes).toBe('keep me')
+  })
+
   it('creates a successor when valid_from changes', async () => {
     // Arrange: Seed an open logical tariff baseline.
     await seedOpenBaseline({ id: 'baseline', valid_from: utc('2026-01-01'), valid_to: null })
@@ -619,6 +652,42 @@ describe('planService', () => {
     expect(targetPlans[0]?.deleted_at?.toISOString()).toBe(targetPlans[1]?.deleted_at?.toISOString())
   })
 
+  it('soft-deletes a logical tariff even when one stored version is legacy-invalid', async () => {
+    // Arrange: Seed one legacy-invalid version and one valid successor for the same logical tariff.
+    await db.charging_plans.bulkAdd([
+      {
+        ...buildPlan({
+          id: 'target-invalid',
+          provider_id: 'provider-1',
+          name: 'Lidl',
+          valid_from: utc('2026-01-01'),
+          valid_to: utc('2026-08-15'),
+        }),
+        ac_price_per_kwh: undefined,
+        dc_price_per_kwh: undefined,
+        roaming_ac_price_per_kwh: undefined,
+        roaming_dc_price_per_kwh: undefined,
+        monthly_base_fee: 0,
+        session_fee: 0,
+      },
+      buildPlan({ id: 'target-next', provider_id: 'provider-1', name: 'Lidl', valid_from: utc('2026-08-15'), valid_to: null }),
+    ])
+
+    // Act: Delete the logical tariff identity.
+    await deleteLogicalTariff({
+      userId: 'user-1',
+      providerId: 'provider-1',
+      name: 'Lidl',
+    })
+
+    // Assert: Both versions are still soft-deleted and delete outbox rows are queued.
+    const targetPlans = sortedLogicalRows((await db.charging_plans.toArray()).filter((plan) => plan.provider_id === 'provider-1'))
+    expect(targetPlans).toHaveLength(2)
+    expect(targetPlans.every((plan) => plan.deleted_at instanceof Date)).toBe(true)
+    const outbox = await db.sync_outbox.toArray()
+    expect(outbox.filter((entry) => entry.action === 'DELETE' && entry.table_name === 'charging_plans')).toHaveLength(2)
+  })
+
   it('queues one DELETE outbox entry per version when deleting a logical tariff', async () => {
     // Arrange: Seed a logical tariff with two versions to delete.
     await db.charging_plans.bulkAdd([
@@ -666,6 +735,70 @@ describe('planService', () => {
 
     const sessions = await db.sessions.toArray()
     expect(sessions).toEqual(sessionsBefore)
+  })
+
+  it('updates provider plan selections when moving a logical tariff to another provider', async () => {
+    // Arrange: Seed a logical tariff version plus an active selection row that references it.
+    await db.charging_plans.add(
+      buildPlan({ id: 'target-base', provider_id: 'provider-1', name: 'Lidl', valid_from: utc('2026-01-01'), valid_to: null })
+    )
+    await db.provider_plan_selections.add({
+      id: 'selection-1',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      tariff_plan_id: 'target-base',
+      valid_from: utc('2026-01-01'),
+      valid_to: null,
+      price_snapshot: { label: 'Lidl', kWhPrice: 49 },
+      created_at: utc('2026-01-01'),
+      updated_at: utc('2026-01-01'),
+    })
+
+    // Act: Move the logical tariff identity to another provider.
+    await updateLogicalTariffDetails({
+      userId: 'user-1',
+      providerId: 'provider-1',
+      name: 'Lidl',
+      nextProviderId: 'provider-2',
+      nextName: 'Lidl Plus',
+    })
+
+    // Assert: Referencing provider selection rows are updated to the new provider as part of the same change.
+    const selection = await db.provider_plan_selections.get('selection-1')
+    expect(selection?.provider_id).toBe('provider-2')
+    const outbox = await db.sync_outbox.toArray()
+    expect(outbox.some((entry) => entry.table_name === 'provider_plan_selections' && entry.action === 'UPDATE')).toBe(true)
+  })
+
+  it('soft-deletes provider plan selections that point at a deleted logical tariff', async () => {
+    // Arrange: Seed a logical tariff version plus an active selection row that references it.
+    await db.charging_plans.add(
+      buildPlan({ id: 'target-base', provider_id: 'provider-1', name: 'Lidl', valid_from: utc('2026-01-01'), valid_to: null })
+    )
+    await db.provider_plan_selections.add({
+      id: 'selection-1',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      tariff_plan_id: 'target-base',
+      valid_from: utc('2026-01-01'),
+      valid_to: null,
+      price_snapshot: { label: 'Lidl', kWhPrice: 49 },
+      created_at: utc('2026-01-01'),
+      updated_at: utc('2026-01-01'),
+    })
+
+    // Act: Delete the logical tariff identity.
+    await deleteLogicalTariff({
+      userId: 'user-1',
+      providerId: 'provider-1',
+      name: 'Lidl',
+    })
+
+    // Assert: Referencing selection rows are also soft-deleted so active-selection state cannot go stale.
+    const selection = await db.provider_plan_selections.get('selection-1')
+    expect(selection?.deleted_at).toBeInstanceOf(Date)
+    const outbox = await db.sync_outbox.toArray()
+    expect(outbox.some((entry) => entry.table_name === 'provider_plan_selections' && entry.action === 'DELETE')).toBe(true)
   })
 
   it('should save a charging plan and create an outbox entry', async () => {
@@ -735,6 +868,24 @@ describe('planService', () => {
     // Assert: Soft-deleted charging plans are excluded from active results.
     expect(plans).toHaveLength(1)
     expect(plans[0].id).toBe('p1')
+  })
+
+  it('returns only the current effective version for each logical tariff in the legacy plans view', async () => {
+    // Arrange: Seed one past, current, and future version around the real current day.
+    const now = new Date()
+    const daysFromNow = (days: number): Date => new Date(now.getTime() + days * 24 * 60 * 60 * 1000)
+    await db.charging_plans.bulkAdd([
+      buildPlan({ id: 'past', user_id: 'u1', provider_id: 'provider-1', name: 'Plan 1', valid_from: daysFromNow(-180), valid_to: daysFromNow(-30) }),
+      buildPlan({ id: 'current', user_id: 'u1', provider_id: 'provider-1', name: 'Plan 1', valid_from: daysFromNow(-30), valid_to: daysFromNow(30) }),
+      buildPlan({ id: 'future', user_id: 'u1', provider_id: 'provider-1', name: 'Plan 1', valid_from: daysFromNow(30), valid_to: null }),
+      buildPlan({ id: 'other-current', user_id: 'u1', provider_id: 'provider-1', name: 'Plan 2', valid_from: daysFromNow(-15), valid_to: null }),
+    ])
+
+    // Act: Read the legacy-safe plans view.
+    const plans = await getChargingPlans('u1')
+
+    // Assert: Only the effective current version for each logical tariff is returned.
+    expect(plans.map((plan) => plan.id)).toEqual(['current', 'other-current'])
   })
 
   it('should soft delete a charging plan and create a DELETE outbox entry', async () => {
