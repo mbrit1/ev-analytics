@@ -83,6 +83,7 @@ describe('PermanentPriceChangeForm', () => {
     expect(screen.getByLabelText(/roaming dc price/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/monthly base fee/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/session fee/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/effective from/i)).toBeRequired();
   });
 
   it('converts comma decimals to integer cents on submit', async () => {
@@ -223,7 +224,11 @@ describe('PermanentPriceChangeForm', () => {
 
     // Assert: Validation blocks submit and preserves the typed value.
     expect(await screen.findByText('Enter a valid non-negative amount')).toBeInTheDocument();
-    expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('-1,00');
+    const acPriceInput = screen.getByLabelText(/^ac price$/i);
+    expect(acPriceInput).toHaveValue('-1,00');
+    expect(acPriceInput).toHaveAttribute('aria-invalid', 'true');
+    expect(acPriceInput).toHaveAttribute('aria-describedby');
+    expect(screen.getByText('Enter a valid non-negative amount').id).toBe(acPriceInput.getAttribute('aria-describedby'));
     expect(mockOnSubmit).not.toHaveBeenCalled();
   });
 

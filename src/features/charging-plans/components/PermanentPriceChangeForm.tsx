@@ -137,7 +137,7 @@ export const PermanentPriceChangeForm: React.FC<PermanentPriceChangeFormProps> =
         )}
         <section className="space-y-6" aria-labelledby="permanent-change-section">
           <h3 id="permanent-change-section" className="text-[13px] font-semibold text-secondary uppercase tracking-wider">Price Change</h3>
-          <ThinInput label="Effective From" requiredIndicator type="date" min={earliestVersionStart} {...register('effective_from')} error={errors.effective_from?.message} />
+          <ThinInput label="Effective From" required requiredIndicator type="date" min={earliestVersionStart} {...register('effective_from')} error={errors.effective_from?.message} />
           <ThinInput label="AC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('ac_price')} error={errors.ac_price?.message} />
           <ThinInput label="DC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('dc_price')} error={errors.dc_price?.message} />
           <ThinInput label="Roaming AC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('roaming_ac_price')} error={errors.roaming_ac_price?.message} />

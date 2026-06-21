@@ -33,6 +33,7 @@ interface ThinInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 export const ThinInput = forwardRef<HTMLInputElement, ThinInputProps>(
   ({ label, unit, error, align, layout = 'vertical', className, id, labelClassName, requiredIndicator = false, ...props }, ref) => {
     const inputId = id || label.toLowerCase().replace(/\s+/g, '-');
+    const errorId = `${inputId}-error`;
     const isHorizontal = layout === 'horizontal';
     const textAlignment = align || (isHorizontal || unit ? 'right' : 'left');
 
@@ -72,10 +73,13 @@ export const ThinInput = forwardRef<HTMLInputElement, ThinInputProps>(
           <input
             ref={ref}
             id={inputId}
+            {...props}
+            aria-describedby={error ? errorId : props['aria-describedby']}
+            aria-invalid={error ? 'true' : props['aria-invalid']}
+            aria-required={props.required ? 'true' : props['aria-required']}
             className={`flex-1 bg-transparent text-2xl md:text-4xl font-medium tabular-nums outline-none placeholder:text-secondary/20 transition-all ${
               textAlignment === 'right' ? 'text-right' : 'text-left'
             } ${className || ''}`}
-            {...props}
           />
           {unit && (
             <span className="text-base md:text-xl text-secondary font-medium ml-2 shrink-0 min-w-[24px] md:min-w-[32px] text-right">
@@ -83,8 +87,8 @@ export const ThinInput = forwardRef<HTMLInputElement, ThinInputProps>(
             </span>
           )}
         </div>
-        {error && !isHorizontal && (
-          <p className="text-sm text-red-500 font-medium mt-1.5">{error}</p>
+        {error && (
+          <p id={errorId} className="text-sm text-red-500 font-medium mt-1.5">{error}</p>
         )}
       </div>
     );
