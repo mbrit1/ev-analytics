@@ -1,22 +1,68 @@
-import { useEffect, useState } from 'react';
-import { Info, Plus, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Info, Plus } from 'lucide-react';
 import { formatCurrency } from '../../../shared/lib';
-import { type ChargingPlan } from '../../../infra/db';
+import { Slab } from '../../../shared/ui';
+import { useAuth } from '../../auth';
+import type { ChargingPlan } from '../../../infra/db';
 import { useChargingPlans } from '../hooks/useChargingPlans';
 import { useProviders } from '../hooks/useProviders';
+import { DeleteLogicalTariffDialog } from './DeleteLogicalTariffDialog';
+import { PermanentPriceChangeForm } from './PermanentPriceChangeForm';
 import { TariffFormLoader } from './TariffFormLoader';
-import { Slab } from '../../../shared/ui';
+import { TariffVersionActionMenu } from './TariffVersionActionMenu';
+import { TariffVersionHistorySheet } from './TariffVersionHistorySheet';
+import { TemporaryPromotionForm } from './TemporaryPromotionForm';
+
+type TariffSurface =
+  | { kind: 'none' }
+  | { kind: 'details'; key: string }
+  | { kind: 'permanent_change'; key: string }
+  | { kind: 'promotion'; key: string }
+  | { kind: 'history'; key: string }
+  | { kind: 'delete'; key: string };
 
 /**
  * Tariffs screen backed by the charging-plan domain.
  */
 interface TariffListProps {
   /** Controls whether the create form should open from the parent shell. */
-  isCreatingTariff: boolean
+  isCreatingTariff: boolean;
   /** Clears the parent-owned tariff create request when consumed or dismissed. */
-  onCreateTariffChange: (isCreatingTariff: boolean) => void
+  onCreateTariffChange: (isCreatingTariff: boolean) => void;
   /** Emits whether the create/edit form surface is currently open. */
-  onFormOpenChange?: (isOpen: boolean) => void
+  onFormOpenChange?: (isOpen: boolean) => void;
+}
+
+interface CurrentPricingRowsProps {
+  plan: ChargingPlan | null;
+}
+
+function CurrentPricingRows({ plan }: CurrentPricingRowsProps) {
+  const rows = [
+    ['Domestic AC', plan?.ac_price_per_kwh],
+    ['Domestic DC', plan?.dc_price_per_kwh],
+    ['Roaming AC', plan?.roaming_ac_price_per_kwh],
+    ['Roaming DC', plan?.roaming_dc_price_per_kwh],
+    ['Monthly Base Fee', plan?.monthly_base_fee],
+    ['Session Fee', plan?.session_fee],
+  ] as const;
+
+  return (
+    <div className="grid max-w-3xl grid-cols-1 gap-x-8 gap-y-2 text-sm md:grid-cols-2">
+      {rows.map(([label, value]) => (
+        <div key={label} className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
+          <span>{label}</span>
+          <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
+            {value == null ? '—' : formatCurrency(value)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function getLogicalTariffLabel(providerName: string, tariffName: string): string {
+  return tariffName ? `${providerName} ${tariffName}` : providerName;
 }
 
 /**
@@ -27,31 +73,64 @@ export function TariffList({
   onCreateTariffChange,
   onFormOpenChange,
 }: TariffListProps) {
-  const { plans, addChargingPlan, removeChargingPlan, isLoading } = useChargingPlans()
-  const { providers } = useProviders()
-  const [isFormOpen, setIsFormOpen] = useState(false)
-  const [editingPlan, setEditingPlan] = useState<ChargingPlan | undefined>(undefined)
-  const isCreateRequested = isCreatingTariff && !isFormOpen
-  const isFormVisible = isFormOpen || isCreateRequested
-  const hasPlans = plans.length > 0
+  const {
+    logicalTariffs,
+    addChargingPlan,
+    isLoading,
+    updateLogicalTariffDetails,
+    schedulePermanentChange,
+    schedulePromotion,
+    deleteLogicalTariff,
+  } = useChargingPlans();
+  const { providers } = useProviders();
+  const { user } = useAuth();
+  const [surface, setSurface] = useState<TariffSurface>({ kind: 'none' });
+  const [isCreateRequested, setIsCreateRequested] = useState(false);
+  const [isDeletePending, setIsDeletePending] = useState(false);
+
+  const providerNameById = useMemo(
+    () => new Map(providers.map((provider) => [provider.id, provider.name])),
+    [providers],
+  );
+  const logicalTariffsByKey = useMemo(
+    () => new Map((logicalTariffs ?? []).map((logicalTariff) => [logicalTariff.key, logicalTariff])),
+    [logicalTariffs],
+  );
+  const resolvedSurface: TariffSurface = surface.kind !== 'none' && !logicalTariffsByKey.has(surface.key)
+    ? { kind: 'none' }
+    : surface;
+  const activeLogicalTariff = resolvedSurface.kind === 'none'
+    ? null
+    : logicalTariffsByKey.get(resolvedSurface.key) ?? null;
+  const isCreateOpen = isCreatingTariff || isCreateRequested;
+  const isFormVisible = isCreateOpen || ['details', 'permanent_change', 'promotion'].includes(resolvedSurface.kind);
+  const hasLogicalTariffs = (logicalTariffs ?? []).length > 0;
 
   useEffect(() => {
-    onFormOpenChange?.(isFormVisible)
-  }, [isFormVisible, onFormOpenChange])
+    onFormOpenChange?.(isFormVisible);
+  }, [isFormVisible, onFormOpenChange]);
 
-  const handleSubmit = async (plan: ChargingPlan) => {
-    await addChargingPlan(plan)
-    setIsFormOpen(false)
-    setEditingPlan(undefined)
-    onCreateTariffChange(false)
-  }
+  const closeCreate = () => {
+    setIsCreateRequested(false);
+    onCreateTariffChange(false);
+  };
+
+  const closeSurface = () => {
+    setSurface({ kind: 'none' });
+    setIsDeletePending(false);
+  };
+
+  const handleCreateSubmit = async (plan: ChargingPlan) => {
+    await addChargingPlan({
+      ...plan,
+      user_id: user?.id ?? plan.user_id,
+    });
+    closeCreate();
+  };
 
   if (isLoading) {
-    return <div>Loading tariffs...</div>
+    return <div>Loading tariffs...</div>;
   }
-
-  const shouldRenderOptionalAmount = (amount: number | undefined): amount is number => amount != null && amount > 0
-  const providerNameById = new Map(providers.map((provider) => [provider.id, provider.name]))
 
   return (
     <div className="space-y-4">
@@ -59,110 +138,166 @@ export function TariffList({
         <h1 className="text-2xl font-bold tracking-tight text-primary">Tariffs</h1>
         {!isFormVisible && (
           <button
-            onClick={() => setIsFormOpen(true)}
-            className="hidden md:flex items-center px-4 py-2 bg-accent text-white font-bold rounded-xl hover:opacity-90 transition-all shadow-md shadow-accent/20 min-h-[44px]"
+            type="button"
+            onClick={() => setIsCreateRequested(true)}
+            className="hidden min-h-[44px] items-center rounded-xl bg-accent px-4 py-2 font-bold text-white shadow-md shadow-accent/20 transition-all hover:opacity-90 md:flex"
           >
-            <Plus className="w-5 h-5 mr-2" />
+            <Plus className="mr-2 h-5 w-5" />
             Add Tariff
           </button>
         )}
       </div>
 
-      {isFormVisible && (
+      {isCreateOpen && (
         <TariffFormLoader
-          onSubmit={handleSubmit}
-          onCancel={() => {
-            setIsFormOpen(false)
-            setEditingPlan(undefined)
-            onCreateTariffChange(false)
-          }}
-          initialValues={isCreatingTariff ? undefined : editingPlan}
+          mode="create"
+          onSubmit={handleCreateSubmit}
+          onCancel={closeCreate}
         />
       )}
 
-      {!isFormVisible && !hasPlans && (
-        <Slab className="text-center p-12">
-          <Info className="w-12 h-12 text-secondary/30 mx-auto mb-4" />
-          <h2 className="text-xl font-bold text-primary mb-2">No Tariffs Yet</h2>
+      {!isCreateOpen && resolvedSurface.kind === 'details' && activeLogicalTariff && (
+        <TariffFormLoader
+          mode="details"
+          onSubmit={async (values) => {
+            await updateLogicalTariffDetails?.({
+              userId: user?.id ?? '',
+              providerId: activeLogicalTariff.providerId,
+              name: activeLogicalTariff.name,
+              ...values,
+            });
+            closeSurface();
+          }}
+          onCancel={closeSurface}
+          initialValues={{
+            provider_id: activeLogicalTariff.providerId,
+            name: activeLogicalTariff.name,
+            affiliation: activeLogicalTariff.currentVersion?.affiliation,
+            notes: activeLogicalTariff.currentVersion?.notes,
+          }}
+        />
+      )}
+
+      {!isCreateOpen && resolvedSurface.kind === 'permanent_change' && activeLogicalTariff && (
+        <PermanentPriceChangeForm
+          versions={activeLogicalTariff.versions}
+          onSubmit={async (values) => {
+            await schedulePermanentChange?.({
+              userId: user?.id ?? '',
+              providerId: activeLogicalTariff.providerId,
+              name: activeLogicalTariff.name,
+              ...values,
+            });
+            closeSurface();
+          }}
+          onCancel={closeSurface}
+        />
+      )}
+
+      {!isCreateOpen && resolvedSurface.kind === 'promotion' && activeLogicalTariff && (
+        <TemporaryPromotionForm
+          versions={activeLogicalTariff.versions}
+          onSubmit={async (values) => {
+            await schedulePromotion?.({
+              userId: user?.id ?? '',
+              providerId: activeLogicalTariff.providerId,
+              name: activeLogicalTariff.name,
+              ...values,
+            });
+            closeSurface();
+          }}
+          onCancel={closeSurface}
+        />
+      )}
+
+      {!isCreateOpen && resolvedSurface.kind === 'history' && activeLogicalTariff && (
+        <TariffVersionHistorySheet
+          logicalTariff={activeLogicalTariff}
+          providerName={providerNameById.get(activeLogicalTariff.providerId) ?? activeLogicalTariff.providerId}
+          onClose={closeSurface}
+        />
+      )}
+
+      {!isFormVisible && !hasLogicalTariffs && (
+        <Slab className="p-12 text-center">
+          <Info className="mx-auto mb-4 h-12 w-12 text-secondary/30" />
+          <h2 className="mb-2 text-xl font-bold text-primary">No Tariffs Yet</h2>
           <p className="text-secondary">Your saved tariffs will appear here once you add your first tariff.</p>
         </Slab>
       )}
 
-      {plans.map((plan) => {
-        const providerName = providerNameById.get(plan.provider_id) ?? plan.provider_id;
-        const variantName = (plan.name ?? '').trim();
-        const editLabel = variantName.length > 0 ? `Edit ${providerName} ${variantName}` : `Edit ${providerName}`;
-        const deleteLabel = variantName.length > 0 ? `Delete ${providerName} ${variantName}` : `Delete ${providerName}`;
+      {(logicalTariffs ?? []).map((logicalTariff) => {
+        const providerName = providerNameById.get(logicalTariff.providerId) ?? logicalTariff.providerId;
+        const logicalTariffLabel = getLogicalTariffLabel(providerName, logicalTariff.name);
 
         return (
-        <Slab key={plan.id} className="space-y-4 p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-semibold text-primary">{providerName}</h2>
-              {variantName.length > 0 && (
-                <p className="text-sm text-secondary">{variantName}</p>
-              )}
+          <Slab key={logicalTariff.key} className="space-y-4 p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <h2 className="text-xl font-semibold text-primary">{providerName}</h2>
+                {logicalTariff.name && (
+                  <p className="text-sm text-secondary">{logicalTariff.name}</p>
+                )}
+                {logicalTariff.badge && (
+                  <p className="text-sm font-medium text-primary">{logicalTariff.badge.label}</p>
+                )}
+              </div>
+              <div className="flex items-start gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setSurface({ kind: 'details', key: logicalTariff.key })}
+                  aria-label={`Edit ${logicalTariffLabel}`}
+                  className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-secondary/10 px-4 py-2 font-bold text-primary transition-all hover:bg-secondary/20"
+                >
+                  Edit
+                </button>
+                <TariffVersionActionMenu
+                  label={logicalTariffLabel}
+                  onEditDetails={() => setSurface({ kind: 'details', key: logicalTariff.key })}
+                  onPermanentChange={() => setSurface({ kind: 'permanent_change', key: logicalTariff.key })}
+                  onPromotion={() => setSurface({ kind: 'promotion', key: logicalTariff.key })}
+                  onDelete={() => setSurface({ kind: 'delete', key: logicalTariff.key })}
+                />
+              </div>
             </div>
-            <div className="flex gap-2 pt-1">
-              <button
-                onClick={() => {
-                  setEditingPlan(plan)
-                  setIsFormOpen(true)
-                }}
-                aria-label={editLabel}
-                className="inline-flex items-center justify-center px-3 py-2 bg-secondary/10 text-primary font-bold rounded-xl hover:bg-secondary/20 transition-all min-h-[44px] sm:px-4"
-              >
-                <span className="text-lg leading-none sm:hidden" aria-hidden="true">✎</span>
-                <span className="hidden sm:inline">Edit</span>
-              </button>
-              <button
-                onClick={() => removeChargingPlan(plan.id)}
-                aria-label={deleteLabel}
-                className="inline-flex items-center justify-center px-3 py-2 border border-secondary/20 text-primary font-bold rounded-xl hover:bg-secondary/5 transition-all min-h-[44px] sm:px-4"
-              >
-                <Trash2 className="h-4 w-4 sm:hidden" aria-hidden="true" />
-                <span className="hidden sm:inline">Delete</span>
-              </button>
-            </div>
-          </div>
 
-          <div className="grid max-w-3xl grid-cols-1 gap-x-8 gap-y-2 text-sm md:grid-cols-2">
-            <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
-              <span>Domestic AC</span>
-              <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">{plan.ac_price_per_kwh == null ? '—' : formatCurrency(plan.ac_price_per_kwh)}</span>
-            </div>
-            <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
-              <span>Domestic DC</span>
-              <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">{plan.dc_price_per_kwh == null ? '—' : formatCurrency(plan.dc_price_per_kwh)}</span>
-            </div>
-            {shouldRenderOptionalAmount(plan.roaming_ac_price_per_kwh) && (
-              <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
-                <span>Roaming AC</span>
-                <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums">{formatCurrency(plan.roaming_ac_price_per_kwh)}</span>
-              </div>
-            )}
-            {shouldRenderOptionalAmount(plan.roaming_dc_price_per_kwh) && (
-              <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
-                <span>Roaming DC</span>
-                <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums">{formatCurrency(plan.roaming_dc_price_per_kwh)}</span>
-              </div>
-            )}
-            {shouldRenderOptionalAmount(plan.monthly_base_fee) && (
-              <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
-                <span>Monthly Base Fee</span>
-                <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums">{formatCurrency(plan.monthly_base_fee)}</span>
-              </div>
-            )}
-            {shouldRenderOptionalAmount(plan.session_fee) && (
-              <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
-                <span>Session Fee</span>
-                <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums">{formatCurrency(plan.session_fee)}</span>
-              </div>
-            )}
-          </div>
-        </Slab>
+            <CurrentPricingRows plan={logicalTariff.currentVersion} />
+
+            <button
+              type="button"
+              onClick={() => setSurface({ kind: 'history', key: logicalTariff.key })}
+              className="min-h-[44px] text-sm font-medium text-secondary transition-colors hover:text-primary"
+            >
+              View history for {logicalTariffLabel}
+            </button>
+          </Slab>
         );
       })}
+
+      {!isCreateOpen && resolvedSurface.kind === 'delete' && activeLogicalTariff && (
+        <DeleteLogicalTariffDialog
+          logicalTariffLabel={getLogicalTariffLabel(
+            providerNameById.get(activeLogicalTariff.providerId) ?? activeLogicalTariff.providerId,
+            activeLogicalTariff.name,
+          )}
+          isDeleting={isDeletePending}
+          onCancel={closeSurface}
+          onConfirm={async () => {
+            setIsDeletePending(true);
+
+            try {
+              await deleteLogicalTariff?.({
+                userId: user?.id ?? '',
+                providerId: activeLogicalTariff.providerId,
+                name: activeLogicalTariff.name,
+              });
+              closeSurface();
+            } finally {
+              setIsDeletePending(false);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
