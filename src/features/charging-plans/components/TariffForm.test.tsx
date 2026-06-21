@@ -48,6 +48,24 @@ describe('TariffForm', () => {
     expect(screen.getByRole('heading', { name: 'Charging Prices' })).toHaveAttribute('id', 'tariff-section-charging-prices');
   });
 
+  it('uses explicit mode to determine the standard form title', () => {
+    // Arrange: Render standard mode with an existing id but create-mode intent.
+    render(
+      <TariffForm
+        mode="create"
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        initialValues={{ id: 'existing-id', provider_id: 'p1', name: 'Draft Tariff' }}
+      />
+    );
+
+    // Act: Inspect the shell title.
+
+    // Assert: Title follows the explicit mode contract rather than inferred id presence.
+    expect(screen.getByRole('heading', { name: 'New Tariff' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Edit Tariff' })).not.toBeInTheDocument();
+  });
+
   it('uses polished action-row styling hooks for submit and cancel actions', () => {
     // Arrange: Render the tariff form.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
@@ -250,6 +268,72 @@ describe('TariffForm', () => {
     // Assert: Date inputs preserve UTC calendar date in yyyy-mm-dd.
     expect(screen.getByLabelText(/valid from/i)).toHaveValue('2026-01-01');
     expect(screen.getByLabelText(/valid to/i)).toHaveValue('2026-01-31');
+  });
+
+  it('renders provider, name, affiliation, and notes only in details mode', () => {
+    // Arrange: Render the form in logical-details mode with existing identity values.
+    render(
+      <TariffForm
+        mode="details"
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        initialValues={{
+          provider_id: 'p1',
+          name: 'Travel Plus',
+          affiliation: 'ADAC',
+          notes: 'Preserve current pricing',
+        }}
+      />
+    );
+
+    // Act: Inspect the rendered details-only surface.
+
+    // Assert: Details mode omits pricing and validity inputs while preserving editable identity fields.
+    expect(screen.getByLabelText(/^provider$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/tariff name/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^affiliation$/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/^notes$/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/valid from/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/valid to/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^ac price$/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/^dc price$/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/roaming ac price/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/roaming dc price/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/monthly base fee/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/session fee/i)).not.toBeInTheDocument();
+  });
+
+  it('submits next provider, name, affiliation, and notes in details mode', async () => {
+    // Arrange: Render details mode with existing values and edit the logical tariff identity.
+    render(
+      <TariffForm
+        mode="details"
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        initialValues={{
+          provider_id: 'p1',
+          name: 'Travel Plus',
+          affiliation: 'Old Club',
+          notes: 'Old notes',
+        }}
+      />
+    );
+    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/tariff name/i), { target: { value: 'Road Flex' } });
+    fireEvent.change(screen.getByLabelText(/^affiliation$/i), { target: { value: 'ADAC' } });
+    fireEvent.change(screen.getByLabelText(/^notes$/i), { target: { value: 'Updated across the logical tariff' } });
+
+    // Act: Submit the details-only form.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Only logical-details fields are submitted.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+    expect(mockOnSubmit).toHaveBeenCalledWith({
+      nextProviderId: 'p1',
+      nextName: 'Road Flex',
+      affiliation: 'ADAC',
+      notes: 'Updated across the logical tariff',
+    });
   });
 });
 
