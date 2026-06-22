@@ -46,6 +46,24 @@ describe('ThinInput', () => {
     expect(input).toHaveAttribute('aria-describedby', error.getAttribute('id'));
   });
 
+  it('appends the validation message id to any existing aria-describedby value', () => {
+    // Arrange: Render an invalid field that already references helper text.
+    render(
+      <ThinInput
+        label="Odometer"
+        error="Value is too low"
+        aria-describedby="odometer-help"
+      />
+    );
+
+    // Act: Look up the input and the rendered validation message.
+    const input = screen.getByLabelText('Odometer');
+    const error = screen.getByText('Value is too low');
+
+    // Assert: Existing descriptions stay attached alongside the validation message.
+    expect(input).toHaveAttribute('aria-describedby', `odometer-help ${error.getAttribute('id')}`);
+  });
+
   it('forwards the ref to the input element', () => {
     // Arrange: Create a ref
     const ref = createRef<HTMLInputElement>();

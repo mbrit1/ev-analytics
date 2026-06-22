@@ -346,7 +346,7 @@ interface SessionFormProps {
 export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, initialValues }) => {
   const legacyInitialValues = initialValues as LegacySessionInitialValues | undefined;
   const { user } = useAuth();
-  const { plans } = useChargingPlans();
+  const { planVersions } = useChargingPlans();
   const { providers } = useProviders();
   const hiddenDateInputRef = React.useRef<HTMLInputElement | null>(null);
   const headingRef = React.useRef<HTMLHeadingElement | null>(null);
@@ -410,8 +410,8 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   const pricingSourceLabel = selectedPricingSource === 'ad_hoc' ? 'Ad-Hoc' : 'Charging Plan';
   const isChargingPlanPricing = selectedPricingSource === 'plan';
   const providerPlans = React.useMemo(
-    () => plans.filter(plan => plan.provider_id === selectedProviderId),
-    [plans, selectedProviderId]
+    () => planVersions.filter(plan => plan.provider_id === selectedProviderId),
+    [planVersions, selectedProviderId]
   );
   const resolvedSelectedSessionDate = selectedSessionDate || formatDateInputValue(new Date());
   const logicalTariffsForProvider = React.useMemo(
@@ -419,8 +419,8 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     [providerPlans, resolvedSelectedSessionDate]
   );
   const initialLogicalKey = React.useMemo(
-    () => resolveInitialLogicalKey(legacyInitialValues, plans),
-    [legacyInitialValues, plans]
+    () => resolveInitialLogicalKey(legacyInitialValues, planVersions),
+    [legacyInitialValues, planVersions]
   );
   const isUsingExistingProviderSelection = Boolean(
     existingSession && selectedProviderId === existingSession.provider_id

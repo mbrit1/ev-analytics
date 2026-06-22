@@ -233,6 +233,7 @@ const buildHookValue = (
 
   return {
     plans: overrides.plans ?? logicalTariff.versions,
+    planVersions: overrides.planVersions ?? logicalTariff.versions,
     logicalTariffs: overrides.logicalTariffs ?? [logicalTariff],
     isLoading: overrides.isLoading ?? false,
     addChargingPlan: overrides.addChargingPlan ?? vi.fn(),
