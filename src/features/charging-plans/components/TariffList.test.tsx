@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TariffList } from './TariffList';
@@ -206,7 +206,11 @@ const buildLogicalTariff = (overrides: Partial<LogicalTariff> = {}): LogicalTari
       date: '2026-08-15',
       label: 'Upcoming change on 15 Aug',
     },
-    upcomingVisibility: overrides.upcomingVisibility ?? { kind: 'none' },
+    upcomingVisibility: overrides.upcomingVisibility ?? {
+      kind: 'indicator',
+      effectiveDate: '2026-08-15',
+      label: 'Update scheduled · 15 Aug 2026',
+    },
     history: overrides.history ?? [
       {
         plan: baseline,
@@ -346,9 +350,9 @@ describe('TariffList', () => {
     // Act: Render the grouped tariff list.
     renderTariffList();
 
-    // Assert: The list shows one grouped card, the upcoming badge, and the current price.
+    // Assert: The list shows one grouped card, the upcoming indicator, and the current price.
     expect(screen.getAllByRole('button', { name: /edit ionity lidl/i })).toHaveLength(1);
-    expect(screen.getByText('Upcoming change on 15 Aug')).toBeInTheDocument();
+    expect(screen.getByText('Update scheduled · 15 Aug 2026')).toBeInTheDocument();
     expect(screen.getByText('0,29 €')).toBeInTheDocument();
   });
 
@@ -384,6 +388,80 @@ describe('TariffList', () => {
     expect(screen.queryByText('Roaming DC')).not.toBeInTheDocument();
     expect(screen.queryByText('Monthly Base Fee')).not.toBeInTheDocument();
     expect(screen.queryByText('Session Fee')).not.toBeInTheDocument();
+  });
+
+  it('shows no upcoming UI when the logical tariff visibility is none', () => {
+    // Arrange: Render a logical tariff whose next change is intentionally hidden.
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [
+        buildLogicalTariff({
+          badge: undefined,
+          upcomingVisibility: { kind: 'none' },
+        }),
+      ],
+    }));
+
+    // Act: Render the tariff list.
+    renderTariffList();
+
+    // Assert: No update indicator or preview block is rendered.
+    expect(screen.queryByText(/update scheduled/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/next update/i)).not.toBeInTheDocument();
+  });
+
+  it('shows a quiet upcoming indicator without future prices for indicator state', () => {
+    // Arrange: Render a logical tariff inside the mid-range update window.
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [
+        buildLogicalTariff({
+          badge: undefined,
+          upcomingVisibility: {
+            kind: 'indicator',
+            effectiveDate: '2026-07-18',
+            label: 'Update scheduled · 18 Jul 2026',
+          },
+        }),
+      ],
+    }));
+
+    // Act: Render the tariff list.
+    renderTariffList();
+
+    // Assert: Only the quiet indicator copy is visible.
+    expect(screen.getByText('Update scheduled · 18 Jul 2026')).toBeInTheDocument();
+    expect(screen.queryByText(/domestic dc 0,53 €/i)).not.toBeInTheDocument();
+  });
+
+  it('shows only changed categories in the preview state', () => {
+    // Arrange: Render a logical tariff with an imminent next version.
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [
+        buildLogicalTariff({
+          badge: undefined,
+          upcomingVisibility: {
+            kind: 'preview',
+            effectiveDate: '2026-07-06',
+            label: 'Next Update · 06 Jul 2026',
+            changes: [
+              { label: 'Domestic DC', valueCents: 53 },
+              { label: 'Roaming DC', valueCents: 63 },
+            ],
+          },
+        }),
+      ],
+    }));
+
+    // Act: Render the tariff list.
+    renderTariffList();
+
+    // Assert: The preview renders changed categories only and leaves unchanged ones out.
+    const previewLabel = screen.getByText('Next Update · 06 Jul 2026');
+    const previewSection = previewLabel.parentElement;
+
+    expect(previewLabel).toBeInTheDocument();
+    expect(previewSection).not.toBeNull();
+    expect(within(previewSection as HTMLElement).getByText('Domestic DC 0,53 € · Roaming DC 0,63 €')).toBeInTheDocument();
+    expect(within(previewSection as HTMLElement).queryByText(/domestic ac/i)).not.toBeInTheDocument();
   });
 
   it('opens reachable version history from the card', async () => {

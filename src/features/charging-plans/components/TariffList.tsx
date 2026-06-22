@@ -6,6 +6,7 @@ import { useAuth } from '../../auth';
 import type { ChargingPlan } from '../../../infra/db';
 import { useChargingPlans } from '../hooks/useChargingPlans';
 import { useProviders } from '../hooks/useProviders';
+import type { LogicalTariffUpcomingVisibility } from '../model/logicalTariffs';
 import { DeleteLogicalTariffDialog } from './DeleteLogicalTariffDialog';
 import { PermanentPriceChangeForm } from './PermanentPriceChangeForm';
 import { TariffFormLoader } from './TariffFormLoader';
@@ -98,6 +99,14 @@ function CurrentPricingRows({ plan }: CurrentPricingRowsProps) {
       )}
     </div>
   );
+}
+
+function formatUpcomingPreviewCopy(
+  upcomingVisibility: Extract<LogicalTariffUpcomingVisibility, { kind: 'preview' }>,
+): string {
+  return upcomingVisibility.changes
+    .map((change) => `${change.label} ${change.valueCents == null ? 'Unavailable' : formatCurrency(change.valueCents)}`)
+    .join(' · ');
 }
 
 function getLogicalTariffLabel(providerName: string, tariffName: string): string {
@@ -277,7 +286,7 @@ export function TariffList({
                 {logicalTariff.name && (
                   <p className="text-sm text-secondary">{logicalTariff.name}</p>
                 )}
-                {logicalTariff.badge && (
+                {logicalTariff.badge?.kind === 'promo' && (
                   <p className="text-sm font-medium text-primary">{logicalTariff.badge.label}</p>
                 )}
               </div>
@@ -301,6 +310,28 @@ export function TariffList({
             </div>
 
             <CurrentPricingRows plan={logicalTariff.currentVersion} />
+
+            {logicalTariff.upcomingVisibility.kind === 'indicator' && (
+              <p className="w-fit rounded-full bg-accent/10 px-3 py-2 text-xs font-semibold tabular-nums text-accent">
+                {logicalTariff.upcomingVisibility.label}
+              </p>
+            )}
+
+            {logicalTariff.upcomingVisibility.kind === 'preview' && (
+              <div className="space-y-3">
+                <div className="h-px bg-secondary/20" />
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold tabular-nums text-secondary">
+                    {logicalTariff.upcomingVisibility.label}
+                  </p>
+                  {logicalTariff.upcomingVisibility.changes.length > 0 && (
+                    <p className="text-sm tabular-nums text-primary">
+                      {formatUpcomingPreviewCopy(logicalTariff.upcomingVisibility)}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
 
             <button
               type="button"
