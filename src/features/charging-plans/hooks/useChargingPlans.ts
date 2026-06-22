@@ -23,7 +23,10 @@ import { useAuth } from '../../auth';
 import { useUtcToday } from './useUtcToday';
 
 export interface UseChargingPlansResult {
+  /** Current effective tariff versions for today's date. */
   plans: ChargingPlan[];
+  /** Full tariff version history, including past and future scheduled versions. */
+  planVersions: ChargingPlan[];
   isLoading: boolean;
   addChargingPlan: (plan: ChargingPlan) => Promise<void>;
   removeChargingPlan: (id: string) => Promise<void>;
@@ -94,6 +97,7 @@ export function useChargingPlans(): UseChargingPlansResult {
 
   return {
     plans,
+    planVersions: versions ?? [],
     logicalTariffs,
     isLoading: versions === undefined,
     addChargingPlan,

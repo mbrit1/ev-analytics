@@ -36,6 +36,9 @@ export const ThinInput = forwardRef<HTMLInputElement, ThinInputProps>(
     const errorId = `${inputId}-error`;
     const isHorizontal = layout === 'horizontal';
     const textAlignment = align || (isHorizontal || unit ? 'right' : 'left');
+    const describedBy = [props['aria-describedby'], error ? errorId : undefined]
+      .filter(Boolean)
+      .join(' ') || undefined;
 
     return (
       <div
@@ -74,7 +77,7 @@ export const ThinInput = forwardRef<HTMLInputElement, ThinInputProps>(
             ref={ref}
             id={inputId}
             {...props}
-            aria-describedby={error ? errorId : props['aria-describedby']}
+            aria-describedby={describedBy}
             aria-invalid={error ? 'true' : props['aria-invalid']}
             aria-required={props.required ? 'true' : props['aria-required']}
             className={`flex-1 bg-transparent text-2xl md:text-4xl font-medium tabular-nums outline-none placeholder:text-secondary/20 transition-all ${

@@ -113,9 +113,25 @@ describe('SessionForm', () => {
     ];
   }
 
-  function setChargingPlansMock(plans: ChargingPlan[]): void {
+  function buildCurrentPlansFromVersions(planVersions: ChargingPlan[]): ChargingPlan[] {
+    return planVersions.filter((plan) => ['baseline', 't2', 't3'].includes(plan.id));
+  }
+
+  function setChargingPlansMock(
+    plansOrConfig: ChargingPlan[] | { plans?: ChargingPlan[]; planVersions?: ChargingPlan[] }
+  ): void {
+    if (Array.isArray(plansOrConfig)) {
+      vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
+        plans: plansOrConfig,
+        planVersions: plansOrConfig,
+        isLoading: false,
+      }));
+      return;
+    }
+
     vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans,
+      plans: plansOrConfig.plans ?? [],
+      planVersions: plansOrConfig.planVersions ?? plansOrConfig.plans ?? [],
       isLoading: false,
     }));
   }
@@ -127,6 +143,7 @@ describe('SessionForm', () => {
   ): ChargingPlansHookValue {
     return {
       plans: [],
+      planVersions: [],
       logicalTariffs: [],
       isLoading: false,
       addChargingPlan: vi.fn(),
@@ -524,7 +541,11 @@ describe('SessionForm', () => {
 
   it('renders one logical tariff option per provider plus normalized tariff name', () => {
     // Arrange: provider p1 has three raw versions of one logical tariff and one separate tariff.
-    setChargingPlansMock(buildVersionedPlans());
+    const planVersions = buildVersionedPlans();
+    setChargingPlansMock({
+      plans: buildCurrentPlansFromVersions(planVersions),
+      planVersions,
+    });
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
 
     // Act: select provider p1 and inspect the logical tariff options.
@@ -539,7 +560,11 @@ describe('SessionForm', () => {
 
   it('changing the date updates displayed rates and submits the effective raw tariff version id', async () => {
     // Arrange: choose a logical tariff with multiple effective versions.
-    setChargingPlansMock(buildVersionedPlans());
+    const planVersions = buildVersionedPlans();
+    setChargingPlansMock({
+      plans: buildCurrentPlansFromVersions(planVersions),
+      planVersions,
+    });
     const logicalKey = getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' });
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
@@ -866,7 +891,11 @@ describe('SessionForm', () => {
       configurable: true,
       value: false,
     });
-    setChargingPlansMock(buildVersionedPlans());
+    const planVersions = buildVersionedPlans();
+    setChargingPlansMock({
+      plans: buildCurrentPlansFromVersions(planVersions),
+      planVersions,
+    });
     const initialValues = buildSessionFixture({
       id: 'session-date-reprice',
       session_timestamp: utc('2026-08-09'),
