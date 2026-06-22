@@ -352,6 +352,40 @@ describe('TariffList', () => {
     expect(screen.getByText('0,29 €')).toBeInTheDocument();
   });
 
+  it('hides optional price rows that have no current value', () => {
+    // Arrange: Render a logical tariff whose current version only has domestic prices.
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [
+        buildLogicalTariff({
+          currentVersion: buildPlan({
+            id: 'current',
+            provider_id: 'p1',
+            name: 'Lidl',
+            valid_from: utc('2026-01-01'),
+            valid_to: utc('2026-08-15'),
+            ac_price_per_kwh: 29,
+            dc_price_per_kwh: 49,
+            roaming_ac_price_per_kwh: undefined,
+            roaming_dc_price_per_kwh: undefined,
+            monthly_base_fee: 0,
+            session_fee: 0,
+          }),
+        }),
+      ],
+    }));
+
+    // Act: Render the tariff cards.
+    renderTariffList();
+
+    // Assert: Only the domestic prices stay visible and optional empty rows are omitted.
+    expect(screen.getByText('Domestic AC')).toBeInTheDocument();
+    expect(screen.getByText('Domestic DC')).toBeInTheDocument();
+    expect(screen.queryByText('Roaming AC')).not.toBeInTheDocument();
+    expect(screen.queryByText('Roaming DC')).not.toBeInTheDocument();
+    expect(screen.queryByText('Monthly Base Fee')).not.toBeInTheDocument();
+    expect(screen.queryByText('Session Fee')).not.toBeInTheDocument();
+  });
+
   it('opens reachable version history from the card', async () => {
     // Arrange: Render a logical tariff with promotion and restoration history labels.
     vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
