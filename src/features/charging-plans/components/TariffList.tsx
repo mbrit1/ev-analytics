@@ -37,26 +37,65 @@ interface CurrentPricingRowsProps {
   plan: ChargingPlan | null;
 }
 
-function CurrentPricingRows({ plan }: CurrentPricingRowsProps) {
-  const rows = [
-    ['Domestic AC', plan?.ac_price_per_kwh],
-    ['Domestic DC', plan?.dc_price_per_kwh],
-    ['Roaming AC', plan?.roaming_ac_price_per_kwh],
-    ['Roaming DC', plan?.roaming_dc_price_per_kwh],
-    ['Monthly Base Fee', plan?.monthly_base_fee],
-    ['Session Fee', plan?.session_fee],
-  ] as const;
+function shouldRenderAmount(amount: number | undefined): amount is number {
+  return amount != null;
+}
 
+function shouldRenderOptionalAmount(amount: number | undefined): amount is number {
+  return amount != null && amount > 0;
+}
+
+function CurrentPricingRows({ plan }: CurrentPricingRowsProps) {
   return (
     <div className="grid max-w-3xl grid-cols-1 gap-x-8 gap-y-2 text-sm md:grid-cols-2">
-      {rows.map(([label, value]) => (
-        <div key={label} className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
-          <span>{label}</span>
+      {shouldRenderAmount(plan?.ac_price_per_kwh) && (
+        <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
+          <span>Domestic AC</span>
           <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
-            {value == null ? '—' : formatCurrency(value)}
+            {formatCurrency(plan.ac_price_per_kwh)}
           </span>
         </div>
-      ))}
+      )}
+      {shouldRenderAmount(plan?.dc_price_per_kwh) && (
+        <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
+          <span>Domestic DC</span>
+          <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
+            {formatCurrency(plan.dc_price_per_kwh)}
+          </span>
+        </div>
+      )}
+      {shouldRenderOptionalAmount(plan?.roaming_ac_price_per_kwh) && (
+        <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
+          <span>Roaming AC</span>
+          <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
+            {formatCurrency(plan.roaming_ac_price_per_kwh)}
+          </span>
+        </div>
+      )}
+      {shouldRenderOptionalAmount(plan?.roaming_dc_price_per_kwh) && (
+        <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
+          <span>Roaming DC</span>
+          <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
+            {formatCurrency(plan.roaming_dc_price_per_kwh)}
+          </span>
+        </div>
+      )}
+      {shouldRenderOptionalAmount(plan?.monthly_base_fee) && (
+        <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
+          <span>Monthly Base Fee</span>
+          <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
+            {formatCurrency(plan.monthly_base_fee)}
+          </span>
+        </div>
+      )}
+      {shouldRenderOptionalAmount(plan?.session_fee) && (
+        <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
+          <span>Session Fee</span>
+          <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
+            {formatCurrency(plan.session_fee)}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
