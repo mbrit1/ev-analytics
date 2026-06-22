@@ -464,6 +464,79 @@ describe('TariffList', () => {
     expect(within(previewSection as HTMLElement).queryByText(/domestic ac/i)).not.toBeInTheDocument();
   });
 
+  it('does not render legacy upcoming header badges for non-promo visibility', () => {
+    // Arrange: Render non-promo upcoming changes in both supported visibility states.
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [
+        buildLogicalTariff({
+          key: 'p1::indicator',
+          name: 'Indicator',
+          badge: {
+            kind: 'upcoming_change',
+            date: '2026-07-18',
+            label: 'Upcoming change on 18 Jul',
+          },
+          upcomingVisibility: {
+            kind: 'indicator',
+            effectiveDate: '2026-07-18',
+            label: 'Update scheduled · 18 Jul 2026',
+          },
+        }),
+        buildLogicalTariff({
+          key: 'p1::preview',
+          name: 'Preview',
+          badge: {
+            kind: 'upcoming_change',
+            date: '2026-07-06',
+            label: 'Upcoming change on 06 Jul',
+          },
+          upcomingVisibility: {
+            kind: 'preview',
+            effectiveDate: '2026-07-06',
+            label: 'Next Update · 06 Jul 2026',
+            changes: [{ label: 'Domestic DC', valueCents: 53 }],
+          },
+        }),
+      ],
+    }));
+
+    // Act: Render the tariff list.
+    renderTariffList();
+
+    // Assert: Legacy upcoming-change badges stay out of the header while the new UI renders.
+    expect(screen.queryByText('Upcoming change on 18 Jul')).not.toBeInTheDocument();
+    expect(screen.queryByText('Upcoming change on 06 Jul')).not.toBeInTheDocument();
+    expect(screen.getByText('Update scheduled · 18 Jul 2026')).toBeInTheDocument();
+    expect(screen.getByText('Next Update · 06 Jul 2026')).toBeInTheDocument();
+  });
+
+  it('keeps promo badges visible in the header alongside upcoming visibility UI', () => {
+    // Arrange: Render a promotional badge together with an upcoming indicator.
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [
+        buildLogicalTariff({
+          badge: {
+            kind: 'promo',
+            date: '2026-08-31',
+            label: 'Promo until 31 Aug',
+          },
+          upcomingVisibility: {
+            kind: 'indicator',
+            effectiveDate: '2026-08-15',
+            label: 'Update scheduled · 15 Aug 2026',
+          },
+        }),
+      ],
+    }));
+
+    // Act: Render the tariff list.
+    renderTariffList();
+
+    // Assert: Promo copy still renders while the new upcoming UI remains available.
+    expect(screen.getByText('Promo until 31 Aug')).toBeInTheDocument();
+    expect(screen.getByText('Update scheduled · 15 Aug 2026')).toBeInTheDocument();
+  });
+
   it('opens reachable version history from the card', async () => {
     // Arrange: Render a logical tariff with promotion and restoration history labels.
     vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
