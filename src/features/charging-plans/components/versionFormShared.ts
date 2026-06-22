@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type {
   FieldPath,
   PathValue,
@@ -138,11 +138,14 @@ export function useVersionBaselinePrefill<
   setError: UseFormSetError<TFieldValues>;
   clearErrors: UseFormClearErrors<TFieldValues>;
 }): { baseline: ChargingPlan | null; isStartAfterBaseline: boolean } {
-  const baseline = selectedStart
-    ? resolveEffectivePlanForDate(versions, parseUtcDateInput(selectedStart))
-    : null;
-  const baselineId = baseline?.id ?? null;
-  const baselineStartTime = baseline?.valid_from.getTime() ?? null;
+  const baseline = useMemo(
+    () => (
+      selectedStart
+        ? resolveEffectivePlanForDate(versions, parseUtcDateInput(selectedStart))
+        : null
+    ),
+    [selectedStart, versions],
+  );
   const lastPrefilledBaselineIdRef = useRef<string | null>(null);
   const isStartAfterBaseline = Boolean(
     selectedStart
@@ -182,8 +185,7 @@ export function useVersionBaselinePrefill<
     prefillPriceFields(baseline, setValue);
     lastPrefilledBaselineIdRef.current = baseline.id;
   }, [
-    baselineId,
-    baselineStartTime,
+    baseline,
     clearErrors,
     isStartAfterBaseline,
     sameStartErrorMessage,

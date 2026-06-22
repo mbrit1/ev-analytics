@@ -114,12 +114,31 @@ describe('SessionForm', () => {
   }
 
   function setChargingPlansMock(plans: ChargingPlan[]): void {
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans,
+      isLoading: false,
+    }));
+  }
+
+  type ChargingPlansHookValue = ReturnType<typeof useChargingPlans>;
+
+  function buildChargingPlansResult(
+    overrides: Partial<ChargingPlansHookValue> = {}
+  ): ChargingPlansHookValue {
+    return {
+      plans: [],
+      logicalTariffs: [],
       isLoading: false,
       addChargingPlan: vi.fn(),
       removeChargingPlan: vi.fn(),
-    });
+      updateCurrentVersion: vi.fn(),
+      createSuccessorVersion: vi.fn(),
+      updateLogicalTariffDetails: vi.fn(),
+      schedulePermanentChange: vi.fn(),
+      schedulePromotion: vi.fn(),
+      deleteLogicalTariff: vi.fn(),
+      ...overrides,
+    };
   }
 
   function buildSessionFixture(overrides: Partial<ChargingSession> = {}): ChargingSession {
@@ -456,12 +475,10 @@ describe('SessionForm', () => {
       session_mode: 'plan',
     });
     vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: true });
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [],
       isLoading: true,
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-    });
+    }));
 
     const { rerender } = render(
       <StrictMode>
@@ -654,12 +671,10 @@ describe('SessionForm', () => {
   it('renders pricing source as read-only while keeping persisted plan values visible', () => {
     // Arrange: the persisted provider and plan are absent from active hook results.
     vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });
-    vi.mocked(useChargingPlans).mockReturnValue({
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
       plans: [],
       isLoading: false,
-      addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
-    });
+    }));
     const initialValues = buildSessionFixture({
       id: 'session-plan-edit',
       provider_id: 'retired-provider',

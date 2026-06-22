@@ -34,6 +34,7 @@ const logicalTariff: LogicalTariff = {
   versions: [],
   currentVersion: null,
   nextVersion: null,
+  upcomingVisibility: { kind: 'none' },
   history: [
     {
       plan: buildPlan({

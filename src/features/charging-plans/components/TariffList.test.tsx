@@ -206,6 +206,7 @@ const buildLogicalTariff = (overrides: Partial<LogicalTariff> = {}): LogicalTari
       date: '2026-08-15',
       label: 'Upcoming change on 15 Aug',
     },
+    upcomingVisibility: overrides.upcomingVisibility ?? { kind: 'none' },
     history: overrides.history ?? [
       {
         plan: baseline,
