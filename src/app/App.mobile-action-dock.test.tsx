@@ -62,41 +62,35 @@ vi.mock('../features/auth', () => ({
 }));
 vi.mock('../features/charging-plans/components/TariffList', () => ({
   TariffList: ({
-    isCreatingTariff,
-    onCreateTariffChange,
+    tariffFormState,
+    onCreateTariff,
+    onCloseForm,
     onFormOpenChange,
   }: {
-    isCreatingTariff: boolean;
-    onCreateTariffChange: (isCreatingTariff: boolean) => void;
+    tariffFormState: { mode: 'closed' } | { mode: 'create' } | { mode: 'edit'; logicalTariffKey: string };
+    onCreateTariff: () => void;
+    onCloseForm: () => void;
     onFormOpenChange?: (isOpen: boolean) => void;
   }) => {
-    const [isOpen, setIsOpen] = React.useState(false);
     React.useEffect(() => {
-      onFormOpenChange?.(isOpen);
-    }, [isOpen, onFormOpenChange]);
-
-    React.useEffect(() => {
-      if (!isCreatingTariff) {
-        return;
-      }
-
-      setIsOpen(true);
-    }, [isCreatingTariff]);
+      onFormOpenChange?.(tariffFormState.mode !== 'closed');
+    }, [onFormOpenChange, tariffFormState.mode]);
 
     return (
       <div>
         Tariff List
-        {isOpen ? (
+        {tariffFormState.mode !== 'closed' ? (
           <div>
             Tariff Form
-            <button type="button" onClick={() => {
-              setIsOpen(false);
-              onCreateTariffChange(false);
-            }}>
+            <button type="button" onClick={onCloseForm}>
               Close Tariff Form
             </button>
           </div>
-        ) : null}
+        ) : (
+          <button type="button" onClick={onCreateTariff}>
+            Open Tariff Form
+          </button>
+        )}
       </div>
     );
   },
