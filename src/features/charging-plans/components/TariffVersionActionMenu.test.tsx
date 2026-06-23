@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { TariffVersionActionMenu } from './TariffVersionActionMenu';
 
 /**
@@ -9,10 +9,8 @@ import { TariffVersionActionMenu } from './TariffVersionActionMenu';
  * Verifies required menu labels, action callbacks, and governed control sizing.
  */
 describe('TariffVersionActionMenu', () => {
-  it('renders the four required menu actions and triggers each callback', async () => {
-    // Arrange: Render the menu with spies for each required action.
-    const onEditDetails = vi.fn();
-    const onPermanentChange = vi.fn();
+  it('renders the remaining overflow actions and triggers each callback', async () => {
+    // Arrange: Render the menu with spies for each remaining action.
     const onPromotion = vi.fn();
     const onDelete = vi.fn();
     const user = userEvent.setup();
@@ -20,8 +18,6 @@ describe('TariffVersionActionMenu', () => {
     render(
       <TariffVersionActionMenu
         label="Ionity Lidl"
-        onEditDetails={onEditDetails}
-        onPermanentChange={onPermanentChange}
         onPromotion={onPromotion}
         onDelete={onDelete}
       />,
@@ -29,19 +25,15 @@ describe('TariffVersionActionMenu', () => {
 
     // Act: Open the menu and trigger each action.
     await user.click(screen.getByRole('button', { name: /tariff actions for ionity lidl/i }));
-    await user.click(screen.getByRole('button', { name: /edit details/i }));
-    await user.click(screen.getByRole('button', { name: /tariff actions for ionity lidl/i }));
-    await user.click(screen.getByRole('button', { name: /change price permanently/i }));
-    await user.click(screen.getByRole('button', { name: /tariff actions for ionity lidl/i }));
     await user.click(screen.getByRole('button', { name: /run temporary promotion/i }));
     await user.click(screen.getByRole('button', { name: /tariff actions for ionity lidl/i }));
     await user.click(screen.getByRole('button', { name: /delete tariff/i }));
 
-    // Assert: All required labels are reachable and invoke their handlers.
-    expect(onEditDetails).toHaveBeenCalledTimes(1);
-    expect(onPermanentChange).toHaveBeenCalledTimes(1);
+    // Assert: The remaining actions are reachable and invoke their handlers.
     expect(onPromotion).toHaveBeenCalledTimes(1);
     expect(onDelete).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: /edit details/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /change price permanently/i })).not.toBeInTheDocument();
   });
 
   it('uses governed surface tokens and 44px minimum controls', () => {
@@ -49,8 +41,6 @@ describe('TariffVersionActionMenu', () => {
     render(
       <TariffVersionActionMenu
         label="Ionity Lidl"
-        onEditDetails={vi.fn()}
-        onPermanentChange={vi.fn()}
         onPromotion={vi.fn()}
         onDelete={vi.fn()}
       />,

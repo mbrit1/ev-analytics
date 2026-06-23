@@ -3,8 +3,6 @@ import type { MouseEvent } from 'react';
 
 interface TariffVersionActionMenuProps {
   label: string;
-  onEditDetails: () => void;
-  onPermanentChange: () => void;
   onPromotion: () => void;
   onDelete: () => void;
 }
@@ -14,8 +12,6 @@ interface TariffVersionActionMenuProps {
  */
 export function TariffVersionActionMenu({
   label,
-  onEditDetails,
-  onPermanentChange,
   onPromotion,
   onDelete,
 }: TariffVersionActionMenuProps) {
@@ -40,20 +36,6 @@ export function TariffVersionActionMenu({
         <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
       </summary>
       <div className="absolute right-0 top-[calc(100%+0.5rem)] z-10 min-w-[15rem] rounded-xl border border-secondary/10 bg-surface p-2 shadow-lg">
-        <button
-          type="button"
-          onClick={(event) => runAction(event, onEditDetails)}
-          className="flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left text-primary transition-colors hover:bg-secondary/5"
-        >
-          Edit details
-        </button>
-        <button
-          type="button"
-          onClick={(event) => runAction(event, onPermanentChange)}
-          className="flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left text-primary transition-colors hover:bg-secondary/5"
-        >
-          Change price permanently
-        </button>
         <button
           type="button"
           onClick={(event) => runAction(event, onPromotion)}
