@@ -199,6 +199,21 @@ const renderTariffList = (
   />,
 );
 
+const tariffListElement = (
+  props: Partial<React.ComponentProps<typeof TariffList>> = {},
+) => (
+  <TariffList
+    tariffFormState={props.tariffFormState ?? { mode: 'closed' }}
+    restorationRequest={props.restorationRequest}
+    onCreateTariff={props.onCreateTariff ?? vi.fn()}
+    onEditTariff={props.onEditTariff ?? vi.fn()}
+    onCloseForm={props.onCloseForm ?? vi.fn()}
+    onSaveComplete={props.onSaveComplete ?? vi.fn()}
+    onRestorationComplete={props.onRestorationComplete ?? vi.fn()}
+    onFormOpenChange={props.onFormOpenChange}
+  />
+);
+
 async function openMenuAndChoose(label: string): Promise<void> {
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: /tariff actions for ionity lidl/i }));
@@ -352,11 +367,12 @@ describe('TariffList', () => {
     // Act: Submit the mocked edit form.
     await userEvent.setup().click(screen.getByRole('button', { name: 'Submit' }));
 
-    // Assert: updateCurrentVersion receives currentVersionId, validFrom, prices, nextName, affiliation, and notes.
+    // Assert: updateCurrentVersion receives currentVersionId, dates, prices, nextName, affiliation, and notes.
     expect(updateCurrentVersion).toHaveBeenCalledWith(
       expect.objectContaining({
         currentVersionId: 'baseline',
         validFrom: utc('2026-01-01'),
+        validTo: utc('2026-08-15'),
         nextName: 'Renamed Tariff',
         affiliation: 'Family',
         notes: 'Updated note',
@@ -385,10 +401,11 @@ describe('TariffList', () => {
     // Act: Submit the mocked edit form.
     await userEvent.setup().click(screen.getByRole('button', { name: 'Submit' }));
 
-    // Assert: createSuccessorVersion receives effectiveFrom, prices, nextName, affiliation, and notes.
+    // Assert: createSuccessorVersion receives effectiveFrom, validTo, prices, nextName, affiliation, and notes.
     expect(createSuccessorVersion).toHaveBeenCalledWith(
       expect.objectContaining({
         effectiveFrom: utc('2026-08-15'),
+        validTo: utc('2026-08-15'),
         nextName: 'Renamed Tariff',
         affiliation: 'Family',
         notes: 'Updated note',
@@ -433,5 +450,68 @@ describe('TariffList', () => {
       expect(screen.getByRole('button', { name: /edit ionity lidl/i })).toHaveFocus();
       expect(onRestorationComplete).toHaveBeenCalled();
     });
+  });
+
+  it('waits to complete tariff focus restoration until the saved tariff appears', async () => {
+    // Arrange: Start with a post-save restoration request before the renamed card is present.
+    const onRestorationComplete = vi.fn();
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ logicalTariffs: [] }));
+    const restoredTariff = buildLogicalTariff({
+      key: 'p1::renamed-tariff',
+      name: 'Renamed Tariff',
+      versions: [
+        buildPlan({
+          id: 'renamed',
+          provider_id: 'p1',
+          name: 'Renamed Tariff',
+          valid_from: utc('2026-01-01'),
+          ac_price_per_kwh: 31,
+        }),
+      ],
+      currentVersion: buildPlan({
+        id: 'renamed',
+        provider_id: 'p1',
+        name: 'Renamed Tariff',
+        valid_from: utc('2026-01-01'),
+        ac_price_per_kwh: 31,
+      }),
+      nextVersion: null,
+      upcomingVisibility: { kind: 'none' },
+    });
+    const { rerender } = render(tariffListElement({
+      restorationRequest: { type: 'tariff', tariffKey: 'p1::renamed-tariff' },
+      onRestorationComplete,
+    }));
+
+    // Act: Simulate the live query refresh that adds the renamed card after save.
+    expect(onRestorationComplete).not.toHaveBeenCalled();
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ logicalTariffs: [restoredTariff] }));
+    rerender(tariffListElement({
+      restorationRequest: { type: 'tariff', tariffKey: 'p1::renamed-tariff' },
+      onRestorationComplete,
+    }));
+
+    // Assert: Completion is acknowledged only after focus lands on the refreshed card.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /edit ionity renamed tariff/i })).toHaveFocus();
+      expect(onRestorationComplete).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('shows a recoverable message when the requested edit target is missing', async () => {
+    // Arrange: Render edit mode for a logical tariff key that is no longer loaded.
+    const onCloseForm = vi.fn();
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ logicalTariffs: [] }));
+    renderTariffList({
+      tariffFormState: { mode: 'edit', logicalTariffKey: 'p1::missing' },
+      onCloseForm,
+    });
+
+    // Act: Return to the list from the missing-target fallback.
+    await userEvent.setup().click(screen.getByRole('button', { name: /back to tariffs/i }));
+
+    // Assert: The blank-state trap is replaced by a visible fallback and cancel path.
+    expect(screen.getByText(/tariff is no longer available/i)).toBeInTheDocument();
+    expect(onCloseForm).toHaveBeenCalledTimes(1);
   });
 });

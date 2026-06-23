@@ -37,6 +37,8 @@ describe('TariffForm', () => {
     // Arrange: Render the tariff form with mocked provider/auth hooks.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
 
+    // Act: Inspect the rendered section headings.
+
     // Assert: Grouped sections match task requirements.
     expect(screen.getByText('Identity')).toBeInTheDocument();
     expect(screen.getByText('Charging Prices')).toBeInTheDocument();
@@ -70,9 +72,11 @@ describe('TariffForm', () => {
     // Arrange: Render the tariff form.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
 
-    // Assert: Buttons expose shared visual contract classes used by session workflows.
+    // Act: Inspect the rendered action controls.
     const saveButton = screen.getByRole('button', { name: /save tariff/i });
     const cancelButton = screen.getByText('Cancel').closest('button');
+
+    // Assert: Buttons expose shared visual contract classes used by session workflows.
     expect(cancelButton).toBeTruthy();
     expect(saveButton.className).toContain('bg-accent');
     expect(saveButton.className).toContain('rounded-xl');
@@ -170,6 +174,8 @@ describe('TariffForm', () => {
         initialValues={{ valid_from: '2026-05-31T00:00:00.000Z', valid_to: '2026-06-30T00:00:00.000Z' } as any}
       />
     );
+
+    // Act: Inspect the normalized date inputs.
 
     // Assert: Date inputs show normalized YYYY-MM-DD values.
     expect(screen.getByLabelText(/valid from/i)).toHaveValue('2026-05-31');
@@ -277,6 +283,8 @@ describe('TariffForm', () => {
       />
     );
 
+    // Act: Inspect the rendered edit-mode date fields.
+
     // Assert: Date inputs preserve UTC calendar date in yyyy-mm-dd.
     expect(screen.getByLabelText(/valid from/i)).toHaveValue('2026-01-01');
     expect(screen.getByLabelText(/valid to/i)).toHaveValue('2026-01-31');
@@ -296,6 +304,8 @@ describe('TariffForm', () => {
         }}
       />
     );
+
+    // Act: Inspect editability of the identity controls.
 
     // Assert: Provider is disabled and Tariff Name is enabled.
     expect(screen.getByLabelText(/^provider$/i)).toBeDisabled();

@@ -39,6 +39,7 @@ export interface ScheduleTemporaryPromotionInput extends LogicalTariffIdentityIn
 export interface UpdateCurrentTariffVersionInput extends LogicalTariffIdentityInput {
   currentVersionId: string;
   validFrom: Date;
+  validTo?: Date | null;
   nextName: string;
   prices: TariffPriceInput;
   affiliation?: string;
@@ -47,6 +48,7 @@ export interface UpdateCurrentTariffVersionInput extends LogicalTariffIdentityIn
 
 export interface CreateSuccessorTariffVersionInput extends LogicalTariffIdentityInput {
   effectiveFrom: Date;
+  validTo?: Date | null;
   nextName: string;
   prices: TariffPriceInput;
   affiliation?: string;
@@ -547,6 +549,7 @@ export async function updateCurrentTariffVersion(
 
     const now = new Date();
     const nextName = trimPlanName(input.nextName);
+    const shouldUpdateValidTo = Object.prototype.hasOwnProperty.call(input, 'validTo');
     const updatedVersions = sourceVersions.map((version) => {
       if (version.id !== currentVersion.id) {
         return {
@@ -559,6 +562,7 @@ export async function updateCurrentTariffVersion(
       return {
         ...version,
         name: nextName,
+        valid_to: shouldUpdateValidTo ? input.validTo ?? null : version.valid_to,
         ac_price_per_kwh: input.prices.ac_price_per_kwh,
         dc_price_per_kwh: input.prices.dc_price_per_kwh,
         roaming_ac_price_per_kwh: input.prices.roaming_ac_price_per_kwh,
@@ -622,7 +626,9 @@ export async function createSuccessorTariffVersion(
       now,
       {
         valid_from: input.effectiveFrom,
-        valid_to: baseline.valid_to ?? null,
+        valid_to: Object.prototype.hasOwnProperty.call(input, 'validTo')
+          ? input.validTo ?? null
+          : baseline.valid_to ?? null,
         affiliation: input.affiliation ?? baseline.affiliation,
         notes: input.notes ?? baseline.notes,
       }

@@ -168,6 +168,7 @@ export function TariffList({
     ? logicalTariffsByKey.get(tariffFormState.logicalTariffKey) ?? null
     : null;
   const hasLogicalTariffs = (logicalTariffs ?? []).length > 0;
+  const isMissingEditTarget = tariffFormState.mode === 'edit' && activeEditLogicalTariff == null;
 
   useEffect(() => {
     onFormOpenChange?.(isShellOwnedFormVisible);
@@ -182,14 +183,17 @@ export function TariffList({
       if (focusKey) {
         editButtonElementsRef.current[focusKey]?.focus();
       }
+      onRestorationComplete();
+      return;
     }
 
     if (restorationRequest.type === 'tariff') {
-      editButtonElementsRef.current[restorationRequest.tariffKey]?.focus();
+      const editButton = editButtonElementsRef.current[restorationRequest.tariffKey];
+      if (!editButton) return;
+      editButton.focus();
+      onRestorationComplete();
     }
-
-    onRestorationComplete();
-  }, [onRestorationComplete, restorationRequest]);
+  }, [logicalTariffs, onRestorationComplete, restorationRequest]);
 
   const handleCreateSubmit = async (submission: TariffFormSubmit) => {
     await addChargingPlan({
@@ -223,6 +227,7 @@ export function TariffList({
         name: activeEditLogicalTariff.name,
         currentVersionId: submission.plan.id,
         validFrom: submission.plan.valid_from,
+        validTo: submission.plan.valid_to ?? null,
         nextName: submission.plan.name,
         prices,
         affiliation: submission.plan.affiliation,
@@ -236,6 +241,7 @@ export function TariffList({
         providerId: activeEditLogicalTariff.providerId,
         name: activeEditLogicalTariff.name,
         effectiveFrom: submission.plan.valid_from,
+        validTo: submission.plan.valid_to ?? null,
         nextName: submission.plan.name,
         prices,
         affiliation: submission.plan.affiliation,
@@ -290,6 +296,24 @@ export function TariffList({
             notes: activeEditLogicalTariff.currentVersion?.notes,
           }}
         />
+      )}
+
+      {isMissingEditTarget && (
+        <Slab className="space-y-4 p-6">
+          <div className="space-y-2">
+            <h2 className="text-xl font-semibold text-primary">Tariff is no longer available</h2>
+            <p className="text-sm text-secondary">
+              The tariff you started editing could not be found. Return to the list and choose an available tariff.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCloseForm}
+            className="inline-flex min-h-[44px] items-center rounded-xl bg-secondary/10 px-4 py-2 font-bold text-primary transition-all hover:bg-secondary/20"
+          >
+            Back to tariffs
+          </button>
+        </Slab>
       )}
 
       {!isShellOwnedFormVisible && resolvedSurface.kind === 'promotion' && activeSurfaceLogicalTariff && (
