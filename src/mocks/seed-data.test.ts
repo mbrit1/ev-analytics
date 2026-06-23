@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildLogicalTariffs } from '../features/charging-plans';
+import { type ChargingPlan } from '../infra/db';
 import { mockChargingPlans, mockSessions } from './seed-data';
 
 /**
@@ -9,6 +10,28 @@ import { mockChargingPlans, mockSessions } from './seed-data';
  * session form as well as plan, roaming, and ad-hoc session history states.
  */
 describe('seed-data', () => {
+  function parseMockDate(value: Date | string | null | undefined): Date | undefined {
+    if (value == null) {
+      return undefined;
+    }
+
+    return value instanceof Date ? value : new Date(value);
+  }
+
+  function toLogicalTariffPlans(): ChargingPlan[] {
+    return mockChargingPlans.map((plan) => ({
+      ...plan,
+      valid_from: parseMockDate(plan.valid_from) ?? new Date(),
+      valid_to: parseMockDate(plan.valid_to) ?? null,
+      roaming_ac_price_per_kwh: plan.roaming_ac_price_per_kwh ?? undefined,
+      roaming_dc_price_per_kwh: plan.roaming_dc_price_per_kwh ?? undefined,
+      affiliation: plan.affiliation ?? undefined,
+      notes: plan.notes ?? undefined,
+      created_at: parseMockDate(plan.created_at) ?? new Date(),
+      updated_at: parseMockDate(plan.updated_at) ?? new Date(),
+    }));
+  }
+
   function buildPricingAvailability(plan: (typeof mockChargingPlans)[number]) {
     return {
       AC: {
@@ -173,7 +196,7 @@ describe('seed-data', () => {
     ));
 
     // Act: Locate the active promo badge and any session saved against its raw version id.
-    const promoTariff = buildLogicalTariffs(mockChargingPlans, currentUtcDay)
+    const promoTariff = buildLogicalTariffs(toLogicalTariffPlans(), currentUtcDay)
       .find((logicalTariff) => logicalTariff.badge?.kind === 'promo');
     const promoSession = mockSessions.find(
       (session) => session.tariff_plan_id === promoTariff?.currentVersion?.id
