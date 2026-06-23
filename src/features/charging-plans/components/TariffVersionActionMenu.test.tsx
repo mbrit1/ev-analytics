@@ -55,4 +55,31 @@ describe('TariffVersionActionMenu', () => {
     expect(trigger.className).toContain('text-primary');
     expect(trigger.className).toContain('min-h-[44px]');
   });
+
+  it('closes when focus or pointer interaction moves outside the menu', async () => {
+    // Arrange: Render the action menu next to another focusable page control.
+    const user = userEvent.setup();
+    render(
+      <div>
+        <TariffVersionActionMenu
+          label="Ionity Lidl"
+          onPromotion={vi.fn()}
+          onDelete={vi.fn()}
+        />
+        <button type="button">Outside control</button>
+      </div>
+    );
+
+    // Act: Open the menu, move focus outside, reopen it, then click elsewhere on the page.
+    await user.click(screen.getByRole('button', { name: /tariff actions for ionity lidl/i }));
+    expect(screen.getByRole('button', { name: /run temporary promotion/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /outside control/i }));
+    await user.click(screen.getByRole('button', { name: /tariff actions for ionity lidl/i }));
+    expect(screen.getByRole('button', { name: /delete tariff/i })).toBeInTheDocument();
+    await user.click(document.body);
+
+    // Assert: The menu surface is dismissed after outside focus and outside pointer interaction.
+    expect(screen.queryByRole('button', { name: /run temporary promotion/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /delete tariff/i })).not.toBeInTheDocument();
+  });
 });

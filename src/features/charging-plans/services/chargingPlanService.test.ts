@@ -521,6 +521,27 @@ describe('planService', () => {
     expect(plan?.notes).toBe('keep me')
   })
 
+  it('updates valid_to when editing the current tariff version', async () => {
+    // Arrange: Seed an open logical tariff baseline.
+    await seedOpenBaseline({ id: 'baseline', valid_from: utc('2026-01-01'), valid_to: null })
+
+    // Act: Save a current-version edit with an explicit end date.
+    await updateCurrentTariffVersion({
+      userId: 'user-1',
+      providerId: 'provider-1',
+      name: 'Lidl',
+      currentVersionId: 'baseline',
+      validFrom: utc('2026-01-01'),
+      validTo: utc('2026-12-31'),
+      nextName: 'Lidl',
+      prices: buildPrices({ ac_price_per_kwh: 55 }),
+    })
+
+    // Assert: The edited current row persists the submitted validity end date.
+    const [plan] = sortedLogicalRows(await getChargingPlanVersions('user-1'))
+    expect(plan?.valid_to?.toISOString()).toBe('2026-12-31T00:00:00.000Z')
+  })
+
   it('creates a successor when valid_from changes', async () => {
     // Arrange: Seed an open logical tariff baseline.
     await seedOpenBaseline({ id: 'baseline', valid_from: utc('2026-01-01'), valid_to: null })
@@ -547,6 +568,26 @@ describe('planService', () => {
     expect(plans[1]?.valid_from.toISOString()).toBe('2026-08-15T00:00:00.000Z')
     expect(plans[1]?.affiliation).toBe('vip')
     expect(plans[1]?.notes).toBe('renamed successor')
+  })
+
+  it('uses submitted valid_to when creating a successor tariff version', async () => {
+    // Arrange: Seed an open logical tariff baseline.
+    await seedOpenBaseline({ id: 'baseline', valid_from: utc('2026-01-01'), valid_to: null })
+
+    // Act: Create a successor with an explicit end date from the unified edit form.
+    await createSuccessorTariffVersion({
+      userId: 'user-1',
+      providerId: 'provider-1',
+      name: 'Lidl',
+      effectiveFrom: utc('2026-08-15'),
+      validTo: utc('2026-12-31'),
+      nextName: 'Lidl Plus',
+      prices: buildPrices({ ac_price_per_kwh: 35 }),
+    })
+
+    // Assert: The successor receives the submitted validity end instead of silently staying open.
+    const plans = sortedLogicalRows(await db.charging_plans.toArray())
+    expect(plans[1]?.valid_to?.toISOString()).toBe('2026-12-31T00:00:00.000Z')
   })
 
   it('updates provider, name, affiliation, and notes on every version', async () => {
