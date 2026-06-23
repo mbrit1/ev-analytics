@@ -22,7 +22,7 @@
     "@tanstack/react-query": "^5.101.0",
     "dexie": "^4.4.4",
     "dexie-react-hooks": "^4.4.0",
-    "lucide-react": "^1.20.0",
+    "lucide-react": "^1.21.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.7",
     "react-hook-form": "^7.80.0",
