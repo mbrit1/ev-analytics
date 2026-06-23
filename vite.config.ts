@@ -37,7 +37,11 @@ export default defineConfig(() => {
         }
       ]
     }
-  }), cloudflare()]
+  }), cloudflare({
+    // DevTools inspector is optional for this SPA and prevents local dev
+    // startup in restricted environments that cannot bind the default port.
+    inspectorPort: false,
+  })]
 
   if (shouldAnalyze) {
     plugins.push(
