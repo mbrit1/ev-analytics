@@ -29,6 +29,15 @@ type HistoryRestoreRequest =
   | { type: 'position'; scrollY: number; focusSessionId?: string | null }
   | { type: 'session'; sessionId: string }
 
+type TariffFormState =
+  | { mode: 'closed' }
+  | { mode: 'create' }
+  | { mode: 'edit'; logicalTariffKey: string }
+
+type TariffRestoreRequest =
+  | { type: 'position'; scrollY: number; focusTariffKey?: string | null }
+  | { type: 'tariff'; tariffKey: string }
+
 /**
  * Root application shell for the authenticated EV Analytics experience.
  *
@@ -42,11 +51,14 @@ function App() {
   const [activeTab, setActiveTab] = useState<NavigationTab>('sessions')
   const [sessionFormState, setSessionFormState] = useState<SessionFormState>({ mode: 'closed' })
   const [historyRestoreRequest, setHistoryRestoreRequest] = useState<HistoryRestoreRequest | null>(null)
-  const [isCreatingTariff, setIsCreatingTariff] = useState(false)
+  const [tariffFormState, setTariffFormState] = useState<TariffFormState>({ mode: 'closed' })
+  const [tariffRestoreRequest, setTariffRestoreRequest] = useState<TariffRestoreRequest | null>(null)
   const [isTariffFormOpen, setIsTariffFormOpen] = useState(false)
   const [logoutError, setLogoutError] = useState<string | null>(null)
   const isSessionFormOpen = sessionFormState.mode !== 'closed'
+  const isTariffFormVisible = tariffFormState.mode !== 'closed'
   const historyScrollSnapshotRef = useRef(0)
+  const tariffScrollSnapshotRef = useRef(0)
 
   useEffect(() => {
     // Runtime is auth-gated and manages initial hydration plus background outbox
@@ -84,7 +96,8 @@ function App() {
     }
 
     if (tab !== 'tariffs') {
-      setIsCreatingTariff(false)
+      setTariffFormState({ mode: 'closed' })
+      setTariffRestoreRequest(null)
     }
   }
 
@@ -155,12 +168,42 @@ function App() {
     setHistoryRestoreRequest({ type: 'session', sessionId: request.session.id })
   }
 
+  const handleOpenCreateTariff = () => {
+    tariffScrollSnapshotRef.current = window.scrollY
+    setTariffRestoreRequest(null)
+    setTariffFormState({ mode: 'create' })
+  }
+
+  const handleOpenEditTariff = (logicalTariffKey: string) => {
+    tariffScrollSnapshotRef.current = window.scrollY
+    setTariffRestoreRequest(null)
+    setTariffFormState({ mode: 'edit', logicalTariffKey })
+  }
+
+  const handleCloseTariffForm = () => {
+    const focusTariffKey = tariffFormState.mode === 'edit'
+      ? tariffFormState.logicalTariffKey
+      : null
+
+    setTariffFormState({ mode: 'closed' })
+    setTariffRestoreRequest({
+      type: 'position',
+      scrollY: tariffScrollSnapshotRef.current,
+      focusTariffKey,
+    })
+  }
+
+  const handleTariffSaveComplete = (logicalTariffKey: string) => {
+    setTariffFormState({ mode: 'closed' })
+    setTariffRestoreRequest({ type: 'tariff', tariffKey: logicalTariffKey })
+  }
+
   const blockingSyncRetryText = syncStatus.nextRetryAt != null
     ? syncStatus.nextRetryAt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
     : null;
   const isMobileContextActionVisible =
     (activeTab === 'sessions' && !isSessionFormOpen) ||
-    (activeTab === 'tariffs' && !isCreatingTariff && !isTariffFormOpen)
+    (activeTab === 'tariffs' && !isTariffFormVisible && !isTariffFormOpen)
   const mobileMainPaddingClass = isMobileContextActionVisible
     ? 'pb-[var(--mobile-content-clearance-with-action)]'
     : 'pb-[var(--mobile-content-clearance-dock-only)]'
@@ -190,7 +233,7 @@ function App() {
           onAddSession={handleOpenCreateSession}
           onAddTariff={() => {
             setActiveTab('tariffs')
-            setIsCreatingTariff(true)
+            handleOpenCreateTariff()
           }}
           isVisible={isMobileContextActionVisible}
         />
@@ -262,8 +305,13 @@ function App() {
                   )}
                 >
                   <TariffList
-                    isCreatingTariff={isCreatingTariff}
-                    onCreateTariffChange={setIsCreatingTariff}
+                    tariffFormState={tariffFormState}
+                    restorationRequest={tariffRestoreRequest ?? undefined}
+                    onCreateTariff={handleOpenCreateTariff}
+                    onEditTariff={handleOpenEditTariff}
+                    onCloseForm={handleCloseTariffForm}
+                    onSaveComplete={handleTariffSaveComplete}
+                    onRestorationComplete={() => setTariffRestoreRequest(null)}
                     onFormOpenChange={setIsTariffFormOpen}
                   />
                 </Suspense>
