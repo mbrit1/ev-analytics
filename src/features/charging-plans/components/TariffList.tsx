@@ -42,7 +42,7 @@ function shouldRenderAmount(amount: number | undefined): amount is number {
   return amount != null;
 }
 
-function shouldRenderOptionalAmount(amount: number | undefined): amount is number {
+function shouldRenderFeeAmount(amount: number | undefined): amount is number {
   return amount != null && amount > 0;
 }
 
@@ -65,7 +65,7 @@ function CurrentPricingRows({ plan }: CurrentPricingRowsProps) {
           </span>
         </div>
       )}
-      {shouldRenderOptionalAmount(plan?.roaming_ac_price_per_kwh) && (
+      {shouldRenderAmount(plan?.roaming_ac_price_per_kwh) && (
         <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
           <span>Roaming AC</span>
           <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
@@ -73,7 +73,7 @@ function CurrentPricingRows({ plan }: CurrentPricingRowsProps) {
           </span>
         </div>
       )}
-      {shouldRenderOptionalAmount(plan?.roaming_dc_price_per_kwh) && (
+      {shouldRenderAmount(plan?.roaming_dc_price_per_kwh) && (
         <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
           <span>Roaming DC</span>
           <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
@@ -81,7 +81,7 @@ function CurrentPricingRows({ plan }: CurrentPricingRowsProps) {
           </span>
         </div>
       )}
-      {shouldRenderOptionalAmount(plan?.monthly_base_fee) && (
+      {shouldRenderFeeAmount(plan?.monthly_base_fee) && (
         <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
           <span>Monthly Base Fee</span>
           <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
@@ -89,7 +89,7 @@ function CurrentPricingRows({ plan }: CurrentPricingRowsProps) {
           </span>
         </div>
       )}
-      {shouldRenderOptionalAmount(plan?.session_fee) && (
+      {shouldRenderFeeAmount(plan?.session_fee) && (
         <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
           <span>Session Fee</span>
           <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">

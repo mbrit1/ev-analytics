@@ -390,6 +390,39 @@ describe('TariffList', () => {
     expect(screen.queryByText('Session Fee')).not.toBeInTheDocument();
   });
 
+  it('keeps zero-valued roaming prices visible when they are saved', () => {
+    // Arrange: Render a tariff with free roaming prices and zero default fees.
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [
+        buildLogicalTariff({
+          currentVersion: buildPlan({
+            id: 'current',
+            provider_id: 'p1',
+            name: 'Lidl',
+            valid_from: utc('2026-01-01'),
+            valid_to: utc('2026-08-15'),
+            ac_price_per_kwh: 29,
+            dc_price_per_kwh: 49,
+            roaming_ac_price_per_kwh: 0,
+            roaming_dc_price_per_kwh: 0,
+            monthly_base_fee: 0,
+            session_fee: 0,
+          }),
+        }),
+      ],
+    }));
+
+    // Act: Render the tariff cards.
+    renderTariffList();
+
+    // Assert: Free roaming prices remain visible while absent fee defaults stay hidden.
+    expect(screen.getByText('Roaming AC')).toBeInTheDocument();
+    expect(screen.getByText('Roaming DC')).toBeInTheDocument();
+    expect(screen.getAllByText('0,00 €')).toHaveLength(2);
+    expect(screen.queryByText('Monthly Base Fee')).not.toBeInTheDocument();
+    expect(screen.queryByText('Session Fee')).not.toBeInTheDocument();
+  });
+
   it('shows no upcoming UI when the logical tariff visibility is none', () => {
     // Arrange: Render a logical tariff whose next change is intentionally hidden.
     vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
