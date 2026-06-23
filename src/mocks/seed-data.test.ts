@@ -23,12 +23,15 @@ describe('seed-data', () => {
       ...plan,
       valid_from: parseMockDate(plan.valid_from) ?? new Date(),
       valid_to: parseMockDate(plan.valid_to) ?? null,
+      ac_price_per_kwh: plan.ac_price_per_kwh ?? undefined,
+      dc_price_per_kwh: plan.dc_price_per_kwh ?? undefined,
       roaming_ac_price_per_kwh: plan.roaming_ac_price_per_kwh ?? undefined,
       roaming_dc_price_per_kwh: plan.roaming_dc_price_per_kwh ?? undefined,
       affiliation: plan.affiliation ?? undefined,
       notes: plan.notes ?? undefined,
       created_at: parseMockDate(plan.created_at) ?? new Date(),
       updated_at: parseMockDate(plan.updated_at) ?? new Date(),
+      deleted_at: parseMockDate(plan.deleted_at),
     }));
   }
 
