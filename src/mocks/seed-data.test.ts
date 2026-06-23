@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { buildLogicalTariffs } from '../features/charging-plans';
 import { mockChargingPlans, mockSessions } from './seed-data';
 
 /**
@@ -124,22 +125,82 @@ describe('seed-data', () => {
     expect(pricingContexts).toEqual(['ad_hoc', 'roaming', 'standard']);
   });
 
-  it('uses fixed, distinct session dates so newest-first history is visible in the mock UI', () => {
+  it('includes two plan sessions whose tariffs expose different domestic and roaming prices', () => {
+    // Arrange: Join seeded plan sessions back to their mocked tariff versions.
+    const sessionsWithTariffs = mockSessions.flatMap((session) => {
+      if (!session.tariff_plan_id || session.session_mode !== 'plan') {
+        return [];
+      }
+
+      const plan = mockChargingPlans.find((candidate) => candidate.id === session.tariff_plan_id);
+      if (!plan) {
+        return [];
+      }
+
+      return [{ session, plan }];
+    });
+
+    // Act: Keep only plan sessions whose tariff exposes both domestic and roaming
+    // prices for the saved charging type and where those two prices differ.
+    const differingPlanSessions = sessionsWithTariffs.filter(({ session, plan }) => {
+      if (session.charging_type === 'AC') {
+        return plan.ac_price_per_kwh != null
+          && plan.roaming_ac_price_per_kwh != null
+          && plan.ac_price_per_kwh !== plan.roaming_ac_price_per_kwh;
+      }
+
+      return plan.dc_price_per_kwh != null
+        && plan.roaming_dc_price_per_kwh != null
+        && plan.dc_price_per_kwh !== plan.roaming_dc_price_per_kwh;
+    });
+    const differingPricingContexts = Array.from(
+      new Set(differingPlanSessions.map(({ session }) => session.pricing_context))
+    ).sort();
+
+    // Assert: The browser mock data always includes both standard and roaming
+    // examples on tariffs where the two prices truly differ.
+    expect(differingPlanSessions.length).toBeGreaterThanOrEqual(2);
+    expect(differingPricingContexts).toEqual(['roaming', 'standard']);
+  });
+
+  it('includes an active promotion tariff and a session priced against that promo version', () => {
+    // Arrange: Build logical tariffs for the current UTC day.
+    const today = new Date();
+    const currentUtcDay = new Date(Date.UTC(
+      today.getUTCFullYear(),
+      today.getUTCMonth(),
+      today.getUTCDate()
+    ));
+
+    // Act: Locate the active promo badge and any session saved against its raw version id.
+    const promoTariff = buildLogicalTariffs(mockChargingPlans, currentUtcDay)
+      .find((logicalTariff) => logicalTariff.badge?.kind === 'promo');
+    const promoSession = mockSessions.find(
+      (session) => session.tariff_plan_id === promoTariff?.currentVersion?.id
+    );
+
+    // Assert: Mock mode always exposes a live promotion badge and a matching session.
+    expect(promoTariff?.badge?.kind).toBe('promo');
+    expect(promoTariff?.currentVersion).not.toBeNull();
+    expect(promoSession?.session_mode).toBe('plan');
+  });
+
+  it('uses distinct, newest-first session dates so history stays easy to inspect in mock mode', () => {
     // Arrange: Read the seeded timestamps as ISO strings.
     const sessionTimestamps = Object.fromEntries(
       mockSessions.map((session) => [session.id, session.session_timestamp])
     );
 
-    // Act: Derive the unique set of seeded session dates.
+    // Act: Derive the unique set of seeded session dates and their sorted order.
     const uniqueTimestamps = new Set(mockSessions.map((session) => session.session_timestamp));
+    const sortedTimestamps = [...mockSessions]
+      .map((session) => session.session_timestamp)
+      .sort((left, right) => new Date(right).getTime() - new Date(left).getTime());
 
-    // Assert: Each mock session has a stable date that differs from the others.
+    // Assert: Each mock session keeps a unique timestamp and the array is already
+    // ordered newest-first for easy browser verification.
     expect(uniqueTimestamps.size).toBe(mockSessions.length);
-    expect(sessionTimestamps).toEqual({
-      s1: '2026-06-03T08:15:00.000Z',
-      s2: '2026-06-02T18:45:00.000Z',
-      s4: '2026-05-29T12:30:00.000Z',
-      s3: '2026-05-18T07:05:00.000Z',
-    });
+    expect(Object.keys(sessionTimestamps)).toEqual(['s7', 's1', 's5', 's2', 's6', 's4', 's3']);
+    expect(Object.values(sessionTimestamps)).toEqual(sortedTimestamps);
   });
 });
