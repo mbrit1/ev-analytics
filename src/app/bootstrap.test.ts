@@ -46,19 +46,21 @@ describe('app bootstrap helpers', () => {
       ]),
     }
 
-    // Act: Clear registrations for a development startup.
-    const needsReload = await clearDevelopmentServiceWorkers(serviceWorker, true)
+    try {
+      // Act: Clear registrations for a development startup.
+      const needsReload = await clearDevelopmentServiceWorkers(serviceWorker, true)
 
-    // Assert: All existing registrations are removed.
-    expect(needsReload).toBe(false)
-    expect(serviceWorker.getRegistrations).toHaveBeenCalledTimes(1)
-    expect(unregisterFirst).toHaveBeenCalledTimes(1)
-    expect(unregisterSecond).toHaveBeenCalledTimes(1)
-
-    Object.defineProperty(globalThis, 'navigator', {
-      configurable: true,
-      value: originalNavigator,
-    })
+      // Assert: All existing registrations are removed.
+      expect(needsReload).toBe(false)
+      expect(serviceWorker.getRegistrations).toHaveBeenCalledTimes(1)
+      expect(unregisterFirst).toHaveBeenCalledTimes(1)
+      expect(unregisterSecond).toHaveBeenCalledTimes(1)
+    } finally {
+      Object.defineProperty(globalThis, 'navigator', {
+        configurable: true,
+        value: originalNavigator,
+      })
+    }
   })
 
   it('skips service worker cleanup outside development', async () => {
@@ -104,21 +106,23 @@ describe('app bootstrap helpers', () => {
       getRegistrations: vi.fn().mockResolvedValue([{ unregister: vi.fn().mockResolvedValue(true) }]),
     }
 
-    // Act: Clear the registrations twice across the same page lifecycle.
-    const firstRunNeedsReload = await clearDevelopmentServiceWorkers(serviceWorker, true)
-    const secondRunNeedsReload = await clearDevelopmentServiceWorkers(serviceWorker, true)
+    try {
+      // Act: Clear the registrations twice across the same page lifecycle.
+      const firstRunNeedsReload = await clearDevelopmentServiceWorkers(serviceWorker, true)
+      const secondRunNeedsReload = await clearDevelopmentServiceWorkers(serviceWorker, true)
 
-    // Assert: The first pass forces one reload and the next pass proceeds normally.
-    expect(firstRunNeedsReload).toBe(true)
-    expect(secondRunNeedsReload).toBe(false)
-
-    Object.defineProperty(globalThis, 'navigator', {
-      configurable: true,
-      value: originalNavigator,
-    })
-    Object.defineProperty(globalThis, 'sessionStorage', {
-      configurable: true,
-      value: originalSessionStorage,
-    })
+      // Assert: The first pass forces one reload and the next pass proceeds normally.
+      expect(firstRunNeedsReload).toBe(true)
+      expect(secondRunNeedsReload).toBe(false)
+    } finally {
+      Object.defineProperty(globalThis, 'navigator', {
+        configurable: true,
+        value: originalNavigator,
+      })
+      Object.defineProperty(globalThis, 'sessionStorage', {
+        configurable: true,
+        value: originalSessionStorage,
+      })
+    }
   })
 })
