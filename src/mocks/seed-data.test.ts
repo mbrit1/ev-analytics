@@ -31,7 +31,6 @@ describe('seed-data', () => {
       notes: plan.notes ?? undefined,
       created_at: parseMockDate(plan.created_at) ?? new Date(),
       updated_at: parseMockDate(plan.updated_at) ?? new Date(),
-      deleted_at: parseMockDate(plan.deleted_at),
     }));
   }
 
