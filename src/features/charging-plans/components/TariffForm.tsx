@@ -8,34 +8,32 @@ import { formatCentsToDecimal, parseDecimalToCents } from '../../../shared/lib';
 import { Slab, ThinInput } from '../../../shared/ui';
 import { useProviders } from '../hooks/useProviders';
 
-interface StandardTariffFormProps {
+interface TariffLogicalIdentity {
+  providerId: string;
+  name: string;
+}
+
+export type TariffFormSubmit =
+  | { intent: 'create'; plan: ChargingPlan }
+  | {
+      intent: 'update_current';
+      plan: ChargingPlan;
+      logicalIdentity: TariffLogicalIdentity;
+      originalValidFrom: Date;
+    }
+  | {
+      intent: 'create_successor';
+      plan: ChargingPlan;
+      logicalIdentity: TariffLogicalIdentity;
+      originalValidFrom: Date;
+    };
+
+export interface TariffFormProps {
   mode?: 'create' | 'edit';
-  onSubmit: (data: ChargingPlan) => Promise<void>;
+  onSubmit: (data: TariffFormSubmit) => Promise<void>;
   onCancel: () => void;
   initialValues?: Partial<ChargingPlan>;
 }
-
-/**
- * Submitted logical-tariff detail edits that apply across version history.
- */
-export interface LogicalTariffDetailsValues {
-  nextProviderId: string;
-  nextName: string;
-  affiliation?: string;
-  notes?: string;
-}
-
-interface DetailsTariffFormProps {
-  mode: 'details';
-  onSubmit: (data: LogicalTariffDetailsValues) => Promise<void>;
-  onCancel: () => void;
-  initialValues: Pick<ChargingPlan, 'provider_id' | 'name' | 'affiliation' | 'notes'>;
-}
-
-/**
- * Props for the tariff form across create, edit, and logical-details modes.
- */
-export type TariffFormProps = StandardTariffFormProps | DetailsTariffFormProps;
 
 const MONEY_INPUT_ERROR_MESSAGE = 'Enter a valid money amount';
 
@@ -63,15 +61,7 @@ const tariffFormSchema = z.object({
   notes: z.string().optional(),
 });
 
-const tariffDetailsSchema = z.object({
-  nextName: z.string().optional(),
-  nextProviderId: z.string().min(1, 'Provider is required'),
-  affiliation: z.string().optional(),
-  notes: z.string().optional(),
-});
-
 type TariffFormSchemaValues = z.infer<typeof tariffFormSchema>;
-type TariffDetailsSchemaValues = z.infer<typeof tariffDetailsSchema>;
 
 /**
  * Coerces values that may have been rehydrated from storage into `Date` instances.
@@ -118,9 +108,15 @@ interface ProviderSelectProps {
   value: string;
   onChange: (value: string) => void;
   error?: string;
+  disabled?: boolean;
 }
 
-function ProviderSelect({ value, onChange, error }: ProviderSelectProps): React.ReactElement {
+function ProviderSelect({
+  value,
+  onChange,
+  error,
+  disabled = false,
+}: ProviderSelectProps): React.ReactElement {
   const { providers } = useProviders();
 
   return (
@@ -135,9 +131,10 @@ function ProviderSelect({ value, onChange, error }: ProviderSelectProps): React.
         aria-describedby={error ? 'provider_id_error' : undefined}
         required
         aria-required="true"
+        disabled={disabled}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors"
+        className="w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors disabled:opacity-70"
       >
         <option value="">Select Provider</option>
         {providers.map((provider) => (
@@ -217,7 +214,7 @@ function StandardTariffForm({
   onSubmit,
   onCancel,
   initialValues,
-}: StandardTariffFormProps): React.ReactElement {
+}: TariffFormProps): React.ReactElement {
   const resolvedMode = mode ?? (initialValues?.id ? 'edit' : 'create');
   const { register, handleSubmit, control, setError, clearErrors, formState: { errors, isSubmitting } } = useForm<TariffFormSchemaValues>({
     resolver: zodResolver(tariffFormSchema),
@@ -234,32 +231,66 @@ function StandardTariffForm({
       session_fee: initialValues?.session_fee != null ? formatCentsToDecimal(initialValues.session_fee) : '0,00',
       affiliation: initialValues?.affiliation ?? '',
       notes: initialValues?.notes ?? '',
-    }
+    },
   });
 
   const handleFormSubmit = async (values: TariffFormSchemaValues) => {
     const now = new Date();
     const normalizedPlanName = (values.name ?? '').trim();
+    const originalValidFrom = initialValues?.valid_from ? coerceDate(initialValues.valid_from) : null;
+    const submittedValidFrom = parseDateInputAsUtc(values.valid_from);
     clearErrors('root.submit');
+
+    if (resolvedMode === 'edit' && originalValidFrom == null) {
+      setError('root.submit', {
+        type: 'server',
+        message: 'Unable to resolve the original tariff start date.',
+      });
+      return;
+    }
+
+    const isSameValidFrom = resolvedMode === 'edit'
+      ? submittedValidFrom.getTime() === originalValidFrom.getTime()
+      : false;
+    const plan: ChargingPlan = {
+      id: resolvedMode === 'edit' && isSameValidFrom
+        ? initialValues?.id ?? crypto.randomUUID()
+        : crypto.randomUUID(),
+      user_id: initialValues?.user_id ?? '',
+      provider_id: values.provider_id,
+      name: normalizedPlanName,
+      valid_from: submittedValidFrom,
+      valid_to: values.valid_to ? parseDateInputAsUtc(values.valid_to) : null,
+      ac_price_per_kwh: parseDecimalToCents(values.ac_price ?? ''),
+      dc_price_per_kwh: parseDecimalToCents(values.dc_price ?? ''),
+      roaming_ac_price_per_kwh: parseDecimalToCents(values.roaming_ac_price ?? ''),
+      roaming_dc_price_per_kwh: parseDecimalToCents(values.roaming_dc_price ?? ''),
+      monthly_base_fee: parseDecimalToCents(values.monthly_base_fee ?? '') ?? 0,
+      session_fee: parseDecimalToCents(values.session_fee ?? '') ?? 0,
+      affiliation: values.affiliation || undefined,
+      notes: values.notes || undefined,
+      created_at: initialValues?.created_at ?? now,
+      updated_at: now,
+      deleted_at: initialValues?.deleted_at,
+    };
+
     try {
+      if (resolvedMode === 'create') {
+        await onSubmit({
+          intent: 'create',
+          plan,
+        });
+        return;
+      }
+
       await onSubmit({
-        id: initialValues?.id ?? crypto.randomUUID(),
-        user_id: initialValues?.user_id ?? '',
-        provider_id: values.provider_id,
-        name: normalizedPlanName,
-        valid_from: parseDateInputAsUtc(values.valid_from),
-        valid_to: values.valid_to ? parseDateInputAsUtc(values.valid_to) : null,
-        ac_price_per_kwh: parseDecimalToCents(values.ac_price ?? ''),
-        dc_price_per_kwh: parseDecimalToCents(values.dc_price ?? ''),
-        roaming_ac_price_per_kwh: parseDecimalToCents(values.roaming_ac_price ?? ''),
-        roaming_dc_price_per_kwh: parseDecimalToCents(values.roaming_dc_price ?? ''),
-        monthly_base_fee: parseDecimalToCents(values.monthly_base_fee ?? '') ?? 0,
-        session_fee: parseDecimalToCents(values.session_fee ?? '') ?? 0,
-        affiliation: values.affiliation || undefined,
-        notes: values.notes || undefined,
-        created_at: initialValues?.created_at ?? now,
-        updated_at: now,
-        deleted_at: initialValues?.deleted_at,
+        intent: isSameValidFrom ? 'update_current' : 'create_successor',
+        plan,
+        logicalIdentity: {
+          providerId: initialValues?.provider_id ?? plan.provider_id,
+          name: initialValues?.name ?? '',
+        },
+        originalValidFrom,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to save tariff. Please try again.';
@@ -286,7 +317,12 @@ function StandardTariffForm({
           name="provider_id"
           control={control}
           render={({ field }) => (
-            <ProviderSelect value={field.value} onChange={field.onChange} error={errors.provider_id?.message} />
+            <ProviderSelect
+              value={field.value}
+              onChange={field.onChange}
+              error={errors.provider_id?.message}
+              disabled={resolvedMode === 'edit'}
+            />
           )}
         />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -322,76 +358,9 @@ function StandardTariffForm({
   );
 }
 
-function DetailsTariffForm({
-  onSubmit,
-  onCancel,
-  initialValues,
-}: DetailsTariffFormProps): React.ReactElement {
-  const { control, register, handleSubmit, setError, clearErrors, formState: { errors, isSubmitting } } = useForm<TariffDetailsSchemaValues>({
-    resolver: zodResolver(tariffDetailsSchema),
-    defaultValues: {
-      nextProviderId: initialValues.provider_id,
-      nextName: initialValues.name,
-      affiliation: initialValues.affiliation ?? '',
-      notes: initialValues.notes ?? '',
-    },
-  });
-
-  const handleDetailsSubmit = async (values: TariffDetailsSchemaValues) => {
-    clearErrors('root.submit');
-    try {
-      await onSubmit({
-        nextProviderId: values.nextProviderId,
-        nextName: (values.nextName ?? '').trim(),
-        affiliation: values.affiliation || undefined,
-        notes: values.notes || undefined,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to save tariff. Please try again.';
-      setError('root.submit', {
-        type: 'server',
-        message,
-      });
-    }
-  };
-
-  return (
-    <TariffFormShell
-      title="Edit Tariff Details"
-      onCancel={onCancel}
-      onSubmit={handleSubmit(handleDetailsSubmit)}
-      isSubmitting={isSubmitting}
-      submitLabel="Save Tariff"
-      submitError={errors.root?.submit?.message}
-    >
-      <section className="space-y-6" aria-labelledby="tariff-section-identity">
-        <h3 id="tariff-section-identity" className="text-[13px] font-semibold text-secondary uppercase tracking-wider">Identity</h3>
-        <ThinInput label="Tariff Name (Optional)" type="text" {...register('nextName')} error={errors.nextName?.message} />
-        <Controller
-          name="nextProviderId"
-          control={control}
-          render={({ field }) => (
-            <ProviderSelect value={field.value} onChange={field.onChange} error={errors.nextProviderId?.message} />
-          )}
-        />
-      </section>
-
-      <section className="space-y-6" aria-labelledby="tariff-section-advanced">
-        <h3 id="tariff-section-advanced" className="text-[13px] font-semibold text-secondary uppercase tracking-wider">Advanced</h3>
-        <ThinInput label="Affiliation" type="text" {...register('affiliation')} />
-        <ThinInput label="Notes" type="text" {...register('notes')} />
-      </section>
-    </TariffFormShell>
-  );
-}
-
 /**
- * Tariff form for create, edit, and logical-details workflows.
+ * Tariff form for creating new tariff versions or editing the current version.
  */
 export const TariffForm: React.FC<TariffFormProps> = (props) => {
-  if (props.mode === 'details') {
-    return <DetailsTariffForm {...props} />;
-  }
-
   return <StandardTariffForm {...props} />;
 };

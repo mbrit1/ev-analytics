@@ -99,14 +99,17 @@ describe('TariffForm', () => {
     await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
     expect(mockOnSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        name: 'Travel Tariff',
-        provider_id: 'p1',
-        ac_price_per_kwh: 49,
-        dc_price_per_kwh: 59,
-        roaming_ac_price_per_kwh: 69,
-        roaming_dc_price_per_kwh: 79,
-        monthly_base_fee: 399,
-        session_fee: 99,
+        intent: 'create',
+        plan: expect.objectContaining({
+          name: 'Travel Tariff',
+          provider_id: 'p1',
+          ac_price_per_kwh: 49,
+          dc_price_per_kwh: 59,
+          roaming_ac_price_per_kwh: 69,
+          roaming_dc_price_per_kwh: 79,
+          monthly_base_fee: 399,
+          session_fee: 99,
+        }),
       })
     );
   });
@@ -123,12 +126,15 @@ describe('TariffForm', () => {
     await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
     expect(mockOnSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        ac_price_per_kwh: undefined,
-        dc_price_per_kwh: undefined,
-        roaming_ac_price_per_kwh: undefined,
-        roaming_dc_price_per_kwh: undefined,
-        monthly_base_fee: 0,
-        session_fee: 0,
+        intent: 'create',
+        plan: expect.objectContaining({
+          ac_price_per_kwh: undefined,
+          dc_price_per_kwh: undefined,
+          roaming_ac_price_per_kwh: undefined,
+          roaming_dc_price_per_kwh: undefined,
+          monthly_base_fee: 0,
+          session_fee: 0,
+        }),
       })
     );
   });
@@ -145,8 +151,11 @@ describe('TariffForm', () => {
     await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
     expect(mockOnSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        name: '',
-        provider_id: 'p1',
+        intent: 'create',
+        plan: expect.objectContaining({
+          name: '',
+          provider_id: 'p1',
+        }),
       })
     );
   });
@@ -180,7 +189,10 @@ describe('TariffForm', () => {
     await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
     expect(mockOnSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
-        name: '',
+        intent: 'create',
+        plan: expect.objectContaining({
+          name: '',
+        }),
       })
     );
   });
@@ -270,70 +282,92 @@ describe('TariffForm', () => {
     expect(screen.getByLabelText(/valid to/i)).toHaveValue('2026-01-31');
   });
 
-  it('renders provider, name, affiliation, and notes only in details mode', () => {
-    // Arrange: Render the form in logical-details mode with existing identity values.
+  it('locks provider and keeps tariff name editable in edit mode', () => {
+    // Arrange: Render mode="edit" with provider_id "p1" and name "Lidl".
     render(
       <TariffForm
-        mode="details"
+        mode="edit"
         onSubmit={mockOnSubmit}
         onCancel={mockOnCancel}
         initialValues={{
+          id: 'plan-1',
           provider_id: 'p1',
-          name: 'Travel Plus',
-          affiliation: 'ADAC',
-          notes: 'Preserve current pricing',
+          name: 'Lidl',
         }}
       />
     );
 
-    // Act: Inspect the rendered details-only surface.
-
-    // Assert: Details mode omits pricing and validity inputs while preserving editable identity fields.
-    expect(screen.getByLabelText(/^provider$/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/tariff name/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/^affiliation$/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/^notes$/i)).toBeInTheDocument();
-    expect(screen.queryByLabelText(/valid from/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/valid to/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/^ac price$/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/^dc price$/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/roaming ac price/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/roaming dc price/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/monthly base fee/i)).not.toBeInTheDocument();
-    expect(screen.queryByLabelText(/session fee/i)).not.toBeInTheDocument();
+    // Assert: Provider is disabled and Tariff Name is enabled.
+    expect(screen.getByLabelText(/^provider$/i)).toBeDisabled();
+    expect(screen.getByLabelText(/tariff name/i)).not.toBeDisabled();
   });
 
-  it('submits next provider, name, affiliation, and notes in details mode', async () => {
-    // Arrange: Render details mode with existing values and edit the logical tariff identity.
+  it('submits update_current when valid from is unchanged', async () => {
+    // Arrange: initial valid_from is 2026-01-01.
     render(
       <TariffForm
-        mode="details"
+        mode="edit"
         onSubmit={mockOnSubmit}
         onCancel={mockOnCancel}
         initialValues={{
+          id: 'plan-1',
           provider_id: 'p1',
-          name: 'Travel Plus',
-          affiliation: 'Old Club',
-          notes: 'Old notes',
+          name: 'Lidl',
+          valid_from: new Date('2026-01-01T00:00:00.000Z'),
         }}
       />
     );
-    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
-    fireEvent.change(screen.getByLabelText(/tariff name/i), { target: { value: 'Road Flex' } });
-    fireEvent.change(screen.getByLabelText(/^affiliation$/i), { target: { value: 'ADAC' } });
-    fireEvent.change(screen.getByLabelText(/^notes$/i), { target: { value: 'Updated across the logical tariff' } });
+    fireEvent.change(screen.getByLabelText(/tariff name/i), { target: { value: 'Lidl Corrected' } });
 
-    // Act: Submit the details-only form.
+    // Act: change name only and save.
     fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
 
-    // Assert: Only logical-details fields are submitted.
+    // Assert: onSubmit receives intent "update_current".
     await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
-    expect(mockOnSubmit).toHaveBeenCalledWith({
-      nextProviderId: 'p1',
-      nextName: 'Road Flex',
-      affiliation: 'ADAC',
-      notes: 'Updated across the logical tariff',
-    });
+    expect(mockOnSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        intent: 'update_current',
+        logicalIdentity: {
+          providerId: 'p1',
+          name: 'Lidl',
+        },
+        originalValidFrom: new Date('2026-01-01T00:00:00.000Z'),
+      })
+    );
+  });
+
+  it('submits create_successor when valid from changes', async () => {
+    // Arrange: initial valid_from is 2026-01-01.
+    render(
+      <TariffForm
+        mode="edit"
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        initialValues={{
+          id: 'plan-1',
+          provider_id: 'p1',
+          name: 'Lidl',
+          valid_from: new Date('2026-01-01T00:00:00.000Z'),
+        }}
+      />
+    );
+    fireEvent.change(screen.getByLabelText(/valid from/i), { target: { value: '2026-08-15' } });
+
+    // Act: change Valid From to 2026-08-15 and save.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: onSubmit receives intent "create_successor".
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+    expect(mockOnSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        intent: 'create_successor',
+        logicalIdentity: {
+          providerId: 'p1',
+          name: 'Lidl',
+        },
+        originalValidFrom: new Date('2026-01-01T00:00:00.000Z'),
+      })
+    );
   });
 });
 
