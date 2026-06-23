@@ -249,8 +249,11 @@ function StandardTariffForm({
       return;
     }
 
-    const isSameValidFrom = resolvedMode === 'edit'
-      ? submittedValidFrom.getTime() === originalValidFrom.getTime()
+    const resolvedOriginalValidFrom = resolvedMode === 'edit'
+      ? originalValidFrom
+      : null;
+    const isSameValidFrom = resolvedMode === 'edit' && resolvedOriginalValidFrom != null
+      ? submittedValidFrom.getTime() === resolvedOriginalValidFrom.getTime()
       : false;
     const plan: ChargingPlan = {
       id: resolvedMode === 'edit' && isSameValidFrom
@@ -290,7 +293,7 @@ function StandardTariffForm({
           providerId: initialValues?.provider_id ?? plan.provider_id,
           name: initialValues?.name ?? '',
         },
-        originalValidFrom,
+        originalValidFrom: resolvedOriginalValidFrom as Date,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to save tariff. Please try again.';

@@ -5,8 +5,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { useAuth } from '../features/auth';
 import { useSyncStatus } from '../features/offline-sync';
-import type { TariffFormSubmit } from '../features/charging-plans/components/TariffForm';
-import type { ChargingPlan } from '../infra/db';
 
 vi.mock('../features/auth', () => ({
   useAuth: vi.fn(),
