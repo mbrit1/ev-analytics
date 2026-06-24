@@ -10,8 +10,10 @@ import {
 import { processOutbox, initialSync } from './syncEngine'
 import { supabase } from '../../../infra/supabase'
 import 'fake-indexeddb/auto'
-import { setActivePlanSelection } from '../../charging-plans'
+import { schedulePermanentTariffVersion, scheduleTemporaryPromotion, setActivePlanSelection } from '../../charging-plans'
 import { saveSession } from '../../charging-sessions'
+
+const utc = (date: string): Date => new Date(`${date}T00:00:00.000Z`)
 
 function buildProvider(overrides: Partial<Provider> = {}): Provider {
   const now = new Date('2026-05-21T00:00:00.000Z')
@@ -41,6 +43,44 @@ function buildChargingPlan(overrides: Partial<ChargingPlan> = {}): ChargingPlan 
     updated_at: now,
     ...overrides
   }
+}
+
+function buildPrices(overrides: Partial<{
+  ac_price_per_kwh: number
+  dc_price_per_kwh: number
+  roaming_ac_price_per_kwh: number
+  roaming_dc_price_per_kwh: number
+  monthly_base_fee: number
+  session_fee: number
+}> = {}) {
+  return {
+    monthly_base_fee: 0,
+    session_fee: 0,
+    ...overrides,
+  }
+}
+
+function normalizePlanDate(value: Date | null | undefined): number {
+  return value == null ? Number.POSITIVE_INFINITY : value.getTime()
+}
+
+function hasRemoteOverlap(candidate: ChargingPlan, remotePlans: ChargingPlan[]): boolean {
+  return remotePlans.some((remotePlan) => {
+    if (remotePlan.id === candidate.id || remotePlan.deleted_at) {
+      return false
+    }
+
+    if (
+      remotePlan.user_id !== candidate.user_id
+      || remotePlan.provider_id !== candidate.provider_id
+      || remotePlan.name.trim().toLowerCase() !== candidate.name.trim().toLowerCase()
+    ) {
+      return false
+    }
+
+    return candidate.valid_from.getTime() < normalizePlanDate(remotePlan.valid_to)
+      && remotePlan.valid_from.getTime() < normalizePlanDate(candidate.valid_to)
+  })
 }
 
 function buildChargingSession(overrides: Partial<ChargingSession> = {}): ChargingSession {
@@ -847,6 +887,139 @@ describe('syncEngine', () => {
     expect(outboxItems[0].last_attempt_at).toEqual(now)
     expect(outboxItems[0].next_attempt_at).toBeUndefined()
     expect(outboxItems[0].last_error).toBe('Tariff validity overlaps with an existing active version for this provider and name')
+  })
+
+  it('replays the June Lidl promo and SWM successor rows in deterministic timestamp order', async () => {
+    // Arrange: Seed the same pre-June baselines locally and remotely.
+    const remotePlans: ChargingPlan[] = [
+      buildChargingPlan({
+        id: 'lidl-baseline',
+        provider_id: 'provider-lidl',
+        name: 'Lidl',
+        valid_from: utc('2026-01-01'),
+        valid_to: null,
+        ac_price_per_kwh: 49,
+      }),
+      buildChargingPlan({
+        id: 'swm-baseline',
+        provider_id: 'provider-swm',
+        name: 'SWM',
+        valid_from: utc('2026-01-01'),
+        valid_to: null,
+        ac_price_per_kwh: 59,
+      }),
+    ]
+
+    await db.charging_plans.bulkAdd(remotePlans)
+
+    await scheduleTemporaryPromotion({
+      userId: 'user-1',
+      providerId: 'provider-lidl',
+      name: 'Lidl',
+      promoStart: utc('2026-06-01'),
+      promoEndInclusive: utc('2026-06-30'),
+      prices: buildPrices({ ac_price_per_kwh: 39 }),
+    })
+    await schedulePermanentTariffVersion({
+      userId: 'user-1',
+      providerId: 'provider-swm',
+      name: 'SWM',
+      effectiveFrom: utc('2026-07-01'),
+      prices: buildPrices({ ac_price_per_kwh: 65 }),
+    })
+
+    const queuedItems = await db.sync_outbox.orderBy('timestamp').toArray()
+    const chargingPlanUpsert = vi.fn(async (payload: ChargingPlan) => {
+      // Simulate Supabase's exclusion constraint against already-persisted rows.
+      if (hasRemoteOverlap(payload, remotePlans)) {
+        return {
+          error: {
+            code: '23P01',
+            message: 'conflicting key value violates exclusion constraint "charging_plans_no_overlapping_active_versions"',
+          },
+        }
+      }
+
+      const index = remotePlans.findIndex((plan) => plan.id === payload.id)
+      if (index >= 0) {
+        remotePlans[index] = payload
+      } else {
+        remotePlans.push(payload)
+      }
+
+      return { error: null }
+    })
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => {
+      if (tableName === 'charging_plans') {
+        return { upsert: chargingPlanUpsert } as unknown as ReturnType<typeof supabase.from>
+      }
+
+      return { upsert: vi.fn(() => Promise.resolve({ error: null })) } as unknown as ReturnType<typeof supabase.from>
+    })
+
+    // Act: Replay the queued tariff rows through the sync engine.
+    await processOutbox()
+
+    // Assert: One transaction can share a timestamp, but replay still preserves insertion order.
+    expect(new Set(queuedItems.slice(0, 3).map((item) => item.timestamp.toISOString())).size).toBe(1)
+    expect(new Set(queuedItems.slice(3).map((item) => item.timestamp.toISOString())).size).toBe(1)
+    expect(
+      queuedItems.map((item) => {
+        const payload = item.payload as ChargingPlan
+        return [
+          item.action,
+          payload.provider_id,
+          payload.name,
+          payload.valid_from.toISOString(),
+          payload.valid_to?.toISOString() ?? null,
+        ]
+      })
+    ).toEqual([
+      ['UPDATE', 'provider-lidl', 'Lidl', '2026-01-01T00:00:00.000Z', '2026-06-01T00:00:00.000Z'],
+      ['INSERT', 'provider-lidl', 'Lidl', '2026-06-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z'],
+      ['INSERT', 'provider-lidl', 'Lidl', '2026-07-01T00:00:00.000Z', null],
+      ['UPDATE', 'provider-swm', 'SWM', '2026-01-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z'],
+      ['INSERT', 'provider-swm', 'SWM', '2026-07-01T00:00:00.000Z', null],
+    ])
+    expect(chargingPlanUpsert).toHaveBeenCalledTimes(5)
+    expect(
+      chargingPlanUpsert.mock.calls.map(([payload]) => [
+        payload.id,
+        payload.provider_id,
+        payload.name,
+        payload.valid_from.toISOString(),
+        payload.valid_to?.toISOString() ?? null,
+      ])
+    ).toEqual(
+      queuedItems.map((item) => {
+        const payload = item.payload as ChargingPlan
+        return [
+          payload.id,
+          payload.provider_id,
+          payload.name,
+          payload.valid_from.toISOString(),
+          payload.valid_to?.toISOString() ?? null,
+        ]
+      })
+    )
+    expect(await db.sync_outbox.count()).toBe(0)
+    expect(
+      remotePlans
+        .map((plan) => [
+          plan.provider_id,
+          plan.name,
+          plan.valid_from.toISOString(),
+          plan.valid_to?.toISOString() ?? null,
+          plan.ac_price_per_kwh,
+        ])
+        .sort((left, right) => `${left[0]}:${left[2]}`.localeCompare(`${right[0]}:${right[2]}`))
+    ).toEqual([
+      ['provider-lidl', 'Lidl', '2026-01-01T00:00:00.000Z', '2026-06-01T00:00:00.000Z', 49],
+      ['provider-lidl', 'Lidl', '2026-06-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z', 39],
+      ['provider-lidl', 'Lidl', '2026-07-01T00:00:00.000Z', null, 49],
+      ['provider-swm', 'SWM', '2026-01-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z', 59],
+      ['provider-swm', 'SWM', '2026-07-01T00:00:00.000Z', null, 65],
+    ])
   })
 
   it('should stop processing after non-overlap non-retryable charging-plan failure', async () => {
