@@ -50,7 +50,7 @@ For structural refactors, use a `move first, behavior unchanged` sequence, then 
 
 ## Commit & Pull Request Guidelines
 
-Use small, scoped changes and avoid unrelated refactors. Create a feature branch before code changes, for example `feat/phase-2-auth`. Use Conventional Commits: `type(scope): description`, such as `feat(sync): implement offline outbox queue`. Commit bodies explain why and note trade-offs. Before proposing a push or PR, run:
+Use small, scoped changes and avoid unrelated refactors. Create and switch to a feature branch before code changes, for example `feat/phase-2-auth`. Agents must not commit on `main`; if work begins on `main`, branch immediately and move any local-only commit off `main` before continuing. Use Conventional Commits: `type(scope): description`, such as `feat(sync): implement offline outbox queue`. Commit bodies explain why and note trade-offs. Before proposing a push or PR, run:
 
 ```bash
 npm run lint && npm run test -- --run && npm run build
