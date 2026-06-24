@@ -26,6 +26,29 @@ function shouldContinueAfterFailure(item: SyncOutbox, result: { success: false }
 }
 
 type RemoteChargingSessionPayload = Omit<ChargingSession, 'pricing_context'>;
+type RemoteChargingPlanPayload = Pick<
+  ChargingPlan,
+  | 'id'
+  | 'user_id'
+  | 'provider_id'
+  | 'name'
+  | 'valid_from'
+  | 'valid_to'
+  | 'ac_price_per_kwh'
+  | 'dc_price_per_kwh'
+  | 'roaming_ac_price_per_kwh'
+  | 'roaming_dc_price_per_kwh'
+  | 'monthly_base_fee'
+  | 'session_fee'
+  | 'affiliation'
+  | 'notes'
+  | 'created_at'
+  | 'updated_at'
+  | 'deleted_at'
+>;
+type RemoteChargingPlan = ChargingPlan & {
+  valid_period?: unknown;
+};
 type RemoteChargingSession = Omit<
   ChargingSession,
   'session_timestamp' | 'created_at' | 'updated_at' | 'deleted_at'
@@ -59,6 +82,34 @@ function toRemoteChargingSessionPayload(session: ChargingSession): RemoteChargin
   const remotePayload = { ...session };
   delete remotePayload.pricing_context;
   return remotePayload;
+}
+
+function toRemoteChargingPlanPayload(plan: ChargingPlan): RemoteChargingPlanPayload {
+  return {
+    id: plan.id,
+    user_id: plan.user_id,
+    provider_id: plan.provider_id,
+    name: plan.name,
+    valid_from: plan.valid_from,
+    valid_to: plan.valid_to,
+    ac_price_per_kwh: plan.ac_price_per_kwh,
+    dc_price_per_kwh: plan.dc_price_per_kwh,
+    roaming_ac_price_per_kwh: plan.roaming_ac_price_per_kwh,
+    roaming_dc_price_per_kwh: plan.roaming_dc_price_per_kwh,
+    monthly_base_fee: plan.monthly_base_fee,
+    session_fee: plan.session_fee,
+    affiliation: plan.affiliation,
+    notes: plan.notes,
+    created_at: plan.created_at,
+    updated_at: plan.updated_at,
+    deleted_at: plan.deleted_at,
+  };
+}
+
+function normalizeRemoteChargingPlan(plan: RemoteChargingPlan): ChargingPlan {
+  const localPlan = { ...plan };
+  delete localPlan.valid_period;
+  return localPlan;
 }
 
 function normalizeRemoteChargingSession(session: RemoteChargingSession): ChargingSession {
@@ -145,7 +196,9 @@ async function syncItem(item: SyncOutbox): Promise<{ success: true } | ({ succes
         break;
       }
       case 'charging_plans': {
-        const result = await supabase.from('charging_plans').upsert(item.payload as ChargingPlan);
+        const result = await supabase
+          .from('charging_plans')
+          .upsert(toRemoteChargingPlanPayload(item.payload as ChargingPlan));
         error = result.error as { message: string; code?: string } | null;
         break;
       }
@@ -217,7 +270,9 @@ export async function initialSync(): Promise<void> {
 
       if (data && data.length > 0) {
         if (tableName === 'providers') await db.providers.bulkPut(data);
-        if (tableName === 'charging_plans') await db.charging_plans.bulkPut(data);
+        if (tableName === 'charging_plans') {
+          await db.charging_plans.bulkPut((data as RemoteChargingPlan[]).map(normalizeRemoteChargingPlan));
+        }
         if (tableName === 'sessions') {
           await db.sessions.bulkPut(
             (data as RemoteChargingSession[]).map(normalizeRemoteChargingSession)
