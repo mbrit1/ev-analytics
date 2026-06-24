@@ -88,7 +88,19 @@ const buildSession = (overrides: Partial<ChargingSession> = {}): ChargingSession
 })
 
 const sortedLogicalRows = (plans: ChargingPlan[]): ChargingPlan[] =>
-  [...plans].sort((left, right) => left.valid_from.getTime() - right.valid_from.getTime())
+  [...plans].sort((left, right) => {
+    const providerCompare = left.provider_id.localeCompare(right.provider_id)
+    if (providerCompare !== 0) {
+      return providerCompare
+    }
+
+    const startCompare = left.valid_from.getTime() - right.valid_from.getTime()
+    if (startCompare !== 0) {
+      return startCompare
+    }
+
+    return left.name.localeCompare(right.name)
+  })
 
 /**
  * Test suite for charging-plan persistence and logical tariff-version services.
@@ -163,6 +175,90 @@ describe('planService', () => {
     ])
 
     expect(await db.sync_outbox.count()).toBe(3)
+  })
+
+  it('reproduces the June Lidl promo and SWM successor sequence without local overlap conflicts', async () => {
+    // Arrange: Seed the prod-shaped Lidl and SWM baselines that existed before June 2026.
+    await db.charging_plans.bulkAdd([
+      buildPlan({
+        id: 'lidl-baseline',
+        provider_id: 'provider-lidl',
+        name: 'Lidl',
+        valid_from: utc('2026-01-01'),
+        valid_to: null,
+        ac_price_per_kwh: 49,
+      }),
+      buildPlan({
+        id: 'swm-baseline',
+        provider_id: 'provider-swm',
+        name: 'SWM',
+        valid_from: utc('2026-01-01'),
+        valid_to: null,
+        ac_price_per_kwh: 59,
+      }),
+    ])
+
+    // Act: Queue the Lidl June promo/restoration and the SWM July AC price change.
+    await scheduleTemporaryPromotion({
+      userId: 'user-1',
+      providerId: 'provider-lidl',
+      name: 'Lidl',
+      promoStart: utc('2026-06-01'),
+      promoEndInclusive: utc('2026-06-30'),
+      prices: buildPrices({ ac_price_per_kwh: 39 }),
+    })
+    await schedulePermanentTariffVersion({
+      userId: 'user-1',
+      providerId: 'provider-swm',
+      name: 'SWM',
+      effectiveFrom: utc('2026-07-01'),
+      prices: buildPrices({ ac_price_per_kwh: 65 }),
+    })
+
+    // Assert: Local logical versions are split into non-overlapping half-open ranges.
+    const versions = sortedLogicalRows(await getChargingPlanVersions('user-1'))
+    expect(
+      versions.map((plan) => [
+        plan.provider_id,
+        plan.name,
+        plan.valid_from.toISOString(),
+        plan.valid_to?.toISOString() ?? null,
+        plan.ac_price_per_kwh,
+      ])
+    ).toEqual([
+      ['provider-lidl', 'Lidl', '2026-01-01T00:00:00.000Z', '2026-06-01T00:00:00.000Z', 49],
+      ['provider-lidl', 'Lidl', '2026-06-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z', 39],
+      ['provider-lidl', 'Lidl', '2026-07-01T00:00:00.000Z', null, 49],
+      ['provider-swm', 'SWM', '2026-01-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z', 59],
+      ['provider-swm', 'SWM', '2026-07-01T00:00:00.000Z', null, 65],
+    ])
+
+    // Assert: The local outbox records the expected five remote mutations with fresh retry metadata.
+    const outbox = await db.sync_outbox.orderBy('timestamp').toArray()
+    expect(outbox).toHaveLength(5)
+    expect(
+      outbox.map((entry) => {
+        const payload = entry.payload as ChargingPlan
+        return [
+          entry.action,
+          payload.provider_id,
+          payload.name,
+          payload.valid_from.toISOString(),
+          payload.valid_to?.toISOString() ?? null,
+          payload.ac_price_per_kwh,
+        ]
+      })
+    ).toEqual([
+      ['UPDATE', 'provider-lidl', 'Lidl', '2026-01-01T00:00:00.000Z', '2026-06-01T00:00:00.000Z', 49],
+      ['INSERT', 'provider-lidl', 'Lidl', '2026-06-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z', 39],
+      ['INSERT', 'provider-lidl', 'Lidl', '2026-07-01T00:00:00.000Z', null, 49],
+      ['UPDATE', 'provider-swm', 'SWM', '2026-01-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z', 59],
+      ['INSERT', 'provider-swm', 'SWM', '2026-07-01T00:00:00.000Z', null, 65],
+    ])
+    expect(outbox.every((entry) => entry.retry_count === 0)).toBe(true)
+    expect(outbox.every((entry) => entry.last_attempt_at === undefined)).toBe(true)
+    expect(outbox.every((entry) => entry.next_attempt_at === undefined)).toBe(true)
+    expect(outbox.every((entry) => entry.last_error === undefined)).toBe(true)
   })
 
   it('schedules a promotion when persisted rows were hydrated from ISO strings', async () => {
