@@ -271,6 +271,48 @@ describe('syncEngine', () => {
     expect(supabase.from).toHaveBeenCalledWith('charging_plans')
   })
 
+  it('uploads only writable charging plan fields', async () => {
+    // Arrange: Queue a charging plan payload that was cloned from a Supabase-hydrated row.
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+    const plan = buildChargingPlan({ id: 'generated-column-plan' })
+
+    await db.sync_outbox.add({
+      table_name: 'charging_plans',
+      action: 'UPDATE',
+      payload: {
+        ...plan,
+        valid_period: '[2026-01-01,infinity)' as unknown,
+        unexpected_remote_flag: true as unknown,
+      } as ChargingPlan,
+      timestamp: new Date()
+    })
+
+    // Act: Process the outbox item.
+    await processOutbox()
+
+    // Assert: Uploads rebuild the payload from writable columns instead of replaying arbitrary fields.
+    expect(mockUpsert).toHaveBeenCalledWith({
+      id: plan.id,
+      user_id: plan.user_id,
+      provider_id: plan.provider_id,
+      name: plan.name,
+      valid_from: plan.valid_from,
+      valid_to: plan.valid_to,
+      ac_price_per_kwh: plan.ac_price_per_kwh,
+      dc_price_per_kwh: plan.dc_price_per_kwh,
+      roaming_ac_price_per_kwh: plan.roaming_ac_price_per_kwh,
+      roaming_dc_price_per_kwh: plan.roaming_dc_price_per_kwh,
+      monthly_base_fee: plan.monthly_base_fee,
+      session_fee: plan.session_fee,
+      affiliation: plan.affiliation,
+      notes: plan.notes,
+      created_at: plan.created_at,
+      updated_at: plan.updated_at,
+      deleted_at: plan.deleted_at,
+    })
+  })
+
   it('should upload provider plan selection outbox items to provider_plan_selections', async () => {
     // Arrange: Queue a provider-plan-selection mutation for sync.
     const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
@@ -782,6 +824,28 @@ describe('syncEngine', () => {
     expect(await db.providers.toArray()).toEqual(remoteProviders)
     expect(await db.charging_plans.toArray()).toEqual(remoteChargingPlans)
     expect(await db.sessions.toArray()).toEqual(remoteSessions)
+  })
+
+  it('should omit generated charging plan columns during initialSync hydration', async () => {
+    // Arrange: Supabase select('*') returns generated columns that clients cannot write back.
+    const remoteChargingPlan = {
+      ...buildChargingPlan({ id: 'cp-generated', user_id: 'u1' }),
+      valid_period: '[2026-05-21,infinity)',
+    }
+
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      select: () => Promise.resolve({
+        data: tableName === 'charging_plans' ? [remoteChargingPlan] : [],
+        error: null,
+      })
+    }) as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Hydrate remote rows into Dexie.
+    await initialSync()
+
+    // Assert: Local charging plans keep only writable domain fields.
+    const localChargingPlan = await db.charging_plans.get('cp-generated')
+    expect(localChargingPlan).not.toHaveProperty('valid_period')
   })
 
   it('should normalize remote charging session timestamps before storing them locally', async () => {
