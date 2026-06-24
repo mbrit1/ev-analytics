@@ -254,6 +254,36 @@ describe('syncEngine', () => {
     expect(supabase.from).toHaveBeenCalledWith('providers')
   })
 
+  it('uploads only writable provider fields', async () => {
+    // Arrange: Queue a provider payload carrying extra non-domain fields.
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+    const provider = buildProvider({ id: 'provider-allowlist' })
+
+    await db.sync_outbox.add({
+      table_name: 'providers',
+      action: 'UPDATE',
+      payload: {
+        ...provider,
+        unexpected_remote_flag: true as unknown,
+      } as Provider,
+      timestamp: new Date()
+    })
+
+    // Act: Process the outbox item.
+    await processOutbox()
+
+    // Assert: Uploads rebuild providers from the writable column contract.
+    expect(mockUpsert).toHaveBeenCalledWith({
+      id: provider.id,
+      user_id: provider.user_id,
+      name: provider.name,
+      created_at: provider.created_at,
+      updated_at: provider.updated_at,
+      deleted_at: provider.deleted_at,
+    })
+  })
+
   it('should upload charging plan outbox items to the charging_plans table', async () => {
     // Arrange: Queue a charging plan mutation for sync.
     const plan = buildChargingPlan({ id: 'cp1', user_id: 'u1', provider_id: 'p1', name: 'Drive Free' })
@@ -331,6 +361,40 @@ describe('syncEngine', () => {
     // Assert
     expect(supabase.from).toHaveBeenCalledWith('provider_plan_selections')
     expect(await db.sync_outbox.count()).toBe(0)
+  })
+
+  it('uploads only writable provider plan selection fields', async () => {
+    // Arrange: Queue a provider-plan-selection payload carrying extra fields.
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+    const selection = buildProviderPlanSelection({ id: 'pps-allowlist' })
+
+    await db.sync_outbox.add({
+      table_name: 'provider_plan_selections',
+      action: 'UPDATE',
+      payload: {
+        ...selection,
+        unexpected_remote_flag: true as unknown,
+      } as ProviderPlanSelection,
+      timestamp: new Date()
+    })
+
+    // Act: Process the outbox item.
+    await processOutbox()
+
+    // Assert: Uploads rebuild selections from the writable column contract.
+    expect(mockUpsert).toHaveBeenCalledWith({
+      id: selection.id,
+      user_id: selection.user_id,
+      provider_id: selection.provider_id,
+      tariff_plan_id: selection.tariff_plan_id,
+      valid_from: selection.valid_from,
+      valid_to: selection.valid_to,
+      price_snapshot: selection.price_snapshot,
+      created_at: selection.created_at,
+      updated_at: selection.updated_at,
+      deleted_at: selection.deleted_at,
+    })
   })
 
   it('should sync soft-delete outbox items with their deleted_at payload', async () => {
@@ -629,6 +693,59 @@ describe('syncEngine', () => {
     expect(await db.sync_outbox.count()).toBe(0)
   })
 
+  it('uploads only writable charging session fields', async () => {
+    // Arrange: Queue a session payload carrying local-only and stray fields.
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+    const session = buildChargingSession({ id: 'session-allowlist', pricing_context: 'roaming' })
+
+    await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'UPDATE',
+      payload: {
+        ...session,
+        unexpected_remote_flag: true as unknown,
+      } as ChargingSession,
+      timestamp: new Date()
+    })
+
+    // Act: Process the outbox item.
+    await processOutbox()
+
+    // Assert: Uploads rebuild sessions from the writable column contract.
+    expect(mockUpsert).toHaveBeenCalledWith({
+      id: session.id,
+      user_id: session.user_id,
+      session_timestamp: session.session_timestamp,
+      provider_id: session.provider_id,
+      provider_name_snapshot: session.provider_name_snapshot,
+      tariff_plan_id: session.tariff_plan_id,
+      charging_plan_name_snapshot: session.charging_plan_name_snapshot,
+      charging_type: session.charging_type,
+      kwh_billed: session.kwh_billed,
+      kwh_added: session.kwh_added,
+      total_cost: session.total_cost,
+      session_mode: session.session_mode,
+      plan_selection_id: session.plan_selection_id,
+      price_snapshot: session.price_snapshot,
+      ad_hoc_pricing: session.ad_hoc_pricing,
+      odometer_km: session.odometer_km,
+      start_soc_percentage: session.start_soc_percentage,
+      end_soc_percentage: session.end_soc_percentage,
+      notes: session.notes,
+      applied_price_per_kwh: session.applied_price_per_kwh,
+      applied_ac_price_per_kwh: session.applied_ac_price_per_kwh,
+      applied_dc_price_per_kwh: session.applied_dc_price_per_kwh,
+      applied_roaming_ac_price_per_kwh: session.applied_roaming_ac_price_per_kwh,
+      applied_roaming_dc_price_per_kwh: session.applied_roaming_dc_price_per_kwh,
+      applied_monthly_base_fee: session.applied_monthly_base_fee,
+      applied_session_fee: session.applied_session_fee,
+      created_at: session.created_at,
+      updated_at: session.updated_at,
+      deleted_at: session.deleted_at,
+    })
+  })
+
   it('should treat check-constraint violations as non-retryable validation failures', async () => {
     // Arrange: Return a Supabase check violation for a session payload.
     const now = new Date('2026-05-21T12:00:00.000Z')
@@ -842,6 +959,17 @@ describe('syncEngine', () => {
 
     // Assert: charging_plans uses a local-domain column allowlist instead of select('*').
     expect(selectCalls).toContainEqual({
+      tableName: 'providers',
+      columns: [
+        'id',
+        'user_id',
+        'name',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+      ].join(', ')
+    })
+    expect(selectCalls).toContainEqual({
       tableName: 'charging_plans',
       columns: [
         'id',
@@ -868,12 +996,38 @@ describe('syncEngine', () => {
       columns: '*'
     })
     expect(selectCalls).toContainEqual({
-      tableName: 'providers',
-      columns: '*'
-    })
-    expect(selectCalls).toContainEqual({
       tableName: 'charging_sessions',
-      columns: '*'
+      columns: [
+        'id',
+        'user_id',
+        'session_timestamp',
+        'provider_id',
+        'provider_name_snapshot',
+        'charging_plan_name_snapshot',
+        'charging_type',
+        'kwh_billed',
+        'kwh_added',
+        'total_cost',
+        'session_mode',
+        'tariff_plan_id',
+        'ad_hoc_pricing',
+        'plan_selection_id',
+        'price_snapshot',
+        'odometer_km',
+        'start_soc_percentage',
+        'end_soc_percentage',
+        'notes',
+        'applied_price_per_kwh',
+        'applied_ac_price_per_kwh',
+        'applied_dc_price_per_kwh',
+        'applied_roaming_ac_price_per_kwh',
+        'applied_roaming_dc_price_per_kwh',
+        'applied_monthly_base_fee',
+        'applied_session_fee',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+      ].join(', ')
     })
   })
 

@@ -10,6 +10,14 @@ import { supabase } from '../../../infra/supabase';
 
 const BASE_RETRY_DELAY_MS = 60_000;
 const MAX_RETRY_DELAY_MS = 15 * 60_000;
+const REMOTE_PROVIDER_COLUMNS = [
+  'id',
+  'user_id',
+  'name',
+  'created_at',
+  'updated_at',
+  'deleted_at',
+] as const;
 const REMOTE_CHARGING_PLAN_COLUMNS = [
   'id',
   'user_id',
@@ -29,7 +37,40 @@ const REMOTE_CHARGING_PLAN_COLUMNS = [
   'updated_at',
   'deleted_at',
 ] as const;
+const REMOTE_CHARGING_SESSION_COLUMNS = [
+  'id',
+  'user_id',
+  'session_timestamp',
+  'provider_id',
+  'provider_name_snapshot',
+  'charging_plan_name_snapshot',
+  'charging_type',
+  'kwh_billed',
+  'kwh_added',
+  'total_cost',
+  'session_mode',
+  'tariff_plan_id',
+  'ad_hoc_pricing',
+  'plan_selection_id',
+  'price_snapshot',
+  'odometer_km',
+  'start_soc_percentage',
+  'end_soc_percentage',
+  'notes',
+  'applied_price_per_kwh',
+  'applied_ac_price_per_kwh',
+  'applied_dc_price_per_kwh',
+  'applied_roaming_ac_price_per_kwh',
+  'applied_roaming_dc_price_per_kwh',
+  'applied_monthly_base_fee',
+  'applied_session_fee',
+  'created_at',
+  'updated_at',
+  'deleted_at',
+] as const;
+const REMOTE_PROVIDER_SELECT = REMOTE_PROVIDER_COLUMNS.join(', ');
 const REMOTE_CHARGING_PLAN_SELECT = REMOTE_CHARGING_PLAN_COLUMNS.join(', ');
+const REMOTE_CHARGING_SESSION_SELECT = REMOTE_CHARGING_SESSION_COLUMNS.join(', ');
 
 export interface ProcessOutboxOptions {
   now?: () => Date;
@@ -45,6 +86,23 @@ function shouldContinueAfterFailure(item: SyncOutbox, result: { success: false }
   return item.table_name === 'charging_plans' && result.nonRetryable === true && result.isOverlapConflict === true;
 }
 
+type RemoteProviderPayload = Pick<
+  Provider,
+  'id' | 'user_id' | 'name' | 'created_at' | 'updated_at' | 'deleted_at'
+>;
+type RemoteProviderPlanSelectionPayload = Pick<
+  ProviderPlanSelection,
+  | 'id'
+  | 'user_id'
+  | 'provider_id'
+  | 'tariff_plan_id'
+  | 'valid_from'
+  | 'valid_to'
+  | 'price_snapshot'
+  | 'created_at'
+  | 'updated_at'
+  | 'deleted_at'
+>;
 type RemoteChargingSessionPayload = Omit<ChargingSession, 'pricing_context'>;
 type RemoteChargingPlanPayload = Pick<
   ChargingPlan,
@@ -99,9 +157,65 @@ function isChargingPlanOverlapConflict(error: { code?: string; message?: string 
 }
 
 function toRemoteChargingSessionPayload(session: ChargingSession): RemoteChargingSessionPayload {
-  const remotePayload = { ...session };
-  delete remotePayload.pricing_context;
-  return remotePayload;
+  return {
+    id: session.id,
+    user_id: session.user_id,
+    session_timestamp: session.session_timestamp,
+    provider_id: session.provider_id,
+    provider_name_snapshot: session.provider_name_snapshot,
+    charging_plan_name_snapshot: session.charging_plan_name_snapshot,
+    charging_type: session.charging_type,
+    kwh_billed: session.kwh_billed,
+    kwh_added: session.kwh_added,
+    total_cost: session.total_cost,
+    session_mode: session.session_mode,
+    tariff_plan_id: session.tariff_plan_id,
+    ad_hoc_pricing: session.ad_hoc_pricing,
+    plan_selection_id: session.plan_selection_id,
+    price_snapshot: session.price_snapshot,
+    odometer_km: session.odometer_km,
+    start_soc_percentage: session.start_soc_percentage,
+    end_soc_percentage: session.end_soc_percentage,
+    notes: session.notes,
+    applied_price_per_kwh: session.applied_price_per_kwh,
+    applied_ac_price_per_kwh: session.applied_ac_price_per_kwh,
+    applied_dc_price_per_kwh: session.applied_dc_price_per_kwh,
+    applied_roaming_ac_price_per_kwh: session.applied_roaming_ac_price_per_kwh,
+    applied_roaming_dc_price_per_kwh: session.applied_roaming_dc_price_per_kwh,
+    applied_monthly_base_fee: session.applied_monthly_base_fee,
+    applied_session_fee: session.applied_session_fee,
+    created_at: session.created_at,
+    updated_at: session.updated_at,
+    deleted_at: session.deleted_at,
+  };
+}
+
+function toRemoteProviderPayload(provider: Provider): RemoteProviderPayload {
+  return {
+    id: provider.id,
+    user_id: provider.user_id,
+    name: provider.name,
+    created_at: provider.created_at,
+    updated_at: provider.updated_at,
+    deleted_at: provider.deleted_at,
+  };
+}
+
+function toRemoteProviderPlanSelectionPayload(
+  selection: ProviderPlanSelection
+): RemoteProviderPlanSelectionPayload {
+  return {
+    id: selection.id,
+    user_id: selection.user_id,
+    provider_id: selection.provider_id,
+    tariff_plan_id: selection.tariff_plan_id,
+    valid_from: selection.valid_from,
+    valid_to: selection.valid_to,
+    price_snapshot: selection.price_snapshot,
+    created_at: selection.created_at,
+    updated_at: selection.updated_at,
+    deleted_at: selection.deleted_at,
+  };
 }
 
 function toRemoteChargingPlanPayload(plan: ChargingPlan): RemoteChargingPlanPayload {
@@ -143,8 +257,16 @@ function normalizeRemoteChargingSession(session: RemoteChargingSession): Chargin
 }
 
 function getInitialSyncSelectColumns(tableName: 'providers' | 'charging_plans' | 'sessions'): string {
+  if (tableName === 'providers') {
+    return REMOTE_PROVIDER_SELECT;
+  }
+
   if (tableName === 'charging_plans') {
     return REMOTE_CHARGING_PLAN_SELECT;
+  }
+
+  if (tableName === 'sessions') {
+    return REMOTE_CHARGING_SESSION_SELECT;
   }
 
   return '*';
@@ -219,7 +341,9 @@ async function syncItem(item: SyncOutbox): Promise<{ success: true } | ({ succes
 
     switch (item.table_name) {
       case 'providers': {
-        const result = await supabase.from('providers').upsert(item.payload as Provider);
+        const result = await supabase
+          .from('providers')
+          .upsert(toRemoteProviderPayload(item.payload as Provider));
         error = result.error as { message: string; code?: string } | null;
         break;
       }
@@ -231,7 +355,9 @@ async function syncItem(item: SyncOutbox): Promise<{ success: true } | ({ succes
         break;
       }
       case 'provider_plan_selections': {
-        const result = await supabase.from('provider_plan_selections').upsert(item.payload as ProviderPlanSelection);
+        const result = await supabase
+          .from('provider_plan_selections')
+          .upsert(toRemoteProviderPlanSelectionPayload(item.payload as ProviderPlanSelection));
         error = result.error as { message: string; code?: string } | null;
         break;
       }
