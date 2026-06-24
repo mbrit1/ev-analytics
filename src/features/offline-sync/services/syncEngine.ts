@@ -10,6 +10,26 @@ import { supabase } from '../../../infra/supabase';
 
 const BASE_RETRY_DELAY_MS = 60_000;
 const MAX_RETRY_DELAY_MS = 15 * 60_000;
+const REMOTE_CHARGING_PLAN_COLUMNS = [
+  'id',
+  'user_id',
+  'provider_id',
+  'name',
+  'valid_from',
+  'valid_to',
+  'ac_price_per_kwh',
+  'dc_price_per_kwh',
+  'roaming_ac_price_per_kwh',
+  'roaming_dc_price_per_kwh',
+  'monthly_base_fee',
+  'session_fee',
+  'affiliation',
+  'notes',
+  'created_at',
+  'updated_at',
+  'deleted_at',
+] as const;
+const REMOTE_CHARGING_PLAN_SELECT = REMOTE_CHARGING_PLAN_COLUMNS.join(', ');
 
 export interface ProcessOutboxOptions {
   now?: () => Date;
@@ -120,6 +140,14 @@ function normalizeRemoteChargingSession(session: RemoteChargingSession): Chargin
     updated_at: new Date(session.updated_at),
     deleted_at: session.deleted_at == null ? undefined : new Date(session.deleted_at),
   };
+}
+
+function getInitialSyncSelectColumns(tableName: 'providers' | 'charging_plans' | 'sessions'): string {
+  if (tableName === 'charging_plans') {
+    return REMOTE_CHARGING_PLAN_SELECT;
+  }
+
+  return '*';
 }
 
 /**
@@ -251,7 +279,7 @@ async function syncItem(item: SyncOutbox): Promise<{ success: true } | ({ succes
  * Typically called on app startup or after login.
  */
 export async function initialSync(): Promise<void> {
-  const tables: (keyof typeof db)[] = ['providers', 'charging_plans', 'sessions'];
+  const tables = ['providers', 'charging_plans', 'sessions'] as const;
 
   for (const tableName of tables) {
     const table = db[tableName];
@@ -259,7 +287,12 @@ export async function initialSync(): Promise<void> {
       // Supabase keeps charging sessions under a more explicit table name than
       // the local Dexie store.
       const supabaseTable = tableName === 'sessions' ? 'charging_sessions' : tableName;
-      const { data, error } = await supabase.from(supabaseTable as string).select('*');
+      const { data, error } = await supabase
+        .from(supabaseTable as string)
+        .select(getInitialSyncSelectColumns(tableName)) as {
+          data: Provider[] | RemoteChargingPlan[] | RemoteChargingSession[] | null;
+          error: { message: string } | null;
+        };
       
       if (error) {
         // Continue with the remaining tables so one failed pull does not block
@@ -269,7 +302,7 @@ export async function initialSync(): Promise<void> {
       }
 
       if (data && data.length > 0) {
-        if (tableName === 'providers') await db.providers.bulkPut(data);
+        if (tableName === 'providers') await db.providers.bulkPut(data as Provider[]);
         if (tableName === 'charging_plans') {
           await db.charging_plans.bulkPut((data as RemoteChargingPlan[]).map(normalizeRemoteChargingPlan));
         }

@@ -826,6 +826,57 @@ describe('syncEngine', () => {
     expect(await db.sessions.toArray()).toEqual(remoteSessions)
   })
 
+  it('requests explicit charging plan columns during initialSync hydration', async () => {
+    // Arrange: Capture which select clause each Supabase table receives.
+    const selectCalls: Array<{ tableName: string; columns: string }> = []
+
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      select: (columns: string) => {
+        selectCalls.push({ tableName, columns })
+        return Promise.resolve({ data: [], error: null })
+      }
+    }) as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Hydrate local data from Supabase.
+    await initialSync()
+
+    // Assert: charging_plans uses a local-domain column allowlist instead of select('*').
+    expect(selectCalls).toContainEqual({
+      tableName: 'charging_plans',
+      columns: [
+        'id',
+        'user_id',
+        'provider_id',
+        'name',
+        'valid_from',
+        'valid_to',
+        'ac_price_per_kwh',
+        'dc_price_per_kwh',
+        'roaming_ac_price_per_kwh',
+        'roaming_dc_price_per_kwh',
+        'monthly_base_fee',
+        'session_fee',
+        'affiliation',
+        'notes',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+      ].join(', ')
+    })
+    expect(selectCalls).not.toContainEqual({
+      tableName: 'charging_plans',
+      columns: '*'
+    })
+    expect(selectCalls).toContainEqual({
+      tableName: 'providers',
+      columns: '*'
+    })
+    expect(selectCalls).toContainEqual({
+      tableName: 'charging_sessions',
+      columns: '*'
+    })
+  })
+
   it('should omit generated charging plan columns during initialSync hydration', async () => {
     // Arrange: Supabase select('*') returns generated columns that clients cannot write back.
     const remoteChargingPlan = {
