@@ -10,8 +10,10 @@ import {
 import { processOutbox, initialSync } from './syncEngine'
 import { supabase } from '../../../infra/supabase'
 import 'fake-indexeddb/auto'
-import { setActivePlanSelection } from '../../charging-plans'
+import { schedulePermanentTariffVersion, scheduleTemporaryPromotion, setActivePlanSelection } from '../../charging-plans'
 import { saveSession } from '../../charging-sessions'
+
+const utc = (date: string): Date => new Date(`${date}T00:00:00.000Z`)
 
 function buildProvider(overrides: Partial<Provider> = {}): Provider {
   const now = new Date('2026-05-21T00:00:00.000Z')
@@ -41,6 +43,44 @@ function buildChargingPlan(overrides: Partial<ChargingPlan> = {}): ChargingPlan 
     updated_at: now,
     ...overrides
   }
+}
+
+function buildPrices(overrides: Partial<{
+  ac_price_per_kwh: number
+  dc_price_per_kwh: number
+  roaming_ac_price_per_kwh: number
+  roaming_dc_price_per_kwh: number
+  monthly_base_fee: number
+  session_fee: number
+}> = {}) {
+  return {
+    monthly_base_fee: 0,
+    session_fee: 0,
+    ...overrides,
+  }
+}
+
+function normalizePlanDate(value: Date | null | undefined): number {
+  return value == null ? Number.POSITIVE_INFINITY : value.getTime()
+}
+
+function hasRemoteOverlap(candidate: ChargingPlan, remotePlans: ChargingPlan[]): boolean {
+  return remotePlans.some((remotePlan) => {
+    if (remotePlan.id === candidate.id || remotePlan.deleted_at) {
+      return false
+    }
+
+    if (
+      remotePlan.user_id !== candidate.user_id
+      || remotePlan.provider_id !== candidate.provider_id
+      || remotePlan.name.trim().toLowerCase() !== candidate.name.trim().toLowerCase()
+    ) {
+      return false
+    }
+
+    return candidate.valid_from.getTime() < normalizePlanDate(remotePlan.valid_to)
+      && remotePlan.valid_from.getTime() < normalizePlanDate(candidate.valid_to)
+  })
 }
 
 function buildChargingSession(overrides: Partial<ChargingSession> = {}): ChargingSession {
@@ -254,6 +294,36 @@ describe('syncEngine', () => {
     expect(supabase.from).toHaveBeenCalledWith('providers')
   })
 
+  it('uploads only writable provider fields', async () => {
+    // Arrange: Queue a provider payload carrying extra non-domain fields.
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+    const provider = buildProvider({ id: 'provider-allowlist' })
+
+    await db.sync_outbox.add({
+      table_name: 'providers',
+      action: 'UPDATE',
+      payload: {
+        ...provider,
+        unexpected_remote_flag: true as unknown,
+      } as Provider,
+      timestamp: new Date()
+    })
+
+    // Act: Process the outbox item.
+    await processOutbox()
+
+    // Assert: Uploads rebuild providers from the writable column contract.
+    expect(mockUpsert).toHaveBeenCalledWith({
+      id: provider.id,
+      user_id: provider.user_id,
+      name: provider.name,
+      created_at: provider.created_at,
+      updated_at: provider.updated_at,
+      deleted_at: provider.deleted_at,
+    })
+  })
+
   it('should upload charging plan outbox items to the charging_plans table', async () => {
     // Arrange: Queue a charging plan mutation for sync.
     const plan = buildChargingPlan({ id: 'cp1', user_id: 'u1', provider_id: 'p1', name: 'Drive Free' })
@@ -269,6 +339,48 @@ describe('syncEngine', () => {
 
     // Assert: Charging-plan mutations target the matching Supabase table.
     expect(supabase.from).toHaveBeenCalledWith('charging_plans')
+  })
+
+  it('uploads only writable charging plan fields', async () => {
+    // Arrange: Queue a charging plan payload that was cloned from a Supabase-hydrated row.
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+    const plan = buildChargingPlan({ id: 'generated-column-plan' })
+
+    await db.sync_outbox.add({
+      table_name: 'charging_plans',
+      action: 'UPDATE',
+      payload: {
+        ...plan,
+        valid_period: '[2026-01-01,infinity)' as unknown,
+        unexpected_remote_flag: true as unknown,
+      } as ChargingPlan,
+      timestamp: new Date()
+    })
+
+    // Act: Process the outbox item.
+    await processOutbox()
+
+    // Assert: Uploads rebuild the payload from writable columns instead of replaying arbitrary fields.
+    expect(mockUpsert).toHaveBeenCalledWith({
+      id: plan.id,
+      user_id: plan.user_id,
+      provider_id: plan.provider_id,
+      name: plan.name,
+      valid_from: plan.valid_from,
+      valid_to: plan.valid_to,
+      ac_price_per_kwh: plan.ac_price_per_kwh,
+      dc_price_per_kwh: plan.dc_price_per_kwh,
+      roaming_ac_price_per_kwh: plan.roaming_ac_price_per_kwh,
+      roaming_dc_price_per_kwh: plan.roaming_dc_price_per_kwh,
+      monthly_base_fee: plan.monthly_base_fee,
+      session_fee: plan.session_fee,
+      affiliation: plan.affiliation,
+      notes: plan.notes,
+      created_at: plan.created_at,
+      updated_at: plan.updated_at,
+      deleted_at: plan.deleted_at,
+    })
   })
 
   it('should upload provider plan selection outbox items to provider_plan_selections', async () => {
@@ -289,6 +401,40 @@ describe('syncEngine', () => {
     // Assert
     expect(supabase.from).toHaveBeenCalledWith('provider_plan_selections')
     expect(await db.sync_outbox.count()).toBe(0)
+  })
+
+  it('uploads only writable provider plan selection fields', async () => {
+    // Arrange: Queue a provider-plan-selection payload carrying extra fields.
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+    const selection = buildProviderPlanSelection({ id: 'pps-allowlist' })
+
+    await db.sync_outbox.add({
+      table_name: 'provider_plan_selections',
+      action: 'UPDATE',
+      payload: {
+        ...selection,
+        unexpected_remote_flag: true as unknown,
+      } as ProviderPlanSelection,
+      timestamp: new Date()
+    })
+
+    // Act: Process the outbox item.
+    await processOutbox()
+
+    // Assert: Uploads rebuild selections from the writable column contract.
+    expect(mockUpsert).toHaveBeenCalledWith({
+      id: selection.id,
+      user_id: selection.user_id,
+      provider_id: selection.provider_id,
+      tariff_plan_id: selection.tariff_plan_id,
+      valid_from: selection.valid_from,
+      valid_to: selection.valid_to,
+      price_snapshot: selection.price_snapshot,
+      created_at: selection.created_at,
+      updated_at: selection.updated_at,
+      deleted_at: selection.deleted_at,
+    })
   })
 
   it('should sync soft-delete outbox items with their deleted_at payload', async () => {
@@ -587,6 +733,59 @@ describe('syncEngine', () => {
     expect(await db.sync_outbox.count()).toBe(0)
   })
 
+  it('uploads only writable charging session fields', async () => {
+    // Arrange: Queue a session payload carrying local-only and stray fields.
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+    const session = buildChargingSession({ id: 'session-allowlist', pricing_context: 'roaming' })
+
+    await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'UPDATE',
+      payload: {
+        ...session,
+        unexpected_remote_flag: true as unknown,
+      } as ChargingSession,
+      timestamp: new Date()
+    })
+
+    // Act: Process the outbox item.
+    await processOutbox()
+
+    // Assert: Uploads rebuild sessions from the writable column contract.
+    expect(mockUpsert).toHaveBeenCalledWith({
+      id: session.id,
+      user_id: session.user_id,
+      session_timestamp: session.session_timestamp,
+      provider_id: session.provider_id,
+      provider_name_snapshot: session.provider_name_snapshot,
+      tariff_plan_id: session.tariff_plan_id,
+      charging_plan_name_snapshot: session.charging_plan_name_snapshot,
+      charging_type: session.charging_type,
+      kwh_billed: session.kwh_billed,
+      kwh_added: session.kwh_added,
+      total_cost: session.total_cost,
+      session_mode: session.session_mode,
+      plan_selection_id: session.plan_selection_id,
+      price_snapshot: session.price_snapshot,
+      ad_hoc_pricing: session.ad_hoc_pricing,
+      odometer_km: session.odometer_km,
+      start_soc_percentage: session.start_soc_percentage,
+      end_soc_percentage: session.end_soc_percentage,
+      notes: session.notes,
+      applied_price_per_kwh: session.applied_price_per_kwh,
+      applied_ac_price_per_kwh: session.applied_ac_price_per_kwh,
+      applied_dc_price_per_kwh: session.applied_dc_price_per_kwh,
+      applied_roaming_ac_price_per_kwh: session.applied_roaming_ac_price_per_kwh,
+      applied_roaming_dc_price_per_kwh: session.applied_roaming_dc_price_per_kwh,
+      applied_monthly_base_fee: session.applied_monthly_base_fee,
+      applied_session_fee: session.applied_session_fee,
+      created_at: session.created_at,
+      updated_at: session.updated_at,
+      deleted_at: session.deleted_at,
+    })
+  })
+
   it('should treat check-constraint violations as non-retryable validation failures', async () => {
     // Arrange: Return a Supabase check violation for a session payload.
     const now = new Date('2026-05-21T12:00:00.000Z')
@@ -690,6 +889,139 @@ describe('syncEngine', () => {
     expect(outboxItems[0].last_error).toBe('Tariff validity overlaps with an existing active version for this provider and name')
   })
 
+  it('replays the June Lidl promo and SWM successor rows in deterministic timestamp order', async () => {
+    // Arrange: Seed the same pre-June baselines locally and remotely.
+    const remotePlans: ChargingPlan[] = [
+      buildChargingPlan({
+        id: 'lidl-baseline',
+        provider_id: 'provider-lidl',
+        name: 'Lidl',
+        valid_from: utc('2026-01-01'),
+        valid_to: null,
+        ac_price_per_kwh: 49,
+      }),
+      buildChargingPlan({
+        id: 'swm-baseline',
+        provider_id: 'provider-swm',
+        name: 'SWM',
+        valid_from: utc('2026-01-01'),
+        valid_to: null,
+        ac_price_per_kwh: 59,
+      }),
+    ]
+
+    await db.charging_plans.bulkAdd(remotePlans)
+
+    await scheduleTemporaryPromotion({
+      userId: 'user-1',
+      providerId: 'provider-lidl',
+      name: 'Lidl',
+      promoStart: utc('2026-06-01'),
+      promoEndInclusive: utc('2026-06-30'),
+      prices: buildPrices({ ac_price_per_kwh: 39 }),
+    })
+    await schedulePermanentTariffVersion({
+      userId: 'user-1',
+      providerId: 'provider-swm',
+      name: 'SWM',
+      effectiveFrom: utc('2026-07-01'),
+      prices: buildPrices({ ac_price_per_kwh: 65 }),
+    })
+
+    const queuedItems = await db.sync_outbox.orderBy('timestamp').toArray()
+    const chargingPlanUpsert = vi.fn(async (payload: ChargingPlan) => {
+      // Simulate Supabase's exclusion constraint against already-persisted rows.
+      if (hasRemoteOverlap(payload, remotePlans)) {
+        return {
+          error: {
+            code: '23P01',
+            message: 'conflicting key value violates exclusion constraint "charging_plans_no_overlapping_active_versions"',
+          },
+        }
+      }
+
+      const index = remotePlans.findIndex((plan) => plan.id === payload.id)
+      if (index >= 0) {
+        remotePlans[index] = payload
+      } else {
+        remotePlans.push(payload)
+      }
+
+      return { error: null }
+    })
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => {
+      if (tableName === 'charging_plans') {
+        return { upsert: chargingPlanUpsert } as unknown as ReturnType<typeof supabase.from>
+      }
+
+      return { upsert: vi.fn(() => Promise.resolve({ error: null })) } as unknown as ReturnType<typeof supabase.from>
+    })
+
+    // Act: Replay the queued tariff rows through the sync engine.
+    await processOutbox()
+
+    // Assert: One transaction can share a timestamp, but replay still preserves insertion order.
+    expect(new Set(queuedItems.slice(0, 3).map((item) => item.timestamp.toISOString())).size).toBe(1)
+    expect(new Set(queuedItems.slice(3).map((item) => item.timestamp.toISOString())).size).toBe(1)
+    expect(
+      queuedItems.map((item) => {
+        const payload = item.payload as ChargingPlan
+        return [
+          item.action,
+          payload.provider_id,
+          payload.name,
+          payload.valid_from.toISOString(),
+          payload.valid_to?.toISOString() ?? null,
+        ]
+      })
+    ).toEqual([
+      ['UPDATE', 'provider-lidl', 'Lidl', '2026-01-01T00:00:00.000Z', '2026-06-01T00:00:00.000Z'],
+      ['INSERT', 'provider-lidl', 'Lidl', '2026-06-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z'],
+      ['INSERT', 'provider-lidl', 'Lidl', '2026-07-01T00:00:00.000Z', null],
+      ['UPDATE', 'provider-swm', 'SWM', '2026-01-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z'],
+      ['INSERT', 'provider-swm', 'SWM', '2026-07-01T00:00:00.000Z', null],
+    ])
+    expect(chargingPlanUpsert).toHaveBeenCalledTimes(5)
+    expect(
+      chargingPlanUpsert.mock.calls.map(([payload]) => [
+        payload.id,
+        payload.provider_id,
+        payload.name,
+        payload.valid_from.toISOString(),
+        payload.valid_to?.toISOString() ?? null,
+      ])
+    ).toEqual(
+      queuedItems.map((item) => {
+        const payload = item.payload as ChargingPlan
+        return [
+          payload.id,
+          payload.provider_id,
+          payload.name,
+          payload.valid_from.toISOString(),
+          payload.valid_to?.toISOString() ?? null,
+        ]
+      })
+    )
+    expect(await db.sync_outbox.count()).toBe(0)
+    expect(
+      remotePlans
+        .map((plan) => [
+          plan.provider_id,
+          plan.name,
+          plan.valid_from.toISOString(),
+          plan.valid_to?.toISOString() ?? null,
+          plan.ac_price_per_kwh,
+        ])
+        .sort((left, right) => `${left[0]}:${left[2]}`.localeCompare(`${right[0]}:${right[2]}`))
+    ).toEqual([
+      ['provider-lidl', 'Lidl', '2026-01-01T00:00:00.000Z', '2026-06-01T00:00:00.000Z', 49],
+      ['provider-lidl', 'Lidl', '2026-06-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z', 39],
+      ['provider-lidl', 'Lidl', '2026-07-01T00:00:00.000Z', null, 49],
+      ['provider-swm', 'SWM', '2026-01-01T00:00:00.000Z', '2026-07-01T00:00:00.000Z', 59],
+      ['provider-swm', 'SWM', '2026-07-01T00:00:00.000Z', null, 65],
+    ])
+  })
+
   it('should stop processing after non-overlap non-retryable charging-plan failure', async () => {
     // Arrange: first charging-plan item fails non-retryable for a different validation reason.
     const now = new Date('2026-05-21T12:00:00.000Z')
@@ -782,6 +1114,116 @@ describe('syncEngine', () => {
     expect(await db.providers.toArray()).toEqual(remoteProviders)
     expect(await db.charging_plans.toArray()).toEqual(remoteChargingPlans)
     expect(await db.sessions.toArray()).toEqual(remoteSessions)
+  })
+
+  it('requests explicit charging plan columns during initialSync hydration', async () => {
+    // Arrange: Capture which select clause each Supabase table receives.
+    const selectCalls: Array<{ tableName: string; columns: string }> = []
+
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      select: (columns: string) => {
+        selectCalls.push({ tableName, columns })
+        return Promise.resolve({ data: [], error: null })
+      }
+    }) as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Hydrate local data from Supabase.
+    await initialSync()
+
+    // Assert: charging_plans uses a local-domain column allowlist instead of select('*').
+    expect(selectCalls).toContainEqual({
+      tableName: 'providers',
+      columns: [
+        'id',
+        'user_id',
+        'name',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+      ].join(', ')
+    })
+    expect(selectCalls).toContainEqual({
+      tableName: 'charging_plans',
+      columns: [
+        'id',
+        'user_id',
+        'provider_id',
+        'name',
+        'valid_from',
+        'valid_to',
+        'ac_price_per_kwh',
+        'dc_price_per_kwh',
+        'roaming_ac_price_per_kwh',
+        'roaming_dc_price_per_kwh',
+        'monthly_base_fee',
+        'session_fee',
+        'affiliation',
+        'notes',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+      ].join(', ')
+    })
+    expect(selectCalls).not.toContainEqual({
+      tableName: 'charging_plans',
+      columns: '*'
+    })
+    expect(selectCalls).toContainEqual({
+      tableName: 'charging_sessions',
+      columns: [
+        'id',
+        'user_id',
+        'session_timestamp',
+        'provider_id',
+        'provider_name_snapshot',
+        'charging_plan_name_snapshot',
+        'charging_type',
+        'kwh_billed',
+        'kwh_added',
+        'total_cost',
+        'session_mode',
+        'tariff_plan_id',
+        'ad_hoc_pricing',
+        'plan_selection_id',
+        'price_snapshot',
+        'odometer_km',
+        'start_soc_percentage',
+        'end_soc_percentage',
+        'notes',
+        'applied_price_per_kwh',
+        'applied_ac_price_per_kwh',
+        'applied_dc_price_per_kwh',
+        'applied_roaming_ac_price_per_kwh',
+        'applied_roaming_dc_price_per_kwh',
+        'applied_monthly_base_fee',
+        'applied_session_fee',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+      ].join(', ')
+    })
+  })
+
+  it('should omit generated charging plan columns during initialSync hydration', async () => {
+    // Arrange: Supabase select('*') returns generated columns that clients cannot write back.
+    const remoteChargingPlan = {
+      ...buildChargingPlan({ id: 'cp-generated', user_id: 'u1' }),
+      valid_period: '[2026-05-21,infinity)',
+    }
+
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      select: () => Promise.resolve({
+        data: tableName === 'charging_plans' ? [remoteChargingPlan] : [],
+        error: null,
+      })
+    }) as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Hydrate remote rows into Dexie.
+    await initialSync()
+
+    // Assert: Local charging plans keep only writable domain fields.
+    const localChargingPlan = await db.charging_plans.get('cp-generated')
+    expect(localChargingPlan).not.toHaveProperty('valid_period')
   })
 
   it('should normalize remote charging session timestamps before storing them locally', async () => {

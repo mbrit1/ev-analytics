@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TariffForm } from './TariffForm';
 import { useProviders } from '../hooks/useProviders';
@@ -9,6 +9,44 @@ import { useAuth } from '../../auth';
 vi.mock('../hooks/useProviders');
 vi.mock('../../auth');
 vi.mock('../services/providerService');
+
+function getPickerMonth(): string {
+  const monthHeading = screen.getByTestId('date-picker-month');
+  const month = monthHeading.getAttribute('data-month');
+  if (!month) {
+    throw new Error('Date picker month heading is missing data-month');
+  }
+  return month;
+}
+
+function movePickerToMonth(targetDate: string): void {
+  const targetMonth = targetDate.slice(0, 7);
+  let guard = 0;
+
+  while (getPickerMonth() !== targetMonth) {
+    if (guard > 48) {
+      throw new Error(`Could not navigate date picker to ${targetMonth}`);
+    }
+    const currentMonth = getPickerMonth();
+    fireEvent.click(screen.getByRole('button', {
+      name: currentMonth.localeCompare(targetMonth) < 0 ? /next month/i : /previous month/i,
+    }));
+    guard += 1;
+  }
+}
+
+function formatPickerLabel(date: string): string {
+  const [year, month, day] = date.split('-');
+  return `${day}.${month}.${year}`;
+}
+
+function pickDate(label: RegExp, date: string): void {
+  fireEvent.click(screen.getByRole('button', { name: label }));
+  movePickerToMonth(date);
+  fireEvent.click(screen.getByRole('button', { name: `Choose ${formatPickerLabel(date)}` }));
+  const applyButton = screen.queryByRole('button', { name: /apply/i });
+  fireEvent.click(applyButton ?? screen.getByRole('button', { name: /set date/i }));
+}
 
 /**
  * Test suite for tariff form sections, validation, and charging-plan payload mapping.
@@ -164,7 +202,7 @@ describe('TariffForm', () => {
     );
   });
 
-  it('coerces persisted date strings into date input values', () => {
+  it('coerces persisted date strings into displayed picker values', () => {
     // Arrange: Provide initialValues with string dates as they might be rehydrated from storage.
     render(
       <TariffForm
@@ -175,11 +213,58 @@ describe('TariffForm', () => {
       />
     );
 
-    // Act: Inspect the normalized date inputs.
+    // Act: Inspect the normalized date picker triggers.
 
-    // Assert: Date inputs show normalized YYYY-MM-DD values.
-    expect(screen.getByLabelText(/valid from/i)).toHaveValue('2026-05-31');
-    expect(screen.getByLabelText(/valid to/i)).toHaveValue('2026-06-30');
+    // Assert: Date pickers show normalized UTC calendar values.
+    expect(screen.getByLabelText(/valid from/i)).toHaveTextContent('31.05.2026');
+    expect(screen.getByLabelText(/valid to/i)).toHaveTextContent('30.06.2026');
+  });
+
+  it('shows open-ended for an empty optional valid-to date and submits null', async () => {
+    // Arrange: Render a tariff with no end date.
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={{ provider_id: 'p1' }} />);
+
+    // Act: Inspect, open, cancel, and submit.
+    const validTo = screen.getByLabelText(/valid to/i);
+    fireEvent.click(validTo);
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /cancel/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Opening the picker does not commit today and persistence remains open-ended.
+    expect(validTo).toHaveTextContent('Open-ended');
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+    expect(mockOnSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan: expect.objectContaining({
+          valid_to: null,
+        }),
+      })
+    );
+  });
+
+  it('sets and clears optional valid-to with the shared picker', async () => {
+    // Arrange: Render a tariff form and set required provider.
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+
+    // Act: Choose and then clear Valid To.
+    pickDate(/valid to/i, '2026-06-30');
+    expect(screen.getByLabelText(/valid to/i)).toHaveTextContent('30.06.2026');
+    fireEvent.click(screen.getByLabelText(/valid to/i));
+    fireEvent.click(screen.getByRole('button', { name: /no end date/i }));
+    fireEvent.click(screen.getByRole('button', { name: /apply/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Clearing returns the submitted plan to the existing open-ended contract.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+    expect(screen.getByLabelText(/valid to/i)).toHaveTextContent('Open-ended');
+    expect(mockOnSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        plan: expect.objectContaining({
+          valid_to: null,
+        }),
+      })
+    );
   });
 
   it('normalizes whitespace-only tariff name to empty string', async () => {
@@ -285,9 +370,9 @@ describe('TariffForm', () => {
 
     // Act: Inspect the rendered edit-mode date fields.
 
-    // Assert: Date inputs preserve UTC calendar date in yyyy-mm-dd.
-    expect(screen.getByLabelText(/valid from/i)).toHaveValue('2026-01-01');
-    expect(screen.getByLabelText(/valid to/i)).toHaveValue('2026-01-31');
+    // Assert: Date pickers preserve UTC calendar date.
+    expect(screen.getByLabelText(/valid from/i)).toHaveTextContent('01.01.2026');
+    expect(screen.getByLabelText(/valid to/i)).toHaveTextContent('31.01.2026');
   });
 
   it('locks provider and keeps tariff name editable in edit mode', () => {
@@ -361,7 +446,7 @@ describe('TariffForm', () => {
         }}
       />
     );
-    fireEvent.change(screen.getByLabelText(/valid from/i), { target: { value: '2026-08-15' } });
+    pickDate(/valid from/i, '2026-08-15');
 
     // Act: change Valid From to 2026-08-15 and save.
     fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));

@@ -23,6 +23,43 @@ const buildVersion = (overrides: Partial<ChargingPlan> = {}): ChargingPlan => ({
   deleted_at: overrides.deleted_at,
 });
 
+function getPickerMonth(): string {
+  const monthHeading = screen.getByTestId('date-picker-month');
+  const month = monthHeading.getAttribute('data-month');
+  if (!month) {
+    throw new Error('Date picker month heading is missing data-month');
+  }
+  return month;
+}
+
+function movePickerToMonth(targetDate: string): void {
+  const targetMonth = targetDate.slice(0, 7);
+  let guard = 0;
+
+  while (getPickerMonth() !== targetMonth) {
+    if (guard > 48) {
+      throw new Error(`Could not navigate date picker to ${targetMonth}`);
+    }
+    const currentMonth = getPickerMonth();
+    fireEvent.click(screen.getByRole('button', {
+      name: currentMonth.localeCompare(targetMonth) < 0 ? /next month/i : /previous month/i,
+    }));
+    guard += 1;
+  }
+}
+
+function formatPickerLabel(date: string): string {
+  const [year, month, day] = date.split('-');
+  return `${day}.${month}.${year}`;
+}
+
+function pickDate(label: RegExp, date: string): void {
+  fireEvent.click(screen.getByRole('button', { name: label }));
+  movePickerToMonth(date);
+  fireEvent.click(screen.getByRole('button', { name: `Choose ${formatPickerLabel(date)}` }));
+  fireEvent.click(screen.getByRole('button', { name: /set date/i }));
+}
+
 /**
  * Test suite for the permanent price change form's field rendering, money parsing,
  * baseline prefilling, and submit error handling.
@@ -83,13 +120,13 @@ describe('PermanentPriceChangeForm', () => {
     expect(screen.getByLabelText(/roaming dc price/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/monthly base fee/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/session fee/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/effective from/i)).toBeRequired();
+    expect(screen.getByLabelText(/effective from/i)).toHaveAttribute('aria-required', 'true');
   });
 
   it('converts comma decimals to integer cents on submit', async () => {
     // Arrange: Select a baseline-effective date and override each monetary field.
     render(<PermanentPriceChangeForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/effective from/i), { target: { value: '2026-03-05' } });
+    pickDate(/effective from/i, '2026-03-05');
     fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,61' } });
     fireEvent.change(screen.getByLabelText(/^dc price$/i), { target: { value: '0,71' } });
     fireEvent.change(screen.getByLabelText(/roaming ac price/i), { target: { value: '0,81' } });
@@ -120,7 +157,7 @@ describe('PermanentPriceChangeForm', () => {
     render(<PermanentPriceChangeForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
 
     // Act: Select a date that resolves to the second baseline.
-    fireEvent.change(screen.getByLabelText(/effective from/i), { target: { value: '2026-03-05' } });
+    pickDate(/effective from/i, '2026-03-05');
 
     // Assert: All monetary fields are prefilled from that baseline, including grouped currency values.
     await waitFor(() => expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,55'));
@@ -134,12 +171,10 @@ describe('PermanentPriceChangeForm', () => {
   it('switching to a different baseline updates the prefills', async () => {
     // Arrange: Render the form and resolve the first baseline before switching later.
     render(<PermanentPriceChangeForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    const effectiveFrom = screen.getByLabelText(/effective from/i);
-
     // Act: Move from an early baseline to a later grouped-currency baseline.
-    fireEvent.change(effectiveFrom, { target: { value: '2026-02-15' } });
+    pickDate(/effective from/i, '2026-02-15');
     await waitFor(() => expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,49'));
-    fireEvent.change(effectiveFrom, { target: { value: '2026-07-05' } });
+    pickDate(/effective from/i, '2026-07-05');
 
     // Assert: Prefills update to the newly resolved baseline values.
     await waitFor(() => expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('1,99'));
@@ -153,7 +188,7 @@ describe('PermanentPriceChangeForm', () => {
   it('does not overwrite an edited prefill when validation reruns within the same baseline', async () => {
     // Arrange: Resolve a baseline and then customize one prefilled value.
     render(<PermanentPriceChangeForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/effective from/i), { target: { value: '2026-03-05' } });
+    pickDate(/effective from/i, '2026-03-05');
     await waitFor(() => expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,55'));
     fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,77' } });
 
@@ -167,14 +202,26 @@ describe('PermanentPriceChangeForm', () => {
 
   it('shows a date-field error and disables submit when no baseline exists', async () => {
     // Arrange: Render the form with no baseline covering the selected date.
-    render(<PermanentPriceChangeForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    const gapVersions = [
+      buildVersion({
+        id: 'gap-before',
+        valid_from: new Date('2026-01-01T00:00:00.000Z'),
+        valid_to: new Date('2026-03-01T00:00:00.000Z'),
+      }),
+      buildVersion({
+        id: 'gap-after',
+        valid_from: new Date('2026-03-10T00:00:00.000Z'),
+        valid_to: null,
+      }),
+    ];
+    render(<PermanentPriceChangeForm versions={gapVersions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     const submitButton = screen.getByRole('button', { name: /save permanent change/i });
 
-    // Act: Pick a date before the first version.
-    fireEvent.change(screen.getByLabelText(/effective from/i), { target: { value: '2025-12-31' } });
+    // Act: Pick a date after the earliest version starts but outside any baseline window.
+    pickDate(/effective from/i, '2026-03-05');
 
     // Assert: The date field surfaces the missing-baseline error and submit is disabled.
-    expect(await screen.findByText('No baseline tariff exists for 2025-12-31')).toBeInTheDocument();
+    expect(await screen.findByText('No baseline tariff exists for 2026-03-05')).toBeInTheDocument();
     expect(submitButton).toBeDisabled();
     expect(mockOnSubmit).not.toHaveBeenCalled();
   });
@@ -185,7 +232,7 @@ describe('PermanentPriceChangeForm', () => {
     const submitButton = screen.getByRole('button', { name: /save permanent change/i });
 
     // Act: Select the first day of the second baseline.
-    fireEvent.change(screen.getByLabelText(/effective from/i), { target: { value: '2026-03-01' } });
+    pickDate(/effective from/i, '2026-03-01');
 
     // Assert: The form blocks the same-day boundary with a field-level message.
     expect(await screen.findByText('Choose an effective date after the current tariff starts')).toBeInTheDocument();
@@ -196,7 +243,7 @@ describe('PermanentPriceChangeForm', () => {
   it('requires at least one price or positive fee before submit', async () => {
     // Arrange: Resolve a baseline and clear every price and fee value.
     render(<PermanentPriceChangeForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/effective from/i), { target: { value: '2026-03-05' } });
+    pickDate(/effective from/i, '2026-03-05');
     await waitFor(() => expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,55'));
     fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '' } });
     fireEvent.change(screen.getByLabelText(/^dc price$/i), { target: { value: '' } });
@@ -216,7 +263,7 @@ describe('PermanentPriceChangeForm', () => {
   it('keeps invalid money in the form and shows validation', async () => {
     // Arrange: Select a valid baseline date and enter a negative price.
     render(<PermanentPriceChangeForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/effective from/i), { target: { value: '2026-03-05' } });
+    pickDate(/effective from/i, '2026-03-05');
     fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '-1,00' } });
 
     // Act: Try to submit invalid money input.
@@ -235,7 +282,7 @@ describe('PermanentPriceChangeForm', () => {
   it('keeps malformed money in the form and shows validation', async () => {
     // Arrange: Select a valid baseline date and enter a malformed roaming price.
     render(<PermanentPriceChangeForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/effective from/i), { target: { value: '2026-03-05' } });
+    pickDate(/effective from/i, '2026-03-05');
     fireEvent.change(screen.getByLabelText(/roaming dc price/i), { target: { value: '0,7,1' } });
 
     // Act: Try to submit malformed money input.
@@ -251,7 +298,7 @@ describe('PermanentPriceChangeForm', () => {
     // Arrange: Fill a valid change and make the service reject it.
     mockOnSubmit.mockRejectedValueOnce(new Error('Cannot schedule tariff change because version starting 2026-03-01 already exists'));
     render(<PermanentPriceChangeForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/effective from/i), { target: { value: '2026-03-05' } });
+    pickDate(/effective from/i, '2026-03-05');
     fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,61' } });
     fireEvent.change(screen.getByLabelText(/monthly base fee/i), { target: { value: '5,99' } });
 
@@ -260,7 +307,7 @@ describe('PermanentPriceChangeForm', () => {
 
     // Assert: The alert is shown and entered values remain available for correction.
     expect(await screen.findByRole('alert')).toHaveTextContent('Cannot schedule tariff change because version starting 2026-03-01 already exists');
-    expect(screen.getByLabelText(/effective from/i)).toHaveValue('2026-03-05');
+    expect(screen.getByLabelText(/effective from/i)).toHaveTextContent('05.03.2026');
     expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,61');
     expect(screen.getByLabelText(/monthly base fee/i)).toHaveValue('5,99');
   });

@@ -2,7 +2,7 @@ import React from 'react';
 import { useForm, Controller, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Save, X, Calendar, FileText } from 'lucide-react';
+import { Save, X, FileText } from 'lucide-react';
 import {
   buildLogicalTariffs,
   getActivePlanSelectionAt,
@@ -19,7 +19,7 @@ import {
   prepareSessionEdit,
   type SessionPersistenceRequest,
 } from '../services/sessionService';
-import { Slab } from '../../../shared/ui';
+import { DatePicker, Slab } from '../../../shared/ui';
 import { ThinInput } from '../../../shared/ui';
 import { TactileMatrix } from '../../../shared/ui';
 import { formatCurrency } from '../../../shared/lib/utils';
@@ -348,7 +348,6 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   const { user } = useAuth();
   const { planVersions } = useChargingPlans();
   const { providers } = useProviders();
-  const hiddenDateInputRef = React.useRef<HTMLInputElement | null>(null);
   const headingRef = React.useRef<HTMLHeadingElement | null>(null);
   const hasUserChangedProviderRef = React.useRef(false);
   const hasUserChangedLogicalSelectionRef = React.useRef(false);
@@ -469,7 +468,6 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     ? 'session-plan-gap-message'
     : undefined;
   const planDescribedBy = [planErrorId, planGapMessageId].filter(Boolean).join(' ') || undefined;
-  const sessionDateField = register('session_timestamp');
 
   React.useEffect(() => {
     if (
@@ -604,24 +602,6 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       setValue('pricing_mode', nextOption.pricingMode, { shouldDirty: true });
     }
   }, [effectivePlan, getValues, selectedPricingSource, setValue]);
-
-  const sessionDateLabel = React.useMemo(() => {
-    const raw = selectedSessionDate || formatDateInputValue(new Date());
-    const [year, month, day] = raw.split('-');
-    if (!year || !month || !day) return raw;
-    return `${day}.${month}.${year}`;
-  }, [selectedSessionDate]);
-
-  const openNativeDatePicker = React.useCallback(() => {
-    const input = hiddenDateInputRef.current;
-    if (!input) return;
-    if (typeof input.showPicker === 'function') {
-      input.showPicker();
-      return;
-    }
-    input.focus();
-    input.click();
-  }, []);
 
   React.useLayoutEffect(() => {
     const heading = headingRef.current;
@@ -829,45 +809,20 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         <input type="hidden" {...register('charging_type')} />
         <input type="hidden" {...register('pricing_mode')} />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Date */}
-          <div className="flex flex-col">
-            <label htmlFor="session_timestamp" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
-              Date <span className="text-primary" aria-hidden="true">*</span>
-            </label>
-            <div className="relative border-b border-secondary/20 focus-within:border-accent transition-colors duration-300">
-              <button
-                type="button"
-                onClick={openNativeDatePicker}
-                className="w-full py-1 min-h-[44px] flex items-center text-left"
-                aria-label="Open session picker"
-              >
-                <Calendar className="w-5 h-5 mr-2 text-secondary/40 shrink-0" />
-                <span className="flex-1 text-primary text-xl font-medium tabular-nums">
-                  {sessionDateLabel}
-                </span>
-                <Calendar className="w-5 h-5 text-primary shrink-0" />
-              </button>
-              <input
-                id="session_timestamp"
-                type="date"
-                name={sessionDateField.name}
-                onChange={sessionDateField.onChange}
-                onBlur={sessionDateField.onBlur}
-                ref={(element) => {
-                  sessionDateField.ref(element);
-                  hiddenDateInputRef.current = element;
-                }}
-                className="absolute opacity-0 pointer-events-none w-px h-px"
-                tabIndex={-1}
-                aria-hidden="true"
+          <Controller
+            name="session_timestamp"
+            control={control}
+            render={({ field }) => (
+              <DatePicker
+                label="Date"
+                value={field.value}
+                onChange={field.onChange}
                 required
-                aria-required="true"
+                requiredIndicator
+                error={errors.session_timestamp?.message}
               />
-            </div>
-            {errors.session_timestamp && (
-              <p className="text-sm text-red-500 font-medium mt-1.5">{errors.session_timestamp.message}</p>
             )}
-          </div>
+          />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

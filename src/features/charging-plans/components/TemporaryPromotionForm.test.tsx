@@ -23,6 +23,43 @@ const buildVersion = (overrides: Partial<ChargingPlan> = {}): ChargingPlan => ({
   deleted_at: overrides.deleted_at,
 });
 
+function getPickerMonth(): string {
+  const monthHeading = screen.getByTestId('date-picker-month');
+  const month = monthHeading.getAttribute('data-month');
+  if (!month) {
+    throw new Error('Date picker month heading is missing data-month');
+  }
+  return month;
+}
+
+function movePickerToMonth(targetDate: string): void {
+  const targetMonth = targetDate.slice(0, 7);
+  let guard = 0;
+
+  while (getPickerMonth() !== targetMonth) {
+    if (guard > 48) {
+      throw new Error(`Could not navigate date picker to ${targetMonth}`);
+    }
+    const currentMonth = getPickerMonth();
+    fireEvent.click(screen.getByRole('button', {
+      name: currentMonth.localeCompare(targetMonth) < 0 ? /next month/i : /previous month/i,
+    }));
+    guard += 1;
+  }
+}
+
+function formatPickerLabel(date: string): string {
+  const [year, month, day] = date.split('-');
+  return `${day}.${month}.${year}`;
+}
+
+function pickDate(label: RegExp, date: string): void {
+  fireEvent.click(screen.getByRole('button', { name: label }));
+  movePickerToMonth(date);
+  fireEvent.click(screen.getByRole('button', { name: `Choose ${formatPickerLabel(date)}` }));
+  fireEvent.click(screen.getByRole('button', { name: /set date/i }));
+}
+
 /**
  * Test suite for the temporary promotion form's field rendering, date validation,
  * money parsing, baseline prefilling, and rejection handling.
@@ -84,15 +121,15 @@ describe('TemporaryPromotionForm', () => {
     expect(screen.getByLabelText(/roaming dc price/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/monthly base fee/i)).toBeInTheDocument();
     expect(screen.getByLabelText(/session fee/i)).toBeInTheDocument();
-    expect(screen.getByLabelText(/promo start/i)).toBeRequired();
-    expect(screen.getByLabelText(/promo end/i)).toBeRequired();
+    expect(screen.getByLabelText(/promo start/i)).toHaveAttribute('aria-required', 'true');
+    expect(screen.getByLabelText(/promo end/i)).toHaveAttribute('aria-required', 'true');
   });
 
   it('converts comma decimals to integer cents on submit', async () => {
     // Arrange: Select a promo window and override each monetary field.
     render(<TemporaryPromotionForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/promo start/i), { target: { value: '2026-03-05' } });
-    fireEvent.change(screen.getByLabelText(/promo end/i), { target: { value: '2026-03-07' } });
+    pickDate(/promo start/i, '2026-03-05');
+    pickDate(/promo end/i, '2026-03-07');
     fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,41' } });
     fireEvent.change(screen.getByLabelText(/^dc price$/i), { target: { value: '0,51' } });
     fireEvent.change(screen.getByLabelText(/roaming ac price/i), { target: { value: '0,61' } });
@@ -124,7 +161,7 @@ describe('TemporaryPromotionForm', () => {
     render(<TemporaryPromotionForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
 
     // Act: Select a promo start date covered by the second baseline.
-    fireEvent.change(screen.getByLabelText(/promo start/i), { target: { value: '2026-03-05' } });
+    pickDate(/promo start/i, '2026-03-05');
 
     // Assert: Monetary inputs are prefilled from the resolved baseline.
     await waitFor(() => expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,55'));
@@ -138,12 +175,10 @@ describe('TemporaryPromotionForm', () => {
   it('switching promo start to a different baseline updates the prefills', async () => {
     // Arrange: Resolve one baseline first so the next change exercises the switch path.
     render(<TemporaryPromotionForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    const promoStart = screen.getByLabelText(/promo start/i);
-
     // Act: Change from the first baseline to a later grouped-currency baseline.
-    fireEvent.change(promoStart, { target: { value: '2026-02-15' } });
+    pickDate(/promo start/i, '2026-02-15');
     await waitFor(() => expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,49'));
-    fireEvent.change(promoStart, { target: { value: '2026-07-05' } });
+    pickDate(/promo start/i, '2026-07-05');
 
     // Assert: Prefills reflect the newly resolved baseline.
     await waitFor(() => expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('1,99'));
@@ -157,8 +192,8 @@ describe('TemporaryPromotionForm', () => {
   it('does not overwrite an edited prefill when validation reruns within the same baseline', async () => {
     // Arrange: Resolve a baseline and customize a prefilled value.
     render(<TemporaryPromotionForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/promo start/i), { target: { value: '2026-03-05' } });
-    fireEvent.change(screen.getByLabelText(/promo end/i), { target: { value: '2026-03-07' } });
+    pickDate(/promo start/i, '2026-03-05');
+    pickDate(/promo end/i, '2026-03-07');
     await waitFor(() => expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,55'));
     fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,77' } });
 
@@ -172,14 +207,26 @@ describe('TemporaryPromotionForm', () => {
 
   it('shows a date-field error and disables submit when no baseline exists', async () => {
     // Arrange: Render the promotion form with no baseline covering the selected start date.
-    render(<TemporaryPromotionForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    const gapVersions = [
+      buildVersion({
+        id: 'gap-before',
+        valid_from: new Date('2026-01-01T00:00:00.000Z'),
+        valid_to: new Date('2026-03-01T00:00:00.000Z'),
+      }),
+      buildVersion({
+        id: 'gap-after',
+        valid_from: new Date('2026-03-10T00:00:00.000Z'),
+        valid_to: null,
+      }),
+    ];
+    render(<TemporaryPromotionForm versions={gapVersions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     const submitButton = screen.getByRole('button', { name: /save promotion/i });
 
-    // Act: Pick a promo start date before the first version.
-    fireEvent.change(screen.getByLabelText(/promo start/i), { target: { value: '2025-12-31' } });
+    // Act: Pick a promo start date after the earliest version starts but outside any baseline window.
+    pickDate(/promo start/i, '2026-03-05');
 
     // Assert: The date field surfaces the missing-baseline error and submit becomes disabled.
-    expect(await screen.findByText('No baseline tariff exists for 2025-12-31')).toBeInTheDocument();
+    expect(await screen.findByText('No baseline tariff exists for 2026-03-05')).toBeInTheDocument();
     expect(submitButton).toBeDisabled();
     expect(mockOnSubmit).not.toHaveBeenCalled();
   });
@@ -190,7 +237,7 @@ describe('TemporaryPromotionForm', () => {
     const submitButton = screen.getByRole('button', { name: /save promotion/i });
 
     // Act: Select the first day of the second baseline.
-    fireEvent.change(screen.getByLabelText(/promo start/i), { target: { value: '2026-03-01' } });
+    pickDate(/promo start/i, '2026-03-01');
 
     // Assert: The form blocks the same-day boundary with a field-level message.
     expect(await screen.findByText('Choose a promo start after the current tariff starts')).toBeInTheDocument();
@@ -201,8 +248,8 @@ describe('TemporaryPromotionForm', () => {
   it('requires at least one price or positive fee before submit', async () => {
     // Arrange: Resolve a baseline and clear every price and fee value.
     render(<TemporaryPromotionForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/promo start/i), { target: { value: '2026-03-05' } });
-    fireEvent.change(screen.getByLabelText(/promo end/i), { target: { value: '2026-03-07' } });
+    pickDate(/promo start/i, '2026-03-05');
+    pickDate(/promo end/i, '2026-03-07');
     await waitFor(() => expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,55'));
     fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '' } });
     fireEvent.change(screen.getByLabelText(/^dc price$/i), { target: { value: '' } });
@@ -222,8 +269,8 @@ describe('TemporaryPromotionForm', () => {
   it('keeps invalid money in the form and shows validation', async () => {
     // Arrange: Select a valid promo window and enter an invalid negative fee.
     render(<TemporaryPromotionForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/promo start/i), { target: { value: '2026-03-05' } });
-    fireEvent.change(screen.getByLabelText(/promo end/i), { target: { value: '2026-03-07' } });
+    pickDate(/promo start/i, '2026-03-05');
+    pickDate(/promo end/i, '2026-03-07');
     fireEvent.change(screen.getByLabelText(/session fee/i), { target: { value: '-0,79' } });
 
     // Act: Attempt to submit invalid money.
@@ -238,8 +285,8 @@ describe('TemporaryPromotionForm', () => {
   it('keeps malformed money in the form and shows validation', async () => {
     // Arrange: Select a valid promo window and enter a malformed roaming price.
     render(<TemporaryPromotionForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/promo start/i), { target: { value: '2026-03-05' } });
-    fireEvent.change(screen.getByLabelText(/promo end/i), { target: { value: '2026-03-07' } });
+    pickDate(/promo start/i, '2026-03-05');
+    pickDate(/promo end/i, '2026-03-07');
     fireEvent.change(screen.getByLabelText(/roaming ac price/i), { target: { value: '0,6,1' } });
 
     // Act: Attempt to submit malformed money.
@@ -254,8 +301,8 @@ describe('TemporaryPromotionForm', () => {
   it('shows a field error when promotion end is before start', async () => {
     // Arrange: Enter an inverted promotion window.
     render(<TemporaryPromotionForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/promo start/i), { target: { value: '2026-03-07' } });
-    fireEvent.change(screen.getByLabelText(/promo end/i), { target: { value: '2026-03-05' } });
+    pickDate(/promo start/i, '2026-03-07');
+    pickDate(/promo end/i, '2026-03-05');
 
     // Act: Try to submit the invalid date range.
     fireEvent.click(screen.getByRole('button', { name: /save promotion/i }));
@@ -269,8 +316,8 @@ describe('TemporaryPromotionForm', () => {
     // Arrange: Fill a valid promotion and make the service reject it.
     mockOnSubmit.mockRejectedValueOnce(new Error('Cannot schedule promotion because version starting 2026-03-06 already exists'));
     render(<TemporaryPromotionForm versions={versions} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/promo start/i), { target: { value: '2026-03-05' } });
-    fireEvent.change(screen.getByLabelText(/promo end/i), { target: { value: '2026-03-07' } });
+    pickDate(/promo start/i, '2026-03-05');
+    pickDate(/promo end/i, '2026-03-07');
     fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,41' } });
     fireEvent.change(screen.getByLabelText(/monthly base fee/i), { target: { value: '2,99' } });
 
@@ -279,8 +326,8 @@ describe('TemporaryPromotionForm', () => {
 
     // Assert: The rejection is surfaced and form values remain in place.
     expect(await screen.findByRole('alert')).toHaveTextContent('Cannot schedule promotion because version starting 2026-03-06 already exists');
-    expect(screen.getByLabelText(/promo start/i)).toHaveValue('2026-03-05');
-    expect(screen.getByLabelText(/promo end/i)).toHaveValue('2026-03-07');
+    expect(screen.getByLabelText(/promo start/i)).toHaveTextContent('05.03.2026');
+    expect(screen.getByLabelText(/promo end/i)).toHaveTextContent('07.03.2026');
     expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,41');
     expect(screen.getByLabelText(/monthly base fee/i)).toHaveValue('2,99');
   });
