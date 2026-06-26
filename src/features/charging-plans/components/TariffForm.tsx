@@ -5,7 +5,7 @@ import * as z from 'zod';
 import { Save, X } from 'lucide-react';
 import { type ChargingPlan } from '../../../infra/db';
 import { formatCentsToDecimal, parseDecimalToCents } from '../../../shared/lib';
-import { Slab, ThinInput } from '../../../shared/ui';
+import { DatePicker, Slab, ThinInput } from '../../../shared/ui';
 import { useProviders } from '../hooks/useProviders';
 
 interface TariffLogicalIdentity {
@@ -80,7 +80,7 @@ function coerceDate(value: unknown): Date | null {
 }
 
 /**
- * Converts a value into a `YYYY-MM-DD` string for `<input type="date">`.
+ * Converts a value into a `YYYY-MM-DD` string for the shared date picker.
  *
  * Uses UTC to keep the stored UTC semantics stable across local time zones.
  * Returns an empty string when the input cannot be parsed into a valid date.
@@ -329,8 +329,33 @@ function StandardTariffForm({
           )}
         />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <ThinInput label="Valid From" requiredIndicator type="date" {...register('valid_from')} error={errors.valid_from?.message} />
-          <ThinInput label="Valid To" type="date" {...register('valid_to')} />
+          <Controller
+            name="valid_from"
+            control={control}
+            render={({ field }) => (
+              <DatePicker
+                label="Valid From"
+                value={field.value}
+                onChange={field.onChange}
+                required
+                requiredIndicator
+                error={errors.valid_from?.message}
+              />
+            )}
+          />
+          <Controller
+            name="valid_to"
+            control={control}
+            render={({ field }) => (
+              <DatePicker
+                label="Valid To"
+                value={field.value ?? ''}
+                onChange={field.onChange}
+                allowEmpty
+                emptyLabel="Open-ended"
+              />
+            )}
+          />
         </div>
       </section>
 

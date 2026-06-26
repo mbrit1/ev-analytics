@@ -44,6 +44,43 @@ describe('SessionForm', () => {
     screen.getByText((_, element) => element?.tagName === 'LABEL' && element.textContent?.replace(/\s+/g, ' ').trim() === labelText);
   const utc = (date: string): Date => new Date(`${date}T00:00:00.000Z`);
 
+  function getPickerMonth(): string {
+    const monthHeading = screen.getByTestId('date-picker-month');
+    const month = monthHeading.getAttribute('data-month');
+    if (!month) {
+      throw new Error('Date picker month heading is missing data-month');
+    }
+    return month;
+  }
+
+  function movePickerToMonth(targetDate: string): void {
+    const targetMonth = targetDate.slice(0, 7);
+    let guard = 0;
+
+    while (getPickerMonth() !== targetMonth) {
+      if (guard > 48) {
+        throw new Error(`Could not navigate date picker to ${targetMonth}`);
+      }
+      const currentMonth = getPickerMonth();
+      fireEvent.click(screen.getByRole('button', {
+        name: currentMonth.localeCompare(targetMonth) < 0 ? /next month/i : /previous month/i,
+      }));
+      guard += 1;
+    }
+  }
+
+  function formatPickerLabel(date: string): string {
+    const [year, month, day] = date.split('-');
+    return `${day}.${month}.${year}`;
+  }
+
+  function pickDate(label: RegExp, date: string): void {
+    fireEvent.click(screen.getByRole('button', { name: label }));
+    movePickerToMonth(date);
+    fireEvent.click(screen.getByRole('button', { name: `Choose ${formatPickerLabel(date)}` }));
+    fireEvent.click(screen.getByRole('button', { name: /set date/i }));
+  }
+
   function buildPlanFixture(overrides: Partial<ChargingPlan> = {}): ChargingPlan {
     return {
       id: 'plan-fixture',
@@ -396,12 +433,11 @@ describe('SessionForm', () => {
     expect(screen.queryByLabelText(/^plan\s*\*?$/i)).toBeNull();
   });
 
-  it('sets required and aria-required attributes on native required inputs/selects', () => {
+  it('sets required and aria-required attributes on required controls', () => {
     // Arrange: Render in default charging-plan mode.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
 
-    // Assert: Native required controls are explicitly marked.
-    expect(screen.getByLabelText(/date/i)).toHaveAttribute('required');
+    // Assert: Required controls are explicitly marked for forms and assistive tech.
     expect(screen.getByLabelText(/date/i)).toHaveAttribute('aria-required', 'true');
     expect(screen.getByLabelText(/provider/i)).toHaveAttribute('required');
     expect(screen.getByLabelText(/provider/i)).toHaveAttribute('aria-required', 'true');
@@ -575,7 +611,7 @@ describe('SessionForm', () => {
     expect(screen.getByRole('radio', { name: /domestic ac\s+0,40 €\/kwh/i })).toBeInTheDocument();
 
     // Act: move into the promotion window and submit.
-    fireEvent.change(screen.getByLabelText(/date/i), { target: { value: '2026-08-10' } });
+    pickDate(/date/i, '2026-08-10');
     fireEvent.click(screen.getByRole('button', { name: /save session/i }));
 
     // Assert: displayed prices and submitted raw persistence id follow the effective version.
@@ -609,7 +645,7 @@ describe('SessionForm', () => {
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
     fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: logicalKey } });
-    fireEvent.change(screen.getByLabelText(/date/i), { target: { value: '2026-08-12' } });
+    pickDate(/date/i, '2026-08-12');
     fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
     const planSelect = screen.getByLabelText(/^plan\s*\*?$/i);
     const gapWarning = screen.getByText('No tariff version applies on the selected date');
@@ -648,13 +684,13 @@ describe('SessionForm', () => {
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
     fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: logicalKey } });
-    fireEvent.change(screen.getByLabelText(/date/i), { target: { value: '2026-08-12' } });
+    pickDate(/date/i, '2026-08-12');
     fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
     fireEvent.click(screen.getByRole('button', { name: /save session/i }));
     expect(screen.getByText('No tariff version applies on the selected date')).toBeInTheDocument();
 
     // Act: move to a date covered by the later version.
-    fireEvent.change(screen.getByLabelText(/date/i), { target: { value: '2026-08-15' } });
+    pickDate(/date/i, '2026-08-15');
 
     // Assert: the stale gap message is cleared before another submit.
     await waitFor(() => {
@@ -910,7 +946,7 @@ describe('SessionForm', () => {
       applied_roaming_dc_price_per_kwh: 70,
     });
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
-    fireEvent.change(screen.getByLabelText(/date/i), { target: { value: '2026-08-10' } });
+    pickDate(/date/i, '2026-08-10');
 
     // Act: save after crossing into the promotion effective date.
     fireEvent.click(screen.getByRole('button', { name: /save session/i }));
