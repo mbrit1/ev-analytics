@@ -210,6 +210,28 @@ describe('seed-data', () => {
     expect(promoSession?.session_mode).toBe('plan');
   });
 
+  it('includes open-ended and finite validity tariffs for date-picker smoke paths', () => {
+    // Arrange: Read the validity shapes present in the committed mock tariffs.
+    const openEndedPlans = mockChargingPlans.filter((plan) => plan.valid_to == null);
+    const finitePlans = mockChargingPlans.filter((plan) => plan.valid_to != null);
+    const promoVersions = mockChargingPlans.filter((plan) => plan.provider_id === 'p7');
+
+    // Act: Derive the promo window shape used by browser smoke tests.
+    const promoValidityShape = promoVersions.map((plan) => ({
+      id: plan.id,
+      hasEndDate: plan.valid_to != null,
+    }));
+
+    // Assert: Mock mode keeps both the protected Open-ended state and dated versions available.
+    expect(openEndedPlans.length).toBeGreaterThan(0);
+    expect(finitePlans.length).toBeGreaterThan(0);
+    expect(promoValidityShape).toEqual([
+      { id: 'cp9', hasEndDate: true },
+      { id: 'cp10', hasEndDate: true },
+      { id: 'cp11', hasEndDate: false },
+    ]);
+  });
+
   it('uses distinct, newest-first session dates so history stays easy to inspect in mock mode', () => {
     // Arrange: Read the seeded timestamps as ISO strings.
     const sessionTimestamps = Object.fromEntries(
