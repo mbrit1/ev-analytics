@@ -1,10 +1,10 @@
 import React from 'react';
-import { useForm, useWatch } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Save, X } from 'lucide-react';
 import type { ChargingPlan } from '../../../infra/db';
-import { Slab, ThinInput } from '../../../shared/ui';
+import { DatePicker, Slab, ThinInput } from '../../../shared/ui';
 import { parseUtcDateInput } from '../model/logicalTariffs';
 import type { TariffPriceInput } from '../services/planService';
 import {
@@ -137,7 +137,21 @@ export const PermanentPriceChangeForm: React.FC<PermanentPriceChangeFormProps> =
         )}
         <section className="space-y-6" aria-labelledby="permanent-change-section">
           <h3 id="permanent-change-section" className="text-[13px] font-semibold text-secondary uppercase tracking-wider">Price Change</h3>
-          <ThinInput label="Effective From" required requiredIndicator type="date" min={earliestVersionStart} {...register('effective_from')} error={errors.effective_from?.message} />
+          <Controller
+            name="effective_from"
+            control={control}
+            render={({ field }) => (
+              <DatePicker
+                label="Effective From"
+                value={field.value}
+                onChange={field.onChange}
+                required
+                requiredIndicator
+                min={earliestVersionStart}
+                error={errors.effective_from?.message}
+              />
+            )}
+          />
           <ThinInput label="AC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('ac_price')} error={errors.ac_price?.message} />
           <ThinInput label="DC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('dc_price')} error={errors.dc_price?.message} />
           <ThinInput label="Roaming AC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('roaming_ac_price')} error={errors.roaming_ac_price?.message} />

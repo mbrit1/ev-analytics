@@ -1,10 +1,10 @@
 import React from 'react';
-import { useForm, useWatch } from 'react-hook-form';
+import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Save, X } from 'lucide-react';
 import type { ChargingPlan } from '../../../infra/db';
-import { Slab, ThinInput } from '../../../shared/ui';
+import { DatePicker, Slab, ThinInput } from '../../../shared/ui';
 import { parseUtcDateInput } from '../model/logicalTariffs';
 import type { TariffPriceInput } from '../services/planService';
 import {
@@ -149,8 +149,35 @@ export const TemporaryPromotionForm: React.FC<TemporaryPromotionFormProps> = ({
         )}
         <section className="space-y-6" aria-labelledby="promotion-section">
           <h3 id="promotion-section" className="text-[13px] font-semibold text-secondary uppercase tracking-wider">Promotion Window</h3>
-          <ThinInput label="Promo Start" required requiredIndicator type="date" min={earliestVersionStart} {...register('promo_start')} error={errors.promo_start?.message} />
-          <ThinInput label="Promo End" required requiredIndicator type="date" {...register('promo_end')} error={errors.promo_end?.message} />
+          <Controller
+            name="promo_start"
+            control={control}
+            render={({ field }) => (
+              <DatePicker
+                label="Promo Start"
+                value={field.value}
+                onChange={field.onChange}
+                required
+                requiredIndicator
+                min={earliestVersionStart}
+                error={errors.promo_start?.message}
+              />
+            )}
+          />
+          <Controller
+            name="promo_end"
+            control={control}
+            render={({ field }) => (
+              <DatePicker
+                label="Promo End"
+                value={field.value}
+                onChange={field.onChange}
+                required
+                requiredIndicator
+                error={errors.promo_end?.message}
+              />
+            )}
+          />
           <ThinInput label="AC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('ac_price')} error={errors.ac_price?.message} />
           <ThinInput label="DC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('dc_price')} error={errors.dc_price?.message} />
           <ThinInput label="Roaming AC Price" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('roaming_ac_price')} error={errors.roaming_ac_price?.message} />
