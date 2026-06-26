@@ -1,6 +1,7 @@
 export * from './Slab'
 export * from './ThinInput'
 export * from './TactileMatrix'
+export * from './DatePicker'
 export * from './Navigation/Navigation'
 export * from './Navigation/Sidebar'
 export * from './Navigation/BottomNav'
