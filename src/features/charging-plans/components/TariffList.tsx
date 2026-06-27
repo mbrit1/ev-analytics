@@ -112,7 +112,11 @@ function formatUpcomingPreviewCopy(
   upcomingVisibility: Extract<LogicalTariffUpcomingVisibility, { kind: 'preview' }>,
 ): string {
   return upcomingVisibility.changes
-    .map((change) => `${change.label} ${change.valueCents == null ? 'Unavailable' : formatCurrency(change.valueCents)}`)
+    .flatMap((change) => (
+      change.valueCents == null
+        ? []
+        : [`${change.label} ${formatCurrency(change.valueCents)}`]
+    ))
     .join(' · ');
 }
 
@@ -343,6 +347,9 @@ export function TariffList({
       {!isShellOwnedFormVisible && (logicalTariffs ?? []).map((logicalTariff) => {
         const providerName = providerNameById.get(logicalTariff.providerId) ?? logicalTariff.providerId;
         const logicalTariffLabel = getLogicalTariffLabel(providerName, logicalTariff.name);
+        const upcomingPreviewCopy = logicalTariff.upcomingVisibility.kind === 'preview'
+          ? formatUpcomingPreviewCopy(logicalTariff.upcomingVisibility)
+          : '';
 
         return (
           <Slab key={logicalTariff.key} className="space-y-4 p-6">
@@ -391,9 +398,9 @@ export function TariffList({
                   <p className="text-xs font-semibold tabular-nums text-secondary">
                     {logicalTariff.upcomingVisibility.label}
                   </p>
-                  {logicalTariff.upcomingVisibility.changes.length > 0 && (
+                  {upcomingPreviewCopy && (
                     <p className="text-sm tabular-nums text-primary">
-                      {formatUpcomingPreviewCopy(logicalTariff.upcomingVisibility)}
+                      {upcomingPreviewCopy}
                     </p>
                   )}
                 </div>
