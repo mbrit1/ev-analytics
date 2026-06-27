@@ -331,6 +331,36 @@ describe('TariffList', () => {
     expect(screen.getByText('Domestic DC 0,53 € · Roaming DC 0,63 €')).toBeInTheDocument();
   });
 
+  it('omits roaming prices without values from the upcoming preview', () => {
+    // Arrange: Render a preview where both roaming prices are unavailable.
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [
+        buildLogicalTariff({
+          badge: undefined,
+          upcomingVisibility: {
+            kind: 'preview',
+            effectiveDate: '2026-07-01',
+            label: 'Next Update · 01 Jul 2026',
+            changes: [
+              { label: 'Domestic AC', valueCents: 59 },
+              { label: 'Roaming AC', valueCents: null },
+              { label: 'Roaming DC', valueCents: null },
+            ],
+          },
+        }),
+      ],
+    }));
+
+    // Act: Render the tariff cards.
+    renderTariffList();
+
+    // Assert: The valued change remains while unavailable roaming entries are absent.
+    expect(screen.getByText('Domestic AC 0,59 €')).toBeInTheDocument();
+    expect(screen.queryByText(/roaming ac/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/roaming dc/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/unavailable/i)).not.toBeInTheDocument();
+  });
+
   it('opens app-owned edit mode from the primary edit action', async () => {
     // Arrange: Render TariffList with tariffFormState closed and onEditTariff spy.
     vi.mocked(useChargingPlans).mockReturnValue(buildHookValue());
