@@ -15,6 +15,7 @@ This app replaces spreadsheet workflows with structured EV charging session trac
 - Local persistence with Dexie and queued sync via the outbox pattern
 - Private, single-user Supabase backend with default-deny RLS
 - Tariff, provider, and charging plan modeling
+- Monthly charging-session spend analytics
 - PWA installability and mobile-first UX
 
 ## Tech Stack
@@ -35,6 +36,7 @@ Application code lives in `src/` and is organized by app shell, feature domains,
 src/
   app/
   features/
+    analytics/
     auth/
     charging-plans/
     charging-sessions/
@@ -76,6 +78,13 @@ These rules are central to the product and should be treated as non-negotiable u
 - Money is stored as integer cents
 - Dates are stored in UTC
 - Charging sessions must preserve tariff snapshots
+
+### Analytics Data Semantics
+
+The first Analytics slice reports Monthly Session Spend from the local charging-session
+store, so it remains available offline and reacts to local changes immediately. It sums
+each active session's snapshotted `total_cost` in integer cents, excludes soft-deleted
+sessions, and assigns UTC session timestamps to the user's local calendar month.
 
 ## Quick Start
 
