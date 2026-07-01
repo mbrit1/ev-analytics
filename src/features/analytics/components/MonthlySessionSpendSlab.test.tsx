@@ -29,9 +29,11 @@ describe('MonthlySessionSpendSlab', () => {
     const value = screen.getByText('123,45 €')
 
     // Assert: Scope and month-to-date wording are explicit.
-    expect(value).toHaveClass('tabular-nums')
+    expect(value).toHaveClass('tabular-nums', 'whitespace-nowrap', 'leading-none')
     expect(screen.getByText('Across 2 charging sessions.')).toBeInTheDocument()
-    expect(screen.getByText('Month to date · Charging session costs only')).toBeInTheDocument()
+    const footer = screen.getByText('Month to date · Charging session costs only')
+    expect(footer).toHaveClass('text-xs', 'text-secondary')
+    expect(footer).not.toHaveClass('border-t')
   })
 
   it('renders singular completed-month copy', () => {

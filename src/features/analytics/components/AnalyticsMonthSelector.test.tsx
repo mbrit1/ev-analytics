@@ -26,8 +26,13 @@ describe('AnalyticsMonthSelector', () => {
 
     // Assert: July is labelled, next is disabled, and June is requested.
     expect(screen.getByText('July 2026')).toBeInTheDocument()
-    expect(screen.getByRole('group', { name: 'Analytics month' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Next month' })).toBeDisabled()
+    const selector = screen.getByRole('group', { name: 'Analytics month' })
+    const previousButton = screen.getByRole('button', { name: 'Previous month' })
+    const nextButton = screen.getByRole('button', { name: 'Next month' })
+    expect(selector).toHaveClass('mx-auto', 'grid', 'max-w-72', 'grid-cols-[44px_minmax(0,1fr)_44px]')
+    expect(previousButton).toHaveClass('h-11', 'w-11')
+    expect(nextButton).toHaveClass('h-11', 'w-11', 'disabled:opacity-30')
+    expect(nextButton).toBeDisabled()
     expect(onChange).toHaveBeenCalledWith({ year: 2026, month: 5 })
   })
 
