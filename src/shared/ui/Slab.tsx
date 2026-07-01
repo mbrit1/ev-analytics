@@ -3,7 +3,7 @@ import React from 'react';
 /**
  * Properties for the Slab component.
  */
-interface SlabProps {
+export interface SlabProps extends React.HTMLAttributes<HTMLDivElement> {
   /** The content to be wrapped inside the slab. */
   children: React.ReactNode;
   /** Optional extra CSS classes to apply to the container. */
@@ -25,13 +25,14 @@ export const Slab: React.FC<SlabProps> = ({
   children,
   className = '',
   padding = 'default',
+  ...containerProps
 }) => {
   const baseClasses = 'bg-surface border border-slab-border rounded-slab shadow-slab transition-all duration-300';
   const paddingClass = padding === 'default' ? 'p-8' : '';
   const combinedClasses = `${baseClasses} ${paddingClass} ${className}`.trim();
 
   return (
-    <div className={combinedClasses}>
+    <div className={combinedClasses} {...containerProps}>
       {children}
     </div>
   );

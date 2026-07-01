@@ -149,6 +149,7 @@ vi.mock('../features/charging-sessions', () => ({
   ),
   saveSession: mockSaveSession,
   updateSession: mockUpdateSession,
+  useSessions: () => ({ sessions: [], pendingSyncIds: new Set<string>(), isLoading: false }),
 }));
 vi.mock('../shared/ui', () => ({
   Navigation: ({
@@ -305,6 +306,14 @@ describe('App mobile action dock', () => {
     // Assert: The mobile create pill stays hidden on analytics.
     expect(screen.queryByText('Add Session Pill')).not.toBeInTheDocument();
     expect(screen.queryByText('Add Tariff Pill')).not.toBeInTheDocument();
+    expect(screen.queryByText('Analytics is planned and will be available in a future update.')).not.toBeInTheDocument();
+    expect(screen.getByText('No charging spend recorded for this month yet.')).toBeInTheDocument();
+
+    // Act: Reuse the analytics empty-state action.
+    await user.click(screen.getByRole('button', { name: 'Add Session' }));
+
+    // Assert: The established session form opens on the sessions destination.
+    expect(screen.getByText('Session Form')).toBeInTheDocument();
   });
 
   it('opens the session form when Add Session is invoked from mobile contextual action', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatKwh, parseDecimalToCents } from './utils';
+import { formatKwh, formatMonthLabel, parseDecimalToCents } from './utils';
 
 /**
  * Test suite for shared numeric formatting helpers.
@@ -101,5 +101,24 @@ describe('parseDecimalToCents', () => {
 
     // Assert: Valid decimals still map to integer cents.
     expect(parsed).toBe(49);
+  });
+});
+
+/**
+ * Test suite for analytics month labels.
+ *
+ * Verifies zero-based calendar months are presented in the English UI locale.
+ */
+describe('formatMonthLabel', () => {
+  it('formats a calendar month with its year', () => {
+    // Arrange: Use zero-based July 2026.
+    const year = 2026;
+    const month = 6;
+
+    // Act: Format the analytics period label.
+    const formatted = formatMonthLabel(year, month);
+
+    // Assert: The English month and full year are shown.
+    expect(formatted).toBe('July 2026');
   });
 });

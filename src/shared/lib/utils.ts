@@ -42,6 +42,14 @@ export function formatCurrency(cents: number): string {
   return `${formatCentsToDecimal(cents)} €`;
 }
 
+/** Formats a local calendar month for the English-language application UI. */
+export function formatMonthLabel(year: number, month: number): string {
+  return new Intl.DateTimeFormat('en-GB', {
+    month: 'long',
+    year: 'numeric',
+  }).format(new Date(year, month, 1));
+}
+
 /**
  * Formats kWh values with German locale decimals and no forced trailing zeroes.
  *

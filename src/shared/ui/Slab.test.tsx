@@ -64,4 +64,13 @@ describe('Slab', () => {
     // Assert: The default padding utility is not emitted.
     expect(slabElement).not.toHaveClass('p-8');
   });
+
+  it('forwards standard HTML attributes to the slab container', () => {
+    // Arrange: Provide accessibility and test attributes for the container.
+    // Act: Render a busy analytics slab.
+    render(<Slab aria-busy="true" data-testid="analytics-slab">Content</Slab>);
+
+    // Assert: Consumers can expose semantic container state through Slab.
+    expect(screen.getByTestId('analytics-slab')).toHaveAttribute('aria-busy', 'true');
+  });
 });
