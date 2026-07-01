@@ -46,7 +46,14 @@ describe('AnalyticsPage', () => {
     expect(screen.getByText('June 2026')).toBeInTheDocument()
     const pageHeading = screen.getByRole('heading', { name: 'Analytics', level: 1 })
     expect(pageHeading.childElementCount).toBe(0)
-    expect(container.querySelector('section')).toHaveClass('space-y-4', 'md:space-y-6')
+    expect(pageHeading).toHaveClass('md:text-center')
+    expect(container.querySelector('section')).toHaveClass(
+      'mx-auto',
+      'w-full',
+      'space-y-4',
+      'md:max-w-xl',
+      'md:space-y-5',
+    )
     expect(vi.mocked(useMonthlySessionSpend).mock.calls[0]?.[0]).toEqual({ year: 2026, month: 6 })
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0]).toEqual({ year: 2026, month: 5 })
   })

@@ -28,8 +28,16 @@ export function AnalyticsPage({ onAddSession }: AnalyticsPageProps) {
   }, [now])
 
   return (
-    <section className="space-y-4 md:space-y-6" aria-labelledby="analytics-heading">
-      <h1 id="analytics-heading" className="text-2xl font-bold tracking-tight text-primary">Analytics</h1>
+    <section
+      className="mx-auto w-full space-y-4 md:max-w-xl md:space-y-5"
+      aria-labelledby="analytics-heading"
+    >
+      <h1
+        id="analytics-heading"
+        className="text-2xl font-bold tracking-tight text-primary md:text-center"
+      >
+        Analytics
+      </h1>
       <AnalyticsMonthSelector
         value={selectedMonth}
         currentMonth={currentMonth}

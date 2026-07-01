@@ -29,11 +29,26 @@ describe('AnalyticsMonthSelector', () => {
     const selector = screen.getByRole('group', { name: 'Analytics month' })
     const previousButton = screen.getByRole('button', { name: 'Previous month' })
     const nextButton = screen.getByRole('button', { name: 'Next month' })
-    expect(selector).toHaveClass('mx-auto', 'grid', 'max-w-72', 'grid-cols-[44px_minmax(0,1fr)_44px]')
+    expect(selector).toHaveClass(
+      'mx-auto',
+      'grid',
+      'max-w-72',
+      'grid-cols-[44px_minmax(0,1fr)_44px]',
+      'md:max-w-sm',
+      'md:rounded-full',
+      'md:border-slab-border',
+      'md:bg-surface/70',
+    )
     expect(previousButton).toHaveClass('h-11', 'w-11')
     expect(nextButton).toHaveClass('h-11', 'w-11', 'disabled:opacity-30')
     expect(nextButton).toBeDisabled()
     expect(onChange).toHaveBeenCalledWith({ year: 2026, month: 5 })
+
+    // Act: Attempt to use the semantically disabled future-month control.
+    await user.click(nextButton)
+
+    // Assert: The disabled button does not request another month change.
+    expect(onChange).toHaveBeenCalledOnce()
   })
 
   it('allows forward navigation from a completed month', async () => {
