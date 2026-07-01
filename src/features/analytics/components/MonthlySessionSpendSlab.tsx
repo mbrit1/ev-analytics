@@ -29,7 +29,7 @@ export function MonthlySessionSpendSlab({
   return (
     <Slab padding="none" className="space-y-4 p-5 md:space-y-5 md:p-8" aria-busy={isLoading}>
       <div className="space-y-2">
-        <h2 className="text-sm font-semibold text-secondary">{heading}</h2>
+        <h2 className="text-sm font-semibold text-secondary md:text-[0.9375rem]">{heading}</h2>
         {isLoading ? (
           <div role="status" className="h-12 w-40 animate-pulse rounded-xl bg-secondary/10 motion-reduce:animate-none">
             <span className="sr-only">Loading session spend</span>
@@ -57,12 +57,12 @@ export function MonthlySessionSpendSlab({
         ) : (
           <div className="space-y-3">
             <p
-              className="whitespace-nowrap text-[2.75rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-5xl"
+              className="whitespace-nowrap text-[2.75rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[3.5rem]"
               aria-label={`${heading}: ${formatCurrency(result.totalSessionSpendCents)}`}
             >
               {formatCurrency(result.totalSessionSpendCents)}
             </p>
-            <p className="text-sm leading-5 text-secondary">
+            <p className="text-sm leading-5 text-secondary md:text-base md:leading-6">
               {result.sessionCount === 1
                 ? 'Based on 1 charging session.'
                 : `Across ${result.sessionCount} charging sessions.`}
