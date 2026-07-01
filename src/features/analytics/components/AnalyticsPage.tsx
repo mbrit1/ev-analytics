@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { BarChart3 } from 'lucide-react'
 import { getCalendarMonth } from '../model/analyticsPeriods'
 import { useMonthlySessionSpend } from '../hooks/useMonthlySessionSpend'
 import { AnalyticsMonthSelector } from './AnalyticsMonthSelector'
@@ -29,11 +28,8 @@ export function AnalyticsPage({ onAddSession }: AnalyticsPageProps) {
   }, [now])
 
   return (
-    <section className="space-y-6" aria-labelledby="analytics-heading">
-      <div className="flex items-center gap-2">
-        <BarChart3 className="h-5 w-5 text-accent" aria-hidden="true" />
-        <h1 id="analytics-heading" className="text-2xl font-bold tracking-tight text-primary">Analytics</h1>
-      </div>
+    <section className="space-y-4 md:space-y-6" aria-labelledby="analytics-heading">
+      <h1 id="analytics-heading" className="text-2xl font-bold tracking-tight text-primary">Analytics</h1>
       <AnalyticsMonthSelector
         value={selectedMonth}
         currentMonth={currentMonth}

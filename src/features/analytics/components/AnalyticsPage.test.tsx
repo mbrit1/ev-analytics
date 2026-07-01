@@ -36,7 +36,7 @@ describe('AnalyticsPage', () => {
       isLoading: false,
     })
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-    render(<AnalyticsPage onAddSession={vi.fn()} />)
+    const { container } = render(<AnalyticsPage onAddSession={vi.fn()} />)
 
     // Act: Confirm the default label, then navigate to June.
     expect(screen.getByText('July 2026')).toBeInTheDocument()
@@ -44,6 +44,9 @@ describe('AnalyticsPage', () => {
 
     // Assert: The page passes both selected periods to its query hook.
     expect(screen.getByText('June 2026')).toBeInTheDocument()
+    const pageHeading = screen.getByRole('heading', { name: 'Analytics', level: 1 })
+    expect(pageHeading.childElementCount).toBe(0)
+    expect(container.querySelector('section')).toHaveClass('space-y-4', 'md:space-y-6')
     expect(vi.mocked(useMonthlySessionSpend).mock.calls[0]?.[0]).toEqual({ year: 2026, month: 6 })
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0]).toEqual({ year: 2026, month: 5 })
   })
