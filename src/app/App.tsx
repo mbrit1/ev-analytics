@@ -1,4 +1,4 @@
-import { BarChart3, BatteryCharging, Loader2, LogOut, Plus } from 'lucide-react'
+import { BatteryCharging, Loader2, LogOut, Plus } from 'lucide-react'
 import { useState, useEffect, lazy, Suspense, useRef } from 'react'
 import { useAuth, LoginForm } from '../features/auth'
 import {
@@ -12,8 +12,9 @@ import {
 } from '../features/charging-sessions'
 import { startSyncRuntime, SyncStatusIndicator, useSyncStatus } from '../features/offline-sync'
 import { type ChargingSession } from '../infra/db'
-import { MobileContextAction, Navigation, Slab } from '../shared/ui'
+import { MobileContextAction, Navigation } from '../shared/ui'
 import { type NavigationTab } from '../shared/ui/Navigation/types'
+import { AnalyticsPage } from '../features/analytics'
 
 const TariffList = lazy(async () => {
   const module = await import('../features/charging-plans/components/TariffList')
@@ -122,6 +123,11 @@ function App() {
     historyScrollSnapshotRef.current = window.scrollY
     setHistoryRestoreRequest(null)
     setSessionFormState({ mode: 'create' })
+  }
+
+  const handleAddSessionFromAnalytics = () => {
+    setActiveTab('sessions')
+    handleOpenCreateSession()
   }
 
   const handleOpenEditSession = (session: ChargingSession) => {
@@ -287,15 +293,7 @@ function App() {
                 </div>
               )}
               {activeTab === 'analytics' ? (
-                <Slab className="space-y-3 p-6">
-                  <div className="flex items-center gap-2">
-                    <BarChart3 className="w-5 h-5 text-accent" aria-hidden="true" />
-                    <h1 className="text-2xl font-bold tracking-tight text-primary">Analytics</h1>
-                  </div>
-                  <p className="text-secondary">
-                    Analytics is planned and will be available in a future update.
-                  </p>
-                </Slab>
+                <AnalyticsPage onAddSession={handleAddSessionFromAnalytics} />
               ) : activeTab === 'tariffs' ? (
                 <Suspense
                   fallback={(
