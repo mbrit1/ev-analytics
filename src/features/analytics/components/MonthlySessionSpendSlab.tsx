@@ -30,6 +30,7 @@ export function MonthlySessionSpendSlab({
   const billedEnergyAccessibleLabel = result.isCurrentMonth
     ? 'Billed energy this month'
     : `Billed energy in ${monthLabel}`
+  const hasPartialBilledEnergy = result.validBilledEnergySessionCount < result.sessionCount
 
   return (
     <Slab
@@ -103,6 +104,11 @@ export function MonthlySessionSpendSlab({
                   <p className="text-sm leading-5 text-secondary">
                     Energy billed by providers, not battery-added energy.
                   </p>
+                  {hasPartialBilledEnergy && (
+                    <p className="text-sm leading-5 text-secondary">
+                      Based on {result.validBilledEnergySessionCount} of {result.sessionCount} sessions with valid billed-kWh values.
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -111,7 +117,7 @@ export function MonthlySessionSpendSlab({
       </div>
       {!isLoading && (
         <p className="text-xs leading-5 text-secondary">
-          {periodCopy} · Charging session costs only
+          {periodCopy} · Session spend and provider-billed energy
         </p>
       )}
     </Slab>

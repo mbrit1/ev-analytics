@@ -45,7 +45,7 @@ describe('MonthlySessionSpendSlab', () => {
     expect(screen.getByText('Billed energy')).toBeInTheDocument()
     expect(screen.getByText('Energy billed by providers, not battery-added energy.')).toBeInTheDocument()
     expect(screen.getByText('Across 2 charging sessions.')).toBeInTheDocument()
-    const footer = screen.getByText('Month to date · Charging session costs only')
+    const footer = screen.getByText('Month to date · Session spend and provider-billed energy')
     expect(footer).toHaveClass('text-xs', 'text-secondary')
     expect(footer).not.toHaveClass('border-t')
   })
@@ -60,7 +60,7 @@ describe('MonthlySessionSpendSlab', () => {
     // Assert: Completed and singular copy are accurate.
     expect(heading).toBeInTheDocument()
     expect(screen.getByText('Based on 1 charging session.')).toBeInTheDocument()
-    expect(screen.getByText('Completed month · Charging session costs only')).toBeInTheDocument()
+    expect(screen.getByText('Completed month · Session spend and provider-billed energy')).toBeInTheDocument()
     expect(screen.getByText('Billed energy')).toBeInTheDocument()
   })
 
@@ -82,6 +82,24 @@ describe('MonthlySessionSpendSlab', () => {
     expect(unavailableHeading).toBeInTheDocument()
     expect(screen.getByText(/no valid billed-kWh values/)).toBeInTheDocument()
     expect(screen.queryByText('0 kWh')).not.toBeInTheDocument()
+  })
+
+  it('discloses when billed energy covers only some sessions', () => {
+    // Arrange: Provide an energy subtotal built from only one of three sessions.
+    render(
+      <MonthlySessionSpendSlab
+        month={{ year: 2026, month: 6 }}
+        result={{ ...baseResult, sessionCount: 3, validBilledEnergySessionCount: 1 }}
+        isLoading={false}
+        onAddSession={vi.fn()}
+      />,
+    )
+
+    // Act: Read the billed-energy qualification.
+    const qualification = screen.getByText('Based on 1 of 3 sessions with valid billed-kWh values.')
+
+    // Assert: The partial subtotal is not presented as complete coverage.
+    expect(qualification).toBeInTheDocument()
   })
 
   it('renders empty copy and invokes the existing add-session action', async () => {
@@ -146,6 +164,6 @@ describe('MonthlySessionSpendSlab', () => {
     expect(slab).toHaveAttribute('aria-busy', 'true')
     expect(slab).not.toHaveClass('p-8')
     expect(screen.queryByText('123,45 €')).not.toBeInTheDocument()
-    expect(screen.queryByText('Month to date · Charging session costs only')).not.toBeInTheDocument()
+    expect(screen.queryByText('Month to date · Session spend and provider-billed energy')).not.toBeInTheDocument()
   })
 })

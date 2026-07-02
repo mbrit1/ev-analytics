@@ -28,8 +28,7 @@ export function MobileNavigationDock({ activeTab, onTabChange }: MobileNavigatio
       style={{
         left: 'max(16px, env(safe-area-inset-left, 0px))',
         right: 'max(16px, env(safe-area-inset-right, 0px))',
-        bottom: 0,
-        paddingBottom: 'calc(10px + env(safe-area-inset-bottom))',
+        bottom: 'var(--mobile-nav-dock-bottom, calc(var(--safe-area-bottom, env(safe-area-inset-bottom, 0px)) + 6px))',
       }}
       aria-label="Primary mobile actions"
     >
