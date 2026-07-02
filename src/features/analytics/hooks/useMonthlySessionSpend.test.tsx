@@ -8,7 +8,7 @@ vi.mock('../../charging-sessions', () => ({
   useSessions: vi.fn(),
 }))
 
-function buildSession(timestamp: Date, totalCost: number): ChargingSession {
+function buildSession(timestamp: Date, totalCost: number, billedEnergyKwh = 10): ChargingSession {
   return {
     id: crypto.randomUUID(),
     user_id: 'user-1',
@@ -16,7 +16,7 @@ function buildSession(timestamp: Date, totalCost: number): ChargingSession {
     provider_id: 'provider-1',
     provider_name_snapshot: 'Provider',
     charging_type: 'AC',
-    kwh_billed: 10,
+    kwh_billed: billedEnergyKwh,
     total_cost: totalCost,
     applied_session_fee: 0,
     created_at: timestamp,
@@ -25,7 +25,7 @@ function buildSession(timestamp: Date, totalCost: number): ChargingSession {
 }
 
 /**
- * Test suite for the monthly session-spend hook.
+ * Test suite for the monthly session-spend and billed-energy hook.
  *
  * Verifies loading propagation and recomputation when live local sessions or
  * the selected calendar month change.
@@ -38,7 +38,7 @@ describe('useMonthlySessionSpend', () => {
   it('propagates loading and aggregates live sessions', () => {
     // Arrange: Return one June session while the local query is still loading.
     vi.mocked(useSessions).mockReturnValue({
-      sessions: [buildSession(new Date(2026, 5, 10, 12), 1234)],
+      sessions: [buildSession(new Date(2026, 5, 10, 12), 1234, 18.4)],
       pendingSyncIds: new Set(),
       isLoading: true,
     })
@@ -52,6 +52,7 @@ describe('useMonthlySessionSpend', () => {
     // Assert: Query state and calculated cents are both exposed.
     expect(result.current.isLoading).toBe(true)
     expect(result.current.result.totalSessionSpendCents).toBe(1234)
+    expect(result.current.result.billedEnergyKwh).toBe(18.4)
   })
 
   it('recalculates when the selected month changes', () => {
@@ -76,6 +77,7 @@ describe('useMonthlySessionSpend', () => {
 
     // Assert: The new period uses the July session only.
     expect(result.current.result.totalSessionSpendCents).toBe(3400)
+    expect(result.current.result.billedEnergyKwh).toBe(10)
     expect(result.current.result.isCurrentMonth).toBe(true)
   })
 })

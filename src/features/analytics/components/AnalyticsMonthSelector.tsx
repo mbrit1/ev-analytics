@@ -30,7 +30,7 @@ export function AnalyticsMonthSelector({
       <button
         type="button"
         onClick={() => onChange(shiftCalendarMonth(value, -1))}
-        className="flex h-11 w-11 items-center justify-center rounded-full text-secondary transition-colors hover:bg-secondary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 motion-reduce:transition-none"
+        className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-transparent text-secondary transition-[background-color,color,transform] duration-150 hover:bg-slab-border/50 hover:text-primary active:scale-95 active:bg-slab-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-environment motion-reduce:transition-none"
         aria-label="Previous month"
       >
         <ChevronLeft className="h-5 w-5" aria-hidden="true" />
@@ -42,7 +42,7 @@ export function AnalyticsMonthSelector({
         type="button"
         onClick={() => onChange(shiftCalendarMonth(value, 1))}
         disabled={isCurrentMonth}
-        className="flex h-11 w-11 items-center justify-center rounded-full text-secondary transition-colors hover:bg-secondary/5 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent motion-reduce:transition-none"
+        className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-transparent text-secondary transition-[background-color,color,transform] duration-150 hover:bg-slab-border/50 hover:text-primary active:scale-95 active:bg-slab-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-environment disabled:pointer-events-none disabled:opacity-30 disabled:hover:bg-transparent motion-reduce:transition-none"
         aria-label="Next month"
       >
         <ChevronRight className="h-5 w-5" aria-hidden="true" />
