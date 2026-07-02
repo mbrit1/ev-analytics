@@ -40,7 +40,8 @@ describe('AnalyticsMonthSelector', () => {
       'md:bg-surface/70',
     )
     expect(previousButton).toHaveClass('h-11', 'w-11')
-    expect(nextButton).toHaveClass('h-11', 'w-11', 'disabled:opacity-30')
+    expect(previousButton).toHaveClass('inline-flex', 'bg-transparent', 'hover:bg-slab-border/50', 'active:scale-95', 'active:bg-slab-border')
+    expect(nextButton).toHaveClass('h-11', 'w-11', 'disabled:pointer-events-none', 'disabled:opacity-30')
     expect(nextButton).toBeDisabled()
     expect(onChange).toHaveBeenCalledWith({ year: 2026, month: 5 })
 

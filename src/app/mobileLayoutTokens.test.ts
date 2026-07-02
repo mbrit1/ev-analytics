@@ -18,7 +18,7 @@ describe('mobile layout tokens', () => {
     // Act: Inspect the tuned token values and formula composition.
 
     // Assert: The dock stack stays compact without removing the reserve formulas.
-    expect(indexCss).toContain('--mobile-dock-lift: 6px;')
+    expect(indexCss).toContain('--mobile-dock-lift: 10px;')
     expect(indexCss).toContain('--mobile-context-action-gap: 12px;')
     expect(indexCss).toContain('--mobile-content-bottom-clearance: 20px;')
     expect(indexCss).toContain('--mobile-context-action-bottom: calc(var(--mobile-nav-dock-bottom) + var(--mobile-nav-dock-height) + var(--mobile-context-action-gap));')

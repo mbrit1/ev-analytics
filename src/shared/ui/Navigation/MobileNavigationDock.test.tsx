@@ -21,8 +21,9 @@ describe('MobileNavigationDock', () => {
     expect(dock).toHaveClass('md:hidden')
     expect(dock).toHaveAttribute(
       'style',
-      expect.stringContaining('bottom: var(--mobile-nav-dock-bottom, calc(var(--safe-area-bottom, env(safe-area-inset-bottom, 0px)) + 6px))')
+      expect.stringContaining('padding-bottom: calc(10px + env(safe-area-inset-bottom))')
     )
+    expect(dock).toHaveStyle({ bottom: '0px' })
     expect(dock.firstElementChild).toHaveClass('grid')
     expect(dock.firstElementChild).toHaveClass('grid-cols-3')
 

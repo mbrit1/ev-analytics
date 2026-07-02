@@ -11,14 +11,14 @@
   --shadow-slab: 0 10px 30px rgba(0, 0, 0, 0.04);
   --radius-slab: 28px;
   
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Rounded", sans-serif;
+  --font-sans: "SF Pro Rounded", "SF Pro Display", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 }
 
 @layer base {
   :root {
     --safe-area-bottom: env(safe-area-inset-bottom, 0px);
     --mobile-dock-height: 76px;
-    --mobile-dock-lift: 6px;
+    --mobile-dock-lift: 10px;
     --mobile-nav-dock-height: var(--mobile-dock-height);
     --mobile-nav-dock-bottom: calc(var(--safe-area-bottom) + var(--mobile-dock-lift));
     --mobile-context-action-height: 52px;
@@ -76,5 +76,12 @@
   input[type='date']::-webkit-datetime-edit {
     color: var(--primary-typography);
     opacity: 1;
+  }
+}
+
+@layer components {
+  .analytics-metric-value {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
   }
 }
