@@ -29,20 +29,24 @@ export function AnalyticsPage({ onAddSession }: AnalyticsPageProps) {
 
   return (
     <section
-      className="mx-auto w-full space-y-3 md:max-w-xl md:space-y-5"
+      className="mx-auto w-full space-y-3 md:max-w-xl md:space-y-5 min-[900px]:!max-w-[760px] min-[900px]:!space-y-0 min-[900px]:pb-16 min-[900px]:pt-[clamp(8px,2vh,24px)]"
       aria-labelledby="analytics-heading"
     >
-      <h1
-        id="analytics-heading"
-        className="text-xl font-bold tracking-tight text-primary md:text-center md:text-2xl"
-      >
-        Analytics
-      </h1>
-      <AnalyticsMonthSelector
-        value={selectedMonth}
-        currentMonth={currentMonth}
-        onChange={setSelectedMonth}
-      />
+      <div className="min-[900px]:pb-3">
+        <h1
+          id="analytics-heading"
+          className="text-xl font-bold tracking-tight text-primary md:text-center md:text-2xl"
+        >
+          Analytics
+        </h1>
+      </div>
+      <div className="min-[900px]:pb-7">
+        <AnalyticsMonthSelector
+          value={selectedMonth}
+          currentMonth={currentMonth}
+          onChange={setSelectedMonth}
+        />
+      </div>
       <MonthlySessionSpendSlab
         month={selectedMonth}
         result={result}

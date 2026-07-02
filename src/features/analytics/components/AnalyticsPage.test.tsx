@@ -55,6 +55,8 @@ describe('AnalyticsPage', () => {
       'space-y-3',
       'md:max-w-xl',
       'md:space-y-5',
+      'min-[900px]:!max-w-[760px]',
+      'min-[900px]:!space-y-0',
     )
     expect(pageHeading).toHaveClass('text-xl', 'md:text-2xl')
     expect(vi.mocked(useMonthlySessionSpend).mock.calls[0]?.[0]).toEqual({ year: 2026, month: 6 })

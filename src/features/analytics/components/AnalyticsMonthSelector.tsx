@@ -23,14 +23,14 @@ export function AnalyticsMonthSelector({
 
   return (
     <div
-      className="mx-auto grid w-full max-w-72 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-2 md:max-w-sm md:rounded-full md:border md:border-slab-border md:bg-surface/70 md:px-1 md:shadow-sm"
+      className="mx-auto grid w-full max-w-72 grid-cols-[44px_minmax(0,1fr)_44px] items-center gap-2 md:max-w-sm md:rounded-full md:border md:border-slab-border md:bg-surface/70 md:px-1 md:shadow-sm min-[900px]:!max-w-[640px] min-[900px]:!rounded-3xl min-[900px]:!bg-surface min-[900px]:!px-2 min-[900px]:py-1 min-[900px]:!shadow-slab"
       role="group"
       aria-label="Analytics month"
     >
       <button
         type="button"
         onClick={() => onChange(shiftCalendarMonth(value, -1))}
-        className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-transparent text-secondary transition-[background-color,color,transform] duration-150 hover:bg-slab-border/50 hover:text-primary active:scale-95 active:bg-slab-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-environment motion-reduce:transition-none"
+        className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-transparent text-secondary transition-[background-color,color,transform] duration-150 hover:bg-slab-border/50 hover:text-primary active:scale-95 active:bg-slab-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-environment motion-reduce:transition-none motion-reduce:active:scale-100"
         aria-label="Previous month"
       >
         <ChevronLeft className="h-5 w-5" aria-hidden="true" />
@@ -42,7 +42,7 @@ export function AnalyticsMonthSelector({
         type="button"
         onClick={() => onChange(shiftCalendarMonth(value, 1))}
         disabled={isCurrentMonth}
-        className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-transparent text-secondary transition-[background-color,color,transform] duration-150 hover:bg-slab-border/50 hover:text-primary active:scale-95 active:bg-slab-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-environment disabled:pointer-events-none disabled:opacity-30 disabled:hover:bg-transparent motion-reduce:transition-none"
+        className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-transparent text-secondary transition-[background-color,color,transform] duration-150 hover:bg-slab-border/50 hover:text-primary active:scale-95 active:bg-slab-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-environment disabled:pointer-events-none disabled:opacity-30 disabled:hover:bg-transparent motion-reduce:transition-none motion-reduce:active:scale-100"
         aria-label="Next month"
       >
         <ChevronRight className="h-5 w-5" aria-hidden="true" />

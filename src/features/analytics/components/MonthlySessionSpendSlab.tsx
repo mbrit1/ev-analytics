@@ -32,7 +32,11 @@ export function MonthlySessionSpendSlab({
     : `Billed energy in ${monthLabel}`
 
   return (
-    <Slab padding="none" className="space-y-4 p-5 md:space-y-5 md:p-8" aria-busy={isLoading}>
+    <Slab
+      padding="none"
+      className="mx-auto w-full space-y-4 p-5 md:space-y-5 md:p-8 min-[900px]:!max-w-[760px] min-[900px]:space-y-7 min-[900px]:!rounded-[32px] min-[900px]:!p-12 min-[900px]:!px-13"
+      aria-busy={isLoading}
+    >
       <div className="space-y-4">
         <h2 className="text-xs font-bold uppercase tracking-wider text-secondary md:text-sm md:normal-case md:tracking-normal">
           {summaryHeading}
@@ -62,11 +66,11 @@ export function MonthlySessionSpendSlab({
             )}
           </div>
         ) : (
-          <div className="space-y-5">
-            <div className="analytics-metric-row space-y-3">
+          <div className="space-y-5 min-[900px]:space-y-8">
+            <div className="analytics-metric-row space-y-3 min-[900px]:space-y-4">
               <h3 className="text-sm font-semibold text-secondary md:text-[0.9375rem]">Session spend</h3>
               <p
-                className="analytics-metric-value whitespace-nowrap text-[2.75rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[3.5rem]"
+                className="analytics-metric-value whitespace-nowrap text-[2.75rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[3.5rem] min-[900px]:text-[clamp(4rem,5vw,5.25rem)] min-[900px]:font-extrabold min-[900px]:leading-[0.95] min-[900px]:tracking-[-0.055em]"
                 aria-label={`${spendAccessibleLabel}: ${formatCurrency(result.totalSessionSpendCents)}`}
               >
                 {formatCurrency(result.totalSessionSpendCents)}
@@ -77,7 +81,7 @@ export function MonthlySessionSpendSlab({
                   : `Across ${result.sessionCount} charging sessions.`}
               </p>
             </div>
-            <div className="analytics-metric-row space-y-2 border-t border-slab-border/70 pt-5">
+            <div className="analytics-metric-row space-y-2 border-t border-slab-border/70 pt-5 min-[900px]:pt-8">
               <h3 className="text-sm font-semibold text-secondary md:text-[0.9375rem]">
                 Billed energy
               </h3>
@@ -91,7 +95,7 @@ export function MonthlySessionSpendSlab({
               ) : (
                 <div className="space-y-2">
                   <p
-                    className="analytics-metric-value inline-flex items-baseline gap-1 whitespace-nowrap text-[2rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[2.5rem]"
+                    className="analytics-metric-value inline-flex items-baseline gap-1 whitespace-nowrap text-[2rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[2.5rem] min-[900px]:text-[clamp(2.625rem,3.6vw,3.5rem)] min-[900px]:font-extrabold min-[900px]:tracking-[-0.045em]"
                     aria-label={`${billedEnergyAccessibleLabel}: ${formatKwh(result.billedEnergyKwh)} kWh`}
                   >
                     {formatKwh(result.billedEnergyKwh)} <span className="text-lg leading-none md:text-xl">kWh</span>
