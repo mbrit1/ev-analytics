@@ -29,9 +29,15 @@ describe('MonthlySessionSpendSlab', () => {
 
     // Act: Read the completed slab.
     const value = screen.getByText('123,45 €')
+    const slab = value.closest('[aria-busy]')
 
     // Assert: Scope and month-to-date wording are explicit.
     expect(value).toHaveClass('tabular-nums', 'whitespace-nowrap', 'leading-none')
+    expect(slab).toHaveClass(
+      'min-[900px]:!max-w-[760px]',
+      'min-[900px]:!rounded-[32px]',
+      'min-[900px]:!px-13',
+    )
     const energyValue = screen.getByText('24,6', { exact: false })
     expect(energyValue).toHaveClass('tabular-nums', 'whitespace-nowrap', 'leading-none')
     expect(screen.getByText('This month summary')).toBeInTheDocument()

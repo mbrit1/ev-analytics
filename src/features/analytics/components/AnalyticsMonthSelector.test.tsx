@@ -38,6 +38,9 @@ describe('AnalyticsMonthSelector', () => {
       'md:rounded-full',
       'md:border-slab-border',
       'md:bg-surface/70',
+      'min-[900px]:!max-w-[640px]',
+      'min-[900px]:!rounded-3xl',
+      'min-[900px]:!shadow-slab',
     )
     expect(previousButton).toHaveClass('h-11', 'w-11')
     expect(previousButton).toHaveClass('inline-flex', 'bg-transparent', 'hover:bg-slab-border/50', 'active:scale-95', 'active:bg-slab-border')
