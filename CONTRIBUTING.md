@@ -33,7 +33,7 @@ Keep these boundaries intact:
 
 The product must remain offline-first. Creating or editing charging data must not require connectivity: write locally through Dexie and the outbox, update the UI optimistically, and synchronize with Supabase later. Keep Supabase private and authenticated with default-deny RLS.
 
-Store money as integer cents, render EUR with European decimal formatting, store dates in UTC, and preserve pricing snapshots on sessions. Record significant architectural changes in `docs/adr/`.
+Store money as integer cents, render EUR with European decimal formatting, accept comma decimal separators in numeric money and energy inputs, store dates in UTC, and preserve pricing snapshots on sessions. Missing optional measurements such as odometer, SoC, or energy values must remain unavailable rather than being converted to zero. Record significant architectural changes in `docs/adr/`.
 
 ## Code and Tests
 
@@ -51,12 +51,14 @@ Use `docs/superpowers/specs/2026-05-16-Design-System-Sandbox-v2.0.html` as the d
 
 Verify affected mobile and desktop layouts and include screenshots with the pull request. If a screen intentionally improves on the baseline, identify the deviation in the handoff as either `local exception` or `promote to master`.
 
+Data-entry workflows must remain practical one-handed and in poor connectivity. Use appropriate `inputMode` values for numeric fields, preserve localized decimal input, maintain touch targets of at least 44px, and keep offline and pending-sync state visible.
+
 ## Git Workflow
 
 1. Start from an up-to-date `main` and create a semantic branch such as `feat/...`, `fix/...`, or `docs/...`.
 2. Keep changes small and focused; avoid unrelated refactors.
 3. Use Conventional Commits, for example `feat(sync): implement offline outbox queue`.
-4. Explain motivation and meaningful trade-offs in the commit body.
+4. Include a commit body that explains the motivation and meaningful trade-offs rather than repeating the diff.
 
 Do not commit directly to `main`. Automated coding agents must not push, open pull requests, or merge without explicit human authorization.
 
