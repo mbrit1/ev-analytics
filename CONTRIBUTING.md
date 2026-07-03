@@ -1,6 +1,6 @@
 # Contributing to EV Analytics
 
-Thank you for improving EV Analytics. This guide is the canonical engineering workflow for human contributors. Start with `README.md` for the product and architecture overview, and use `docs/infrastructure-runbook.md` for environment provisioning and deployment.
+Thank you for improving EV Analytics. This guide is the canonical engineering workflow for human contributors. Start with `README.md` for the product overview, use `docs/architecture.md` for implemented technical behavior, and use `docs/infrastructure-runbook.md` for environment provisioning and deployment.
 
 ## Development Setup
 
@@ -13,6 +13,29 @@ npm run dev
 ```
 
 Create `.env.local` from `.env.example` before running outside mock mode. Never commit credentials or other secrets.
+
+## Documentation Ownership
+
+Detailed guidance belongs in one canonical document. Other documents should provide a short summary and link to that source rather than maintain a competing copy. `AGENTS.md` may repeat a small number of non-negotiable constraints because it is the executable repository contract for coding agents.
+
+| Document | Canonical responsibility | Review when |
+| --- | --- | --- |
+| [`README.md`](./README.md) | Product overview, quick start, commands, and documentation navigation | Capabilities, prerequisites, commands, or entry points change |
+| [`CONTRIBUTING.md`](./CONTRIBUTING.md) | Human engineering workflow and documentation ownership | Coding, testing, review, or contribution policy changes |
+| [`AGENTS.md`](./AGENTS.md) | Durable repository instructions for coding agents | Agent constraints, required checks, or handoff rules change |
+| [`docs/architecture.md`](./docs/architecture.md) | Implemented current-state layers, data flows, models, and semantics | Runtime behavior, boundaries, persistence, synchronization, or analytics change |
+| [`docs/adr/`](./docs/adr/) | Rationale and history for significant architectural decisions | A significant decision is introduced, reversed, or superseded |
+| [`docs/infrastructure-runbook.md`](./docs/infrastructure-runbook.md) | Provisioning, deployment, validation, and operational troubleshooting | Schema provisioning, environment variables, hosting, or deployment changes |
+| [`docs/superpowers/`](./docs/superpowers/README.md) | Historical design/implementation records and named normative UI references | A record is added or an active UI-governance reference changes |
+
+Use these documentation-change triggers:
+
+- Schema or RLS changes require review of the architecture guide, infrastructure runbook, and relevant ADRs.
+- Toolchain or command changes require review of README, CONTRIBUTING, CI, and agent verification instructions.
+- Architectural changes require an ADR and a current-state architecture update once implemented.
+- Deployment changes require the hosting ADR and infrastructure runbook to change together.
+- Analytics changes must document time boundaries, missing-value behavior, snapshot use, soft-delete treatment, and metric-specific energy semantics.
+- UI-governance changes belong in the normative design baseline or checklist identified by `docs/superpowers/README.md`.
 
 ## Architecture and Domain Rules
 
@@ -98,3 +121,5 @@ When handing work to another contributor, summarize changed files, verification 
 Do not commit secrets. Local Supabase credentials belong in `.env.local`; `.env.example` documents required keys. Preserve authenticated, owner-scoped RLS and the application's private, single-user posture.
 
 Use `docs/infrastructure-runbook.md` for Supabase provisioning, environment validation, deployment, and operational troubleshooting.
+
+Current architecture belongs in `docs/architecture.md`; architectural rationale belongs in `docs/adr/`. Dated files under `docs/superpowers/specs/` and `docs/superpowers/plans/` are historical records unless `docs/superpowers/README.md` explicitly identifies them as normative.

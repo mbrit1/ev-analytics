@@ -19,8 +19,13 @@ Fixes # (issue)
 - [ ] New and existing unit tests pass locally with my changes
 
 ## Architectural Mandates (EV Analytics)
-- [ ] **Human Review Gate:** This PR has been reviewed by a human or a peer agent.
+- [ ] **Human Review Gate:** This PR has been reviewed by a human before merge.
 - [ ] **Offline-First:** Changes do not require active connectivity for core features.
-- [ ] **European Localization:** Handled currency/dates according to GEMINI.md standards.
+- [ ] **European Localization:** Currency, numeric input, and dates follow `CONTRIBUTING.md` and `docs/architecture.md`.
 - [ ] **Mobile-First:** UI elements meet the 44x44pt hit area requirement.
 - [ ] **Privacy:** No sensitive data is logged or exposed.
+
+## Documentation Impact
+- [ ] Active paths, commands, links, and terminology are current, or this change has no documentation impact.
+- [ ] Schema, RLS, runtime, analytics, or deployment changes update their canonical guide and relevant ADR/runbook, or are not applicable.
+- [ ] Historical plans/specs remain historical; new current-state policy is not duplicated into them.

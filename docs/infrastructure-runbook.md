@@ -119,7 +119,9 @@ Vite embeds `VITE_*` variables at build time. Confirm the values available to th
 
 ## Related Documentation
 
-- `README.md`: project overview, architecture rules, and development commands
-- `AGENTS.md`: repository workflow and engineering conventions
-- `docs/adr/004-supabase-auth-and-rls.md`: authentication and RLS decision
-- `docs/adr/005-outbox-sync-strategy.md`: offline synchronization decision
+- [README](../README.md): project overview and development commands
+- [Contributor guide](../CONTRIBUTING.md): human engineering workflow and conventions
+- [Current architecture](./architecture.md): implemented data flow, persistence, and synchronization behavior
+- [Coding-agent instructions](../AGENTS.md): durable repository constraints for coding agents
+- [ADR 004](./adr/004-supabase-auth-and-rls.md): authentication and RLS decision
+- [ADR 005](./adr/005-outbox-sync-strategy.md): offline synchronization decision

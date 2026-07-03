@@ -1,6 +1,6 @@
 # Coding Agent Instructions
 
-These instructions apply to the entire repository. Human contributors should start with `README.md` and `CONTRIBUTING.md`. Infrastructure procedures are in `docs/infrastructure-runbook.md`.
+These instructions apply to the entire repository. Human contributors should start with `README.md` and `CONTRIBUTING.md`. Implemented technical behavior is documented in `docs/architecture.md`; infrastructure procedures are in `docs/infrastructure-runbook.md`.
 
 ## Repository Map
 
@@ -12,7 +12,7 @@ These instructions apply to the entire repository. Human contributors should sta
 - `src/test/` and `src/mocks/`: shared test and mock infrastructure
 - `supabase/`: canonical remote schema and development seed data
 - `docs/adr/`: architecture decisions
-- `docs/superpowers/`: design specifications and implementation plans
+- `docs/superpowers/`: historical design and implementation records, with normative UI references identified in its README
 
 ## Non-Negotiable Rules
 
@@ -61,4 +61,4 @@ These instructions apply to the entire repository. Human contributors should sta
 
 Summarize changed files, verification performed, remaining risks, and a suggested Conventional Commit message. Note UI design deviations as either `local exception` or `promote to master`.
 
-See `CONTRIBUTING.md` for the full human workflow and `docs/adr/` for the decisions behind these constraints.
+See `CONTRIBUTING.md` for the full human workflow, `docs/architecture.md` for implemented behavior, and `docs/adr/` for the decisions behind these constraints.
