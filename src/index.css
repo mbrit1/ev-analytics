@@ -78,3 +78,10 @@
     opacity: 1;
   }
 }
+
+@layer components {
+  .analytics-metric-value {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+}

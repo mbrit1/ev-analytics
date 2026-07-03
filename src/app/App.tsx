@@ -210,9 +210,11 @@ function App() {
   const isMobileContextActionVisible =
     (activeTab === 'sessions' && !isSessionFormOpen) ||
     (activeTab === 'tariffs' && !isTariffFormVisible && !isTariffFormOpen)
-  const mobileMainPaddingClass = isMobileContextActionVisible
-    ? 'pb-[var(--mobile-content-clearance-with-action)]'
-    : 'pb-[var(--mobile-content-clearance-dock-only)]'
+  const mobileMainPaddingClass = activeTab === 'analytics'
+    ? 'pb-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom)+32px)]'
+    : isMobileContextActionVisible
+      ? 'pb-[var(--mobile-content-clearance-with-action)]'
+      : 'pb-[var(--mobile-content-clearance-dock-only)]'
 
   if (loading) {
     return (
@@ -286,7 +288,11 @@ function App() {
             className={`flex-1 w-full p-4 md:p-8 ${mobileMainPaddingClass} md:pb-8`}
             data-has-mobile-context-action={isMobileContextActionVisible}
           >
-            <div className="max-w-2xl mx-auto">
+            <div
+              className={activeTab === 'analytics'
+                ? 'mx-auto w-full max-w-2xl min-[900px]:!max-w-[760px]'
+                : 'mx-auto max-w-2xl'}
+            >
               {logoutError && (
                 <div role="alert" className="mb-4 p-3 text-sm text-red-500 bg-red-500/10 rounded-lg">
                   {logoutError}

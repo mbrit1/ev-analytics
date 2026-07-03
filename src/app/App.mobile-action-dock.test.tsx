@@ -308,6 +308,10 @@ describe('App mobile action dock', () => {
     expect(screen.queryByText('Add Tariff Pill')).not.toBeInTheDocument();
     expect(screen.queryByText('Analytics is planned and will be available in a future update.')).not.toBeInTheDocument();
     expect(screen.getByText('No charging spend recorded for this month yet.')).toBeInTheDocument();
+    expect(document.querySelector('main')).toHaveClass(
+      'pb-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom)+32px)]',
+      'md:pb-8',
+    );
 
     // Act: Reuse the analytics empty-state action.
     await user.click(screen.getByRole('button', { name: 'Add Session' }));

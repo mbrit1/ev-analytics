@@ -26,7 +26,9 @@ describe('AnalyticsPage', () => {
     vi.mocked(useMonthlySessionSpend).mockReturnValue({
       result: {
         totalSessionSpendCents: 0,
+        billedEnergyKwh: null,
         sessionCount: 0,
+        validBilledEnergySessionCount: 0,
         periodStartUtc: new Date(2026, 6, 1),
         periodEndUtc: new Date(2026, 7, 1),
         isCurrentMonth: true,
@@ -50,10 +52,13 @@ describe('AnalyticsPage', () => {
     expect(container.querySelector('section')).toHaveClass(
       'mx-auto',
       'w-full',
-      'space-y-4',
+      'space-y-3',
       'md:max-w-xl',
       'md:space-y-5',
+      'min-[900px]:!max-w-[760px]',
+      'min-[900px]:!space-y-0',
     )
+    expect(pageHeading).toHaveClass('text-xl', 'md:text-2xl')
     expect(vi.mocked(useMonthlySessionSpend).mock.calls[0]?.[0]).toEqual({ year: 2026, month: 6 })
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0]).toEqual({ year: 2026, month: 5 })
   })
@@ -65,7 +70,9 @@ describe('AnalyticsPage', () => {
     vi.mocked(useMonthlySessionSpend).mockReturnValue({
       result: {
         totalSessionSpendCents: 0,
+        billedEnergyKwh: null,
         sessionCount: 0,
+        validBilledEnergySessionCount: 0,
         periodStartUtc: new Date(2026, 6, 1),
         periodEndUtc: new Date(2026, 7, 1),
         isCurrentMonth: true,
