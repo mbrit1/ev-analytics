@@ -17,6 +17,7 @@ Fixes # (issue)
 - [ ] My changes generate no new warnings
 - [ ] I have added tests that prove my fix is effective or that my feature works
 - [ ] New and existing unit tests pass locally with my changes
+- [ ] `npm run docs:check` passes when active documentation changed
 
 ## Architectural Mandates (EV Analytics)
 - [ ] **Human Review Gate:** This PR has been reviewed by a human before merge.

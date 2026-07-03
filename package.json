@@ -10,6 +10,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "build:analyze": "ANALYZE=true tsc -b && ANALYZE=true vite build",
+    "docs:check": "node --test scripts/check-docs.node-test.mjs && node scripts/check-docs.mjs",
     "lint": "eslint .",
     "preview": "npm run build && wrangler dev",
     "deploy": "npm run build && wrangler deploy",

@@ -93,7 +93,7 @@ Run focused tests while developing. Before proposing a push or pull request, run
 npm run lint && npm run test -- --run && npm run build
 ```
 
-For documentation-only changes, check links and references and run `git diff --check`; application tests are not required unless executable examples or documentation tooling changed.
+For documentation-only changes, run `npm run docs:check` and `git diff --check`; application tests are not required unless executable examples or documentation tooling changed.
 
 For performance-sensitive changes, including dependencies, major UI work, or bundling/runtime changes, also run:
 
