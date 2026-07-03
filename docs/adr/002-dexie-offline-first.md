@@ -1,7 +1,12 @@
 # ADR 002: Dexie.js for Offline-First Storage
 
 ## Status
+
 Accepted
+
+## Date
+
+2026-05-12
 
 ## Context
 EV charging often happens in locations with poor connectivity. The "Outbox Pattern" requires a reliable local storage mechanism to queue mutations before they are synced to a remote database (Supabase).

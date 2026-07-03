@@ -4,27 +4,39 @@
 
 Accepted
 
+## Date
+
+2026-05-14
+
+## Last updated
+
+2026-07-03
+
 ## Context
 
-The application is designed for single-user use but requires secure data storage and authentication. We need a way to ensure that only the authenticated owner can access and modify their data, even if the database is technically shared (in a Supabase project).
+The application is designed for private, single-user use but requires secure data storage and authentication. Only the authenticated owner may access or modify application data, even though the database is hosted in a shared Supabase environment.
 
 ## Decision
 
-We will use Supabase Auth for user management and PostgreSQL Row-Level Security (RLS) to enforce data privacy.
+We use Supabase Auth for user management and PostgreSQL Row-Level Security (RLS) to enforce data ownership and privacy.
 
-1.  **Authentication:**
-    *   Use Supabase's built-in Email/Password authentication.
-    *   Disable public signups via the Supabase dashboard to keep the app private.
-    *   The user will be manually created by the owner.
-2.  **Row-Level Security (RLS):**
-    *   Enable RLS on all tables (`providers`, `tariffs`, `charging_sessions`).
-    *   Implement a `user_id` column in each table (referencing `auth.users.id`).
-    *   Create RLS policies that restrict `SELECT`, `INSERT`, `UPDATE`, and `DELETE` operations to the authenticated user whose `id` matches the `user_id` in the row.
-    *   Default policy for all tables will be "Deny All" unless the user is authenticated and owns the data.
+1. **Authentication:**
+   - Use Supabase's built-in email and password authentication.
+   - Disable public signups in Supabase to keep account creation private.
+   - Create the application user manually through Supabase Authentication.
+2. **Row-Level Security:**
+   - Enable RLS on `providers`, `charging_plans`, `provider_plan_selections`, and `charging_sessions`.
+   - Require every domain row to have a non-null `user_id` referencing `auth.users(id)`.
+   - Permit authenticated operations only when `auth.uid() = user_id`, using both `USING` and `WITH CHECK` where the operation requires them.
+   - Keep anonymous access and access to another user's rows denied by the absence of permissive policies.
+   - Operation-specific policies may be used when a table requires separate `SELECT`, `INSERT`, `UPDATE`, and `DELETE` rules, as with `provider_plan_selections`, provided they preserve the same ownership constraint.
+
+The domain model has evolved from the original `tariffs` table to charging plans and provider plan selections. This updates the tables governed by the decision without changing the authentication or ownership model.
 
 ## Consequences
 
-*   **Security:** Provides strong, database-level assurance that data remains private to the user.
-*   **Simplicity:** Leverages built-in Supabase features, reducing custom backend logic.
-*   **Single-User Focus:** Aligns with the private, personal nature of the app.
-*   **Implementation Effort:** Requires adding `user_id` to all tables and writing RLS policies.
+- **Security:** Database-level policies protect data even if application-layer checks fail.
+- **Simplicity:** Supabase Auth and PostgreSQL RLS avoid a custom authorization service.
+- **Single-user focus:** The model preserves the private, personal posture of the application while retaining an explicit ownership boundary.
+- **Schema discipline:** Every new domain table must include an ownership column, enable RLS, and define ownership-scoped policies before it is used by the application.
+- **Operational dependency:** Public signup remains a Supabase dashboard setting and must be verified when provisioning an environment.
