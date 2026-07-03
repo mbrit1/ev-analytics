@@ -16,14 +16,13 @@ This app replaces spreadsheet workflows with structured EV charging session trac
 - Private, single-user Supabase backend with default-deny RLS
 - Tariff, provider, and charging plan modeling
 - Monthly charging-session spend analytics
-- PWA installability and mobile-first UX
+- PWA service worker and mobile-first UX
 
 ## Tech Stack
 
 - React 19 + TypeScript + Vite
 - Tailwind CSS 4
 - Dexie + Supabase
-- TanStack Query v5
 - react-hook-form + zod
 - Vitest + React Testing Library + MSW + fake-indexeddb
 - vite-plugin-pwa + Wrangler
@@ -79,12 +78,7 @@ These rules are central to the product and should be treated as non-negotiable u
 - Dates are stored in UTC
 - Charging sessions must preserve tariff snapshots
 
-### Analytics Data Semantics
-
-The first Analytics slice reports Monthly Session Spend from the local charging-session
-store, so it remains available offline and reacts to local changes immediately. It sums
-each active session's snapshotted `total_cost` in integer cents, excludes soft-deleted
-sessions, and assigns UTC session timestamps to the user's local calendar month.
+For the implemented data flows, synchronization limits, data model, and analytics semantics, see the [current architecture guide](./docs/architecture.md).
 
 ## Quick Start
 
@@ -129,6 +123,6 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development conventions, architectu
 - [CONTRIBUTING.md](./CONTRIBUTING.md): canonical engineering workflow for human contributors
 - [AGENTS.md](./AGENTS.md): repository-wide instructions for coding agents
 - [Infrastructure runbook](./docs/infrastructure-runbook.md): local setup, Supabase provisioning, and Cloudflare deployment
+- [Current architecture](./docs/architecture.md): implemented layers, data flow, persistence, synchronization, and analytics semantics
 - [docs/adr/](./docs/adr/): architecture decision records
-- [docs/superpowers/specs/](./docs/superpowers/specs/): design and feature specs
-- [docs/superpowers/plans/](./docs/superpowers/plans/): implementation plans
+- [Design and implementation archive](./docs/superpowers/README.md): historical specs and plans plus active UI-governance references
