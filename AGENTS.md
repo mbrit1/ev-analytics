@@ -1,81 +1,62 @@
-# Repository Guidelines
+# Coding Agent Instructions
 
-## Project Structure & Module Organization
+These instructions apply to the entire repository. Human contributors should start with `README.md` and `CONTRIBUTING.md`. Infrastructure procedures are in `docs/infrastructure-runbook.md`.
 
-This is a React 19, TypeScript, Vite PWA for offline-first EV charging analytics. Application code lives in `src/` and is layered as:
+## Repository Map
 
-- `src/app/`: app composition, top-level shell, and provider wiring.
-- `src/features/<domain>/`: domain workflows (for example `auth`, `charging-sessions`, `offline-sync`, `tariffs`) with `components/`, `hooks/`, `services/`, `model/`, and `index.ts`.
-- `src/shared/ui/`: reusable, domain-agnostic UI primitives.
-- `src/shared/lib/`: pure shared helpers without infrastructure dependencies.
-- `src/infra/`: technical adapters and integrations (`db`, `supabase`, `mocks`).
-- `src/test/` and `src/mocks/`: shared testing and mock infrastructure.
+- `src/app/`: application composition, shell, and providers
+- `src/features/`: domain code for `analytics`, `auth`, `charging-plans`, `charging-sessions`, and `offline-sync`
+- `src/shared/ui/`: domain-agnostic UI primitives
+- `src/shared/lib/`: pure shared helpers without infrastructure dependencies
+- `src/infra/`: database, Supabase, and mock adapters
+- `src/test/` and `src/mocks/`: shared test and mock infrastructure
+- `supabase/`: canonical remote schema and development seed data
+- `docs/adr/`: architecture decisions
+- `docs/superpowers/`: design specifications and implementation plans
 
-Assets belong in `public/` or `src/assets/`. Supabase files are in `supabase/`; ADRs are in `docs/adr/`.
+## Non-Negotiable Rules
 
-Boundary rules:
-- `features` may depend on `shared` and approved `infra` interfaces.
-- `shared` must remain domain-agnostic and never import from `features`.
-- `infra` contains implementation details and must not import from `features`.
-- Cross-feature imports must use `src/features/<domain>/index.ts` rather than deep paths.
+- Data creation and editing must remain available offline. Persist local writes through Dexie and the outbox before later Supabase synchronization.
+- Supabase must remain private, authenticated, single-user, and protected by default-deny RLS.
+- Store money as integer cents, render EUR with European decimal formatting, store dates in UTC, and preserve pricing snapshots on charging sessions.
+- `features` may depend on `shared` and approved `infra` interfaces. `shared` and `infra` must not import from `features`.
+- Cross-feature imports must use `src/features/<domain>/index.ts`, never another feature's internal path.
+- Significant architecture changes require an ADR.
+- Never commit secrets. Local Supabase credentials belong only in `.env.local`.
 
-## Build, Test, and Development Commands
+## Working Rules
 
-- `npm run dev`: start Vite locally.
-- `npm run build`: type-check and build `dist/`.
-- `npm run build:analyze`: build with bundle analysis output (`dist/bundle-stats.json`) for size/performance investigations.
-- `npm run lint`: run ESLint.
-- `npm run test`: start Vitest watch mode.
-- `npm run test -- --run`: run Vitest once.
-- `npm run preview`: build and serve via Wrangler.
-- `npm run deploy`: build and deploy with Wrangler.
+- Inspect the worktree before editing. Preserve existing user changes and avoid unrelated cleanup.
+- Work on a semantic feature branch such as `feat/...`, `fix/...`, or `docs/...`. Never commit on `main`; if work starts there, branch before editing.
+- Keep changes small and scoped. For structural refactors, move first without changing behavior, then make behavioral changes separately with targeted tests.
+- Do not push, open a pull request, or merge without explicit human authorization.
+- Follow the current design baseline in `docs/superpowers/specs/2026-05-16-Design-System-Sandbox-v2.0.html` and the checklist in `docs/superpowers/specs/2026-05-29-design-governance-checklist.md` for UI work.
 
-## Coding Style & Naming Conventions
+## Implementation Conventions
 
-Use strict TypeScript and React function components. Prefer feature-local code before shared abstractions. Components use `PascalCase.tsx`, hooks `useName.ts`, services `nameService.ts`, and tests `*.test.ts(x)`.
+- Use strict TypeScript and React function components. Prefer feature-local code before extracting shared abstractions.
+- Name components `PascalCase.tsx`, hooks `useName.ts`, services `nameService.ts`, and tests `*.test.ts(x)`.
+- Add concise JSDoc to exported interfaces, props types, and components. Comments should explain intent or constraints, not restate types.
+- Do not add emojis to source, comments, or configuration unless they are intentionally rendered in the UI.
+- Keep tests beside covered code. Add a suite-level JSDoc block above the main `describe` and use `// Arrange`, `// Act`, and `// Assert` comments inside tests.
+- Cover changed domain behavior and user workflows. Sync and mutation work must cover offline behavior, idempotency, retry state, and pricing snapshots where relevant.
 
-Document exported interfaces, props types, and components with standard JSDoc (`/** ... */`). Keep comments concise and focused on why the code exists, important layout or domain behavior, and brief prop intent; rely on TypeScript for exact type details. No emojis in source, comments, or config unless intentionally rendered in UI.
+## Verification
 
-## Architecture & Domain Rules
+- During implementation, run the narrowest relevant tests and checks.
+- Before proposing a push or pull request, run:
 
-Data entry must remain offline-first: never require connectivity to create or edit charging data. Use Dexie plus the outbox pattern for local writes, optimistic UI, and later Supabase sync. Keep Supabase private and single-user with default-deny RLS. Store money as integer cents, render EUR with European decimals, keep storage dates in UTC, and preserve tariff snapshots on sessions. Significant architecture decisions require an ADR.
+  ```bash
+  npm run lint && npm run test -- --run && npm run build
+  ```
 
-## Testing Guidelines
+- For documentation-only changes, verify links and references and run `git diff --check`; application tests are not required unless documentation tooling or executable examples changed.
+- For performance-sensitive changes, including new dependencies, major UI additions, or bundling/runtime changes, also run `npm run build:analyze` and report notable bundle deltas or top chunk drivers.
+- For UI changes, verify affected mobile and desktop layouts and include screenshots in the pull request.
+- For project-structure changes, run lint, tests, and build, then report moved paths and boundary impact.
 
-Vitest, React Testing Library, jsdom, MSW, and fake IndexedDB are used for tests. Keep tests near covered code, as in `src/features/tariffs/services/tariffService.test.ts`.
+## Handoff
 
-Every test file should include a suite-level JSDoc block above the main `describe` explaining the file's focus. Use Arrange, Act, Assert comments inside test blocks (`// Arrange: ...`, `// Act: ...`, `// Assert: ...`) so setup, behavior, and expectations stay clear. Cover domain logic, offline sync, idempotency, tariff snapshots, and changed UI workflows. Sync/data mutations should expose queue length, retry count, and last sync attempt.
+Summarize changed files, verification performed, remaining risks, and a suggested Conventional Commit message. Note UI design deviations as either `local exception` or `promote to master`.
 
-For structural refactors, use a `move first, behavior unchanged` sequence, then separate behavioral changes into follow-up commits with targeted tests.
-
-## Commit & Pull Request Guidelines
-
-Use small, scoped changes and avoid unrelated refactors. Create and switch to a feature branch before code changes, for example `feat/phase-2-auth`. Agents must not commit on `main`; if work begins on `main`, branch immediately and move any local-only commit off `main` before continuing. Use Conventional Commits: `type(scope): description`, such as `feat(sync): implement offline outbox queue`. Commit bodies explain why and note trade-offs. Before proposing a push or PR, run:
-
-```bash
-npm run lint && npm run test -- --run && npm run build
-```
-
-PRs need a summary, verification results, linked issues/ADRs, and screenshots for UI changes. Agents must not push, create PRs, or merge without explicit human authorization.
-
-## Agent Workflow Notes
-
-`AGENTS.md` is Codex’s source of truth. `GEMINI.md` remains legacy/reference guidance. Superpowers artifacts live in `docs/superpowers/specs/` and `docs/superpowers/plans/`; use them for planned work, but rely on the installed plugin for workflow mechanics.
-
-Design governance baseline:
-- `docs/superpowers/specs/2026-05-16-Design-System-Sandbox-v2.0.html` is the default UI baseline for tokens and component patterns.
-- Apply the checklist in `docs/superpowers/specs/2026-05-29-design-governance-checklist.md` for UI changes.
-- If a screen-specific change intentionally deviates and improves UX, note the deviation in handoff notes and classify it as `local exception` or `promote to master`.
-
-When changing project structure:
-- verify import boundary rules with lint checks,
-- verify behavior with tests/build,
-- and include `moved paths + boundary impact` explicitly in handoff notes.
-
-For performance-sensitive work (new dependencies, major UI additions, bundling/runtime changes), run `npm run build:analyze` and include notable bundle-size deltas or top chunk drivers in handoff notes.
-
-On handoff, summarize changed files, verification, risks, and a suggested commit message.
-
-## Security & Configuration Tips
-
-Do not commit secrets. Local Supabase credentials belong in `.env.local`; `.env.example` documents required keys. Preserve the private, single-user posture: default-deny RLS, authenticated access only, and offline entry without active connectivity.
+See `CONTRIBUTING.md` for the full human workflow and `docs/adr/` for the decisions behind these constraints. `GEMINI.md` is legacy reference guidance; this file governs coding-agent behavior.

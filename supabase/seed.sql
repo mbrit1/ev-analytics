@@ -12,7 +12,7 @@ BEGIN
     SELECT id INTO v_user_id FROM auth.users LIMIT 1;
 
     IF v_user_id IS NULL THEN
-        RAISE NOTICE 'No user found in auth.users. Please create a user manually first as described in HUMAN_SETUP.md';
+        RAISE NOTICE 'No user found in auth.users. Please create a user manually first as described in docs/infrastructure-runbook.md';
         RETURN;
     END IF;
 

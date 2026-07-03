@@ -107,7 +107,7 @@ sessions, and assigns UTC session timestamps to the user's local calendar month.
    npm run dev
    ```
 
-For manual infrastructure setup, see [HUMAN_SETUP.md](./HUMAN_SETUP.md).
+For environment provisioning and deployment, see the [infrastructure runbook](./docs/infrastructure-runbook.md).
 
 ## Scripts
 
@@ -120,60 +120,16 @@ For manual infrastructure setup, see [HUMAN_SETUP.md](./HUMAN_SETUP.md).
 - `npm run preview`: build and serve locally with Wrangler
 - `npm run deploy`: build and deploy via Wrangler
 
-## Development Best Practices
-
-### Code and Architecture
-
-- Prefer feature-local code before extracting shared abstractions
-- Keep UI primitives in `shared/ui` and domain logic inside the relevant feature
-- Use strict TypeScript and React function components
-- Add concise JSDoc to exported interfaces, props types, and components
-- For structural refactors, use a "move first, behavior unchanged" sequence before behavioral edits
-- Significant architecture changes should be recorded in `docs/adr/`
-
-### Testing
-
-- Keep tests close to the code they cover
-- Use Vitest, React Testing Library, jsdom, MSW, and fake IndexedDB
-- Include a suite-level JSDoc block above each main `describe`
-- Use `// Arrange`, `// Act`, and `// Assert` comments inside tests
-- Cover offline sync, idempotency, tariff snapshots, and changed user workflows
-- Sync and mutation flows should expose queue length, retry count, and last sync attempt
-
-### UI and Design Governance
-
-- Use `docs/superpowers/specs/2026-05-16-Design-System-Sandbox-v2.0.html` as the default UI baseline
-- Apply `docs/superpowers/specs/2026-05-29-design-governance-checklist.md` to UI changes
-- If a screen intentionally deviates and improves UX, note it in handoff notes as `local exception` or `promote to master`
-
-### Verification
-
-Before proposing a push or PR, run:
-
-```bash
-npm run lint && npm run test -- --run && npm run build
-```
-
-For performance-sensitive changes such as new dependencies, major UI work, or bundling/runtime updates, also run:
-
-```bash
-npm run build:analyze
-```
-
 ## Contributing
 
-- Keep changes small and scoped
-- Avoid unrelated refactors
-- Use Conventional Commits: `type(scope): description`
-- Document trade-offs in commit bodies when they matter
-- Include verification results, linked issues or ADRs, and screenshots for UI changes
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for development conventions, architecture boundaries, testing requirements, design governance, and the Git and pull-request workflow.
 
 ## Documentation
 
-- [AGENTS.md](./AGENTS.md): source of truth for repository workflow and architecture rules
+- [CONTRIBUTING.md](./CONTRIBUTING.md): canonical engineering workflow for human contributors
+- [AGENTS.md](./AGENTS.md): repository-wide instructions for coding agents
 - [GEMINI.md](./GEMINI.md): legacy/reference guidance
-- [HUMAN_SETUP.md](./HUMAN_SETUP.md): manual setup steps
-- [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md): roadmap and planning notes
+- [Infrastructure runbook](./docs/infrastructure-runbook.md): local setup, Supabase provisioning, and Cloudflare deployment
 - [docs/adr/](./docs/adr/): architecture decision records
 - [docs/superpowers/specs/](./docs/superpowers/specs/): design and feature specs
 - [docs/superpowers/plans/](./docs/superpowers/plans/): implementation plans
