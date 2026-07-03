@@ -128,7 +128,6 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development conventions, architectu
 
 - [CONTRIBUTING.md](./CONTRIBUTING.md): canonical engineering workflow for human contributors
 - [AGENTS.md](./AGENTS.md): repository-wide instructions for coding agents
-- [GEMINI.md](./GEMINI.md): legacy/reference guidance
 - [Infrastructure runbook](./docs/infrastructure-runbook.md): local setup, Supabase provisioning, and Cloudflare deployment
 - [docs/adr/](./docs/adr/): architecture decision records
 - [docs/superpowers/specs/](./docs/superpowers/specs/): design and feature specs

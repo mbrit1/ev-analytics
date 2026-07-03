@@ -19,6 +19,8 @@ These instructions apply to the entire repository. Human contributors should sta
 - Data creation and editing must remain available offline. Persist local writes through Dexie and the outbox before later Supabase synchronization.
 - Supabase must remain private, authenticated, single-user, and protected by default-deny RLS.
 - Store money as integer cents, render EUR with European decimal formatting, store dates in UTC, and preserve pricing snapshots on charging sessions.
+- Treat missing optional measurements such as odometer, SoC, and energy values as unavailable, never as zero.
+- Keep data-entry UI usable one-handed and without connectivity: use appropriate mobile input modes and maintain at least 44px touch targets.
 - `features` may depend on `shared` and approved `infra` interfaces. `shared` and `infra` must not import from `features`.
 - Cross-feature imports must use `src/features/<domain>/index.ts`, never another feature's internal path.
 - Significant architecture changes require an ADR.
@@ -39,7 +41,7 @@ These instructions apply to the entire repository. Human contributors should sta
 - Add concise JSDoc to exported interfaces, props types, and components. Comments should explain intent or constraints, not restate types.
 - Do not add emojis to source, comments, or configuration unless they are intentionally rendered in the UI.
 - Keep tests beside covered code. Add a suite-level JSDoc block above the main `describe` and use `// Arrange`, `// Act`, and `// Assert` comments inside tests.
-- Cover changed domain behavior and user workflows. Sync and mutation work must cover offline behavior, idempotency, retry state, and pricing snapshots where relevant.
+- Cover changed domain behavior and user workflows. Sync and mutation work must cover offline behavior, idempotency, retry and partial-failure state, authentication boundaries, reconnect races, and pricing snapshots where relevant.
 
 ## Verification
 
@@ -59,4 +61,4 @@ These instructions apply to the entire repository. Human contributors should sta
 
 Summarize changed files, verification performed, remaining risks, and a suggested Conventional Commit message. Note UI design deviations as either `local exception` or `promote to master`.
 
-See `CONTRIBUTING.md` for the full human workflow and `docs/adr/` for the decisions behind these constraints. `GEMINI.md` is legacy reference guidance; this file governs coding-agent behavior.
+See `CONTRIBUTING.md` for the full human workflow and `docs/adr/` for the decisions behind these constraints.
