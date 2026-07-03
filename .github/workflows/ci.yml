@@ -7,6 +7,17 @@ on:
     branches: [ main ]
 
 jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22.20.0
+      - name: Check active documentation
+        run: npm run docs:check
+
   lint:
     runs-on: ubuntu-latest
     steps:

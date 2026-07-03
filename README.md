@@ -113,6 +113,7 @@ For environment provisioning and deployment, see the [infrastructure runbook](./
 - `npm run test -- --run`: run the test suite once
 - `npm run preview`: build and serve locally with Wrangler
 - `npm run deploy`: build and deploy via Wrangler
+- `npm run docs:check`: validate active documentation links, anchors, and stale references
 
 ## Contributing
 

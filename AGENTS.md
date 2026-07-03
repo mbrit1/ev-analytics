@@ -52,7 +52,7 @@ These instructions apply to the entire repository. Human contributors should sta
   npm run lint && npm run test -- --run && npm run build
   ```
 
-- For documentation-only changes, verify links and references and run `git diff --check`; application tests are not required unless documentation tooling or executable examples changed.
+- For documentation-only changes, run `npm run docs:check` and `git diff --check`; application tests are not required unless documentation tooling or executable examples changed.
 - For performance-sensitive changes, including new dependencies, major UI additions, or bundling/runtime changes, also run `npm run build:analyze` and report notable bundle deltas or top chunk drivers.
 - For UI changes, verify affected mobile and desktop layouts and include screenshots in the pull request.
 - For project-structure changes, run lint, tests, and build, then report moved paths and boundary impact.
