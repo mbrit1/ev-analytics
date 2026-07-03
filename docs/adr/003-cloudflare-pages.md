@@ -1,7 +1,16 @@
 # ADR 003: Cloudflare Pages for Hosting
 
 ## Status
-Accepted
+
+Superseded
+
+## Date
+
+2026-05-12
+
+## Superseded by
+
+[ADR 007: Cloudflare Workers with Static Assets](./007-cloudflare-workers-static-assets.md) on 2026-07-03
 
 ## Context
 We need a hosting platform that is fast, secure, and integrates well with our GitHub workflow.

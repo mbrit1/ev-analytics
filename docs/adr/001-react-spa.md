@@ -1,7 +1,12 @@
 # ADR 001: React SPA (Client-side)
 
 ## Status
+
 Accepted
+
+## Date
+
+2026-05-12
 
 ## Context
 The application is intended for a single user to track EV charging sessions and tariffs. It must be highly resilient to poor or non-existent network conditions (e.g., in underground parking garages).
@@ -12,7 +17,7 @@ We will build the application as a client-side React Single Page Application (SP
 ## Rationale
 *   **Offline-First:** An SPA allows the entire application logic to be loaded into the client's browser/device once. Subsequent interactions do not require server round-trips for routing or logic.
 *   **Complexity:** A full-stack framework like Next.js with SSR/ISR adds unnecessary complexity for a single-user application where SEO is not a requirement.
-*   **Static Hosting:** An SPA can be hosted on simple static hosting providers (Cloudflare Pages), reducing cost and maintenance.
+*   **Static Hosting:** An SPA can be delivered as static assets at the edge, reducing cost and maintenance. The current hosting choice is recorded separately in [ADR 007](./007-cloudflare-workers-static-assets.md).
 *   **PWA Compatibility:** SPAs are the natural architecture for Progressive Web Apps, which we require for iOS/Android home screen installation.
 
 ## Consequences
