@@ -15,7 +15,7 @@ This app replaces spreadsheet workflows with structured EV charging session trac
 - Local persistence with Dexie and queued sync via the outbox pattern
 - Private, single-user Supabase backend with default-deny RLS
 - Tariff, provider, and charging plan modeling
-- Monthly charging-session spend analytics
+- Monthly charging-session spend and provider-billed energy analytics
 - PWA service worker and mobile-first UX
 
 ## Tech Stack
@@ -82,20 +82,22 @@ For the implemented data flows, synchronization limits, data model, and analytic
 
 ## Quick Start
 
-1. Install dependencies:
+1. Use Node.js 22.20.0 or later.
+
+2. Install dependencies:
 
    ```bash
    npm install
    ```
 
-2. Create `.env.local` from `.env.example`:
+3. Create `.env.local` from `.env.example`:
 
    ```env
    VITE_SUPABASE_URL=your-project-url
    VITE_SUPABASE_PUBLISHABLE_KEY=your-publishable-key
    ```
 
-3. Start the app:
+4. Start the app:
 
    ```bash
    npm run dev
@@ -126,4 +128,4 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development conventions, architectu
 - [Infrastructure runbook](./docs/infrastructure-runbook.md): local setup, Supabase provisioning, and Cloudflare deployment
 - [Current architecture](./docs/architecture.md): implemented layers, data flow, persistence, synchronization, and analytics semantics
 - [docs/adr/](./docs/adr/): architecture decision records
-- [Design and implementation archive](./docs/superpowers/README.md): historical specs and plans plus active UI-governance references
+- [UI design governance](./docs/design/): current design-system baseline and UI review checklist

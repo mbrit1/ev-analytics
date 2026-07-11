@@ -26,7 +26,7 @@ Detailed guidance belongs in one canonical document. Other documents should prov
 | [`docs/architecture.md`](./docs/architecture.md) | Implemented current-state layers, data flows, models, and semantics | Runtime behavior, boundaries, persistence, synchronization, or analytics change |
 | [`docs/adr/`](./docs/adr/) | Rationale and history for significant architectural decisions | A significant decision is introduced, reversed, or superseded |
 | [`docs/infrastructure-runbook.md`](./docs/infrastructure-runbook.md) | Provisioning, deployment, validation, and operational troubleshooting | Schema provisioning, environment variables, hosting, or deployment changes |
-| [`docs/superpowers/`](./docs/superpowers/README.md) | Historical design/implementation records and named normative UI references | A record is added or an active UI-governance reference changes |
+| [`docs/design/`](./docs/design/) | Current UI design-system baseline and review checklist | UI-governance reference changes |
 
 Use these documentation-change triggers:
 
@@ -35,7 +35,7 @@ Use these documentation-change triggers:
 - Architectural changes require an ADR and a current-state architecture update once implemented.
 - Deployment changes require the hosting ADR and infrastructure runbook to change together.
 - Analytics changes must document time boundaries, missing-value behavior, snapshot use, soft-delete treatment, and metric-specific energy semantics.
-- UI-governance changes belong in the normative design baseline or checklist identified by `docs/superpowers/README.md`.
+- UI-governance changes belong in the normative design baseline or checklist in `docs/design/`.
 
 ## Architecture and Domain Rules
 
@@ -70,7 +70,7 @@ For structural refactors, move code first without changing behavior. Make behavi
 
 ## UI and Design Governance
 
-Use `docs/superpowers/specs/2026-05-16-Design-System-Sandbox-v2.0.html` as the default token and component baseline. Apply `docs/superpowers/specs/2026-05-29-design-governance-checklist.md` to UI changes.
+Use `docs/design/design-system-baseline.html` as the default token and component baseline. Apply `docs/design/governance-checklist.md` to UI changes.
 
 Verify affected mobile and desktop layouts and include screenshots with the pull request. If a screen intentionally improves on the baseline, identify the deviation in the handoff as either `local exception` or `promote to master`.
 
@@ -122,4 +122,4 @@ Do not commit secrets. Local Supabase credentials belong in `.env.local`; `.env.
 
 Use `docs/infrastructure-runbook.md` for Supabase provisioning, environment validation, deployment, and operational troubleshooting.
 
-Current architecture belongs in `docs/architecture.md`; architectural rationale belongs in `docs/adr/`. Dated files under `docs/superpowers/specs/` and `docs/superpowers/plans/` are historical records unless `docs/superpowers/README.md` explicitly identifies them as normative.
+Current architecture belongs in `docs/architecture.md`; architectural rationale belongs in `docs/adr/`. Git history preserves superseded feature designs and implementation plans without treating them as current documentation.
