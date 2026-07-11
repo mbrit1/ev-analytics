@@ -4,12 +4,6 @@ import { fileURLToPath } from 'node:url'
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const DEFAULT_ROOT = path.resolve(SCRIPT_DIR, '..')
-// Dated specs and plans are intentionally archival: their old paths and links
-// describe the repository at the time and must not be rewritten as current.
-const HISTORICAL_DIRECTORIES = [
-  path.join('docs', 'superpowers', 'plans'),
-  path.join('docs', 'superpowers', 'specs'),
-]
 const FORBIDDEN_ACTIVE_REFERENCES = [
   { pattern: /HUMAN_SETUP\.md/g, description: 'removed HUMAN_SETUP.md' },
   { pattern: /IMPLEMENTATION_PLAN\.md/g, description: 'removed IMPLEMENTATION_PLAN.md' },
@@ -21,19 +15,12 @@ function toPosix(value) {
   return value.split(path.sep).join('/')
 }
 
-function isHistorical(relativePath) {
-  return HISTORICAL_DIRECTORIES.some(
-    (directory) => relativePath === directory || relativePath.startsWith(`${directory}${path.sep}`),
-  )
-}
-
 async function walkMarkdown(root, directory) {
   const entries = await readdir(path.join(root, directory), { withFileTypes: true })
   const files = []
 
   for (const entry of entries) {
     const relativePath = path.join(directory, entry.name)
-    if (isHistorical(relativePath)) continue
     if (entry.isDirectory()) {
       files.push(...await walkMarkdown(root, relativePath))
     // Temporary trackers may name stale artifacts as cleanup work; permanent
@@ -64,7 +51,6 @@ export async function findActiveMarkdownFiles(root = DEFAULT_ROOT) {
 export function slugifyHeading(value) {
   return value
     .toLowerCase()
-    .replace(/<[^>]*>/g, '')
     .replace(/[^\p{L}\p{N}\s_-]/gu, '')
     .trim()
     .replace(/\s+/g, '-')

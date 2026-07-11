@@ -12,7 +12,7 @@ These instructions apply to the entire repository. Human contributors should sta
 - `src/test/` and `src/mocks/`: shared test and mock infrastructure
 - `supabase/`: canonical remote schema and development seed data
 - `docs/adr/`: architecture decisions
-- `docs/superpowers/`: historical design and implementation records, with normative UI references identified in its README
+- `docs/design/`: current UI design-system baseline and review checklist
 
 ## Non-Negotiable Rules
 
@@ -32,7 +32,7 @@ These instructions apply to the entire repository. Human contributors should sta
 - Work on a semantic feature branch such as `feat/...`, `fix/...`, or `docs/...`. Never commit on `main`; if work starts there, branch before editing.
 - Keep changes small and scoped. For structural refactors, move first without changing behavior, then make behavioral changes separately with targeted tests.
 - Do not push, open a pull request, or merge without explicit human authorization.
-- Follow the current design baseline in `docs/superpowers/specs/2026-05-16-Design-System-Sandbox-v2.0.html` and the checklist in `docs/superpowers/specs/2026-05-29-design-governance-checklist.md` for UI work.
+- Follow the current design baseline in `docs/design/design-system-baseline.html` and the checklist in `docs/design/governance-checklist.md` for UI work.
 
 ## Implementation Conventions
 

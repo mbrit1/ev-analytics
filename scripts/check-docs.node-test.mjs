@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, it } from 'node:test'
-import { findDocumentationProblems, slugifyHeading } from './check-docs.mjs'
+import { findActiveMarkdownFiles, findDocumentationProblems, slugifyHeading } from './check-docs.mjs'
 
 const temporaryRoots = []
 
@@ -15,6 +15,7 @@ async function createTemporaryRoot() {
   const root = await mkdtemp(path.join(tmpdir(), 'ev-analytics-docs-'))
   temporaryRoots.push(root)
   await mkdir(path.join(root, 'docs'), { recursive: true })
+  await mkdir(path.join(root, '.github'), { recursive: true })
   return root
 }
 
@@ -25,6 +26,26 @@ async function createTemporaryRoot() {
  * references produce actionable failures.
  */
 describe('check-docs', () => {
+  it('includes all permanent Markdown documentation and excludes temporary trackers', async () => {
+    // Arrange: Create permanent documents in root and nested documentation folders.
+    const root = await createTemporaryRoot()
+    await mkdir(path.join(root, 'docs', 'design'), { recursive: true })
+    await writeFile(path.join(root, 'README.md'), '# README\n')
+    await writeFile(path.join(root, 'docs', 'architecture.md'), '# Architecture\n')
+    await writeFile(path.join(root, 'docs', 'design', 'governance-checklist.md'), '# Checklist\n')
+    await writeFile(path.join(root, 'docs', 'TEMP-tracker.md'), '# Temporary tracker\n')
+
+    // Act: Discover the active documentation set.
+    const files = await findActiveMarkdownFiles(root)
+
+    // Assert: Nested permanent documentation is checked while temporary work is not.
+    assert.deepEqual(files, [
+      'README.md',
+      'docs/architecture.md',
+      'docs/design/governance-checklist.md',
+    ])
+  })
+
   it('accepts valid local document links and generated anchors', async () => {
     // Arrange: Create two active documents connected through a valid heading anchor.
     const root = await createTemporaryRoot()
