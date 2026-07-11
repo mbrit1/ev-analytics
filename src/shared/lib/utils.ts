@@ -1,27 +1,4 @@
 /**
- * Converts a decimal string (potentially with comma) to integer cents.
- * Handles both "1.50" and "1,50".
- * 
- * @param val - The decimal string value
- * @returns Integer cents, or undefined for blank/malformed input
- */
-export function parseDecimalToCents(val: string): number | undefined {
-  if (!val) return undefined;
-
-  const normalized = val.trim().replace(',', '.');
-
-  if (!normalized) return undefined;
-  if (!/^-?\d+(?:\.\d+)?$/.test(normalized)) return undefined;
-
-  const parsed = Number(normalized);
-
-  if (Number.isNaN(parsed)) return undefined;
-
-  // Multiply by 100 and round to handle floating point precision
-  return Math.round(parsed * 100);
-}
-
-/**
  * Formats integer cents to a localized decimal string (with comma).
  * 
  * @param cents - The integer cents

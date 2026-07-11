@@ -7,95 +7,24 @@ import type {
   UseFormSetError,
   UseFormSetValue,
 } from 'react-hook-form';
-import * as z from 'zod';
 import type { ChargingPlan } from '../../../infra/db';
-import { formatCentsToDecimal } from '../../../shared/lib';
 import { formatUtcDate, parseUtcDateInput, resolveEffectivePlanForDate } from '../model/logicalTariffs';
-import type { TariffPriceInput } from '../services/planService';
+import {
+  formatTariffMoneyInput,
+  type TariffMoneyFormFields,
+} from './tariffMoney';
 
 /**
  * Shared money-field shape for version-management price forms.
  */
-export interface VersionPriceFormFields {
-  ac_price?: string;
-  dc_price?: string;
-  roaming_ac_price?: string;
-  roaming_dc_price?: string;
-  monthly_base_fee: string;
-  session_fee: string;
-}
-
-export const moneyField = z.string().refine(isValidMoneyInput, 'Enter a valid non-negative amount');
-
-export const priceFields = {
-  ac_price: moneyField.optional(),
-  dc_price: moneyField.optional(),
-  roaming_ac_price: moneyField.optional(),
-  roaming_dc_price: moneyField.optional(),
-  monthly_base_fee: moneyField,
-  session_fee: moneyField,
-} as const;
-
-const groupedMoneyPattern = /^\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?$/;
-const simpleMoneyPattern = /^\d+(?:[.,]\d{1,2})?$/;
-
-export function isValidMoneyInput(value?: string): boolean {
-  if (value == null || value.trim() === '') return true;
-
-  const trimmed = value.trim();
-
-  if (trimmed.includes('.') && trimmed.includes(',')) {
-    return groupedMoneyPattern.test(trimmed);
-  }
-
-  return simpleMoneyPattern.test(trimmed);
-}
-
-export function parseMoneyInputToCents(value?: string): number | undefined {
-  if (value == null) return undefined;
-
-  const trimmed = value.trim();
-
-  if (trimmed === '' || !isValidMoneyInput(trimmed)) {
-    return undefined;
-  }
-
-  const normalized = trimmed.includes('.') && trimmed.includes(',')
-    ? trimmed.replace(/\./g, '').replace(',', '.')
-    : trimmed.replace(',', '.');
-
-  const parsed = Number(normalized);
-
-  if (Number.isNaN(parsed)) {
-    return undefined;
-  }
-
-  return Math.round(parsed * 100);
-}
-
-export function toMoneyInput(value?: number): string {
-  return value == null ? '' : formatCentsToDecimal(value);
-}
-
-export function toTariffPriceInput(values: VersionPriceFormFields): TariffPriceInput {
-  return {
-    ac_price_per_kwh: parseMoneyInputToCents(values.ac_price ?? ''),
-    dc_price_per_kwh: parseMoneyInputToCents(values.dc_price ?? ''),
-    roaming_ac_price_per_kwh: parseMoneyInputToCents(values.roaming_ac_price ?? ''),
-    roaming_dc_price_per_kwh: parseMoneyInputToCents(values.roaming_dc_price ?? ''),
-    monthly_base_fee: parseMoneyInputToCents(values.monthly_base_fee ?? '') ?? 0,
-    session_fee: parseMoneyInputToCents(values.session_fee ?? '') ?? 0,
-  };
-}
-
-export function prefillPriceFields<TFieldValues extends FieldValues & VersionPriceFormFields>(
+export function prefillPriceFields<TFieldValues extends FieldValues & TariffMoneyFormFields>(
   baseline: ChargingPlan,
   setValue: UseFormSetValue<TFieldValues>,
 ): void {
   const setMoneyValue = (fieldName: FieldPath<TFieldValues>, value?: number): void => {
     setValue(
       fieldName,
-      toMoneyInput(value) as PathValue<TFieldValues, FieldPath<TFieldValues>>,
+      formatTariffMoneyInput(value) as PathValue<TFieldValues, FieldPath<TFieldValues>>,
       { shouldValidate: true, shouldDirty: false }
     );
   };
@@ -119,7 +48,7 @@ export function getEarliestVersionStart(versions: ChargingPlan[]): string | unde
 }
 
 export function useVersionBaselinePrefill<
-  TFieldValues extends FieldValues & VersionPriceFormFields,
+  TFieldValues extends FieldValues & TariffMoneyFormFields,
   TStartFieldName extends FieldPath<TFieldValues>,
 >({
   versions,

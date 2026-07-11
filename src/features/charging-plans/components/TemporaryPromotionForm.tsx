@@ -2,18 +2,21 @@ import React from 'react';
 import { Controller, useForm, useWatch } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Save, X } from 'lucide-react';
 import type { ChargingPlan } from '../../../infra/db';
-import { DatePicker, Slab, ThinInput } from '../../../shared/ui';
+import { DatePicker, ThinInput } from '../../../shared/ui';
 import { parseUtcDateInput } from '../model/logicalTariffs';
 import type { TariffPriceInput } from '../services/planService';
 import {
   getEarliestVersionStart,
-  priceFields,
-  toTariffPriceInput,
   useVersionBaselinePrefill,
-  type VersionPriceFormFields,
 } from './versionFormShared';
+import {
+  hasMeaningfulTariffPricing,
+  tariffPriceFields,
+  toTariffPriceInput,
+  type TariffMoneyFormFields,
+} from './tariffMoney';
+import { TariffFormShell } from './TariffFormShell';
 
 /**
  * Props for scheduling a temporary tariff promotion from logical history.
@@ -36,7 +39,7 @@ export interface TemporaryPromotionSubmit {
 const temporaryPromotionSchema = z.object({
   promo_start: z.string().min(1, 'Promo start date is required'),
   promo_end: z.string().min(1, 'Promo end date is required'),
-  ...priceFields,
+  ...tariffPriceFields,
 }).superRefine((values, ctx) => {
   if (values.promo_start && values.promo_end && values.promo_end < values.promo_start) {
     ctx.addIssue({
@@ -46,17 +49,7 @@ const temporaryPromotionSchema = z.object({
     });
   }
 
-  const prices = toTariffPriceInput(values);
-  const hasMeaningfulPricing = [
-    prices.ac_price_per_kwh,
-    prices.dc_price_per_kwh,
-    prices.roaming_ac_price_per_kwh,
-    prices.roaming_dc_price_per_kwh,
-  ].some((value) => value != null)
-    || prices.monthly_base_fee > 0
-    || prices.session_fee > 0;
-
-  if (!hasMeaningfulPricing) {
+  if (!hasMeaningfulTariffPricing(values)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['monthly_base_fee'],
@@ -65,7 +58,7 @@ const temporaryPromotionSchema = z.object({
   }
 });
 
-type TemporaryPromotionFormValues = z.infer<typeof temporaryPromotionSchema> & VersionPriceFormFields;
+type TemporaryPromotionFormValues = z.infer<typeof temporaryPromotionSchema> & TariffMoneyFormFields;
 
 /**
  * Form for scheduling a temporary promotion window and restoring the prior pricing afterward.
@@ -129,24 +122,16 @@ export const TemporaryPromotionForm: React.FC<TemporaryPromotionFormProps> = ({
   const earliestVersionStart = getEarliestVersionStart(versions);
 
   return (
-    <Slab>
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex flex-col">
-          <h2 className="text-2xl font-bold text-primary">Temporary Promotion</h2>
-          <p className="text-sm text-secondary mt-1">
-            This creates a temporary price and restores the previous price on the day after the promotion ends.
-          </p>
-        </div>
-        <button type="button" onClick={onCancel} aria-label="Cancel" className="p-2 text-secondary/40 hover:text-secondary rounded-full hover:bg-secondary/10 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center">
-          <X className="w-6 h-6" />
-        </button>
-      </div>
-      <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-8" noValidate>
-        {errors.root?.submit?.message && (
-          <p role="alert" className="text-sm text-red-500 font-medium">
-            {errors.root.submit.message}
-          </p>
-        )}
+    <TariffFormShell
+      title="Temporary Promotion"
+      description="This creates a temporary price and restores the previous price on the day after the promotion ends."
+      onCancel={onCancel}
+      onSubmit={handleSubmit(handleFormSubmit)}
+      isSubmitting={isSubmitting}
+      submitLabel="Save promotion"
+      submitDisabled={submitDisabled}
+      submitError={errors.root?.submit?.message}
+    >
         <section className="space-y-6" aria-labelledby="promotion-section">
           <h3 id="promotion-section" className="text-[13px] font-semibold text-secondary uppercase tracking-wider">Promotion Window</h3>
           <Controller
@@ -185,24 +170,6 @@ export const TemporaryPromotionForm: React.FC<TemporaryPromotionFormProps> = ({
           <ThinInput label="Monthly Base Fee" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('monthly_base_fee')} error={errors.monthly_base_fee?.message} />
           <ThinInput label="Session Fee" unit="€" inputMode="decimal" placeholder="0,00" className="tabular-nums" {...register('session_fee')} error={errors.session_fee?.message} />
         </section>
-        <div className="pt-6 flex flex-col sm:flex-row gap-4">
-          <button
-            type="submit"
-            disabled={submitDisabled || isSubmitting}
-            className="flex-1 flex items-center justify-center py-4 px-6 bg-accent text-white font-bold rounded-xl hover:opacity-90 transition-all disabled:opacity-50 min-h-[56px] shadow-lg shadow-accent/20"
-          >
-            <Save className="w-5 h-5 mr-2" />
-            Save promotion
-          </button>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="flex-1 py-4 px-6 bg-secondary/10 text-primary font-bold rounded-xl hover:bg-secondary/20 transition-all min-h-[56px]"
-          >
-            Cancel
-          </button>
-        </div>
-      </form>
-    </Slab>
+    </TariffFormShell>
   );
 };

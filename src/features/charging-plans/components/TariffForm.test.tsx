@@ -333,7 +333,7 @@ describe('TariffForm', () => {
     fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
 
     // Assert: Submission is blocked and the user sees the validation message.
-    await screen.findByText('Enter a valid money amount');
+    await screen.findByText('Enter a valid non-negative amount');
     expect(mockOnSubmit).not.toHaveBeenCalled();
   });
 
