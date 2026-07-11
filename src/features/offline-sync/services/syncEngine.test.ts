@@ -10,7 +10,7 @@ import {
 import { processOutbox, initialSync } from './syncEngine'
 import { supabase } from '../../../infra/supabase'
 import 'fake-indexeddb/auto'
-import { schedulePermanentTariffVersion, scheduleTemporaryPromotion, setActivePlanSelection } from '../../charging-plans'
+import { createSuccessorTariffVersion, scheduleTemporaryPromotion, setActivePlanSelection } from '../../charging-plans'
 import { saveSession } from '../../charging-sessions'
 
 const utc = (date: string): Date => new Date(`${date}T00:00:00.000Z`)
@@ -920,10 +920,11 @@ describe('syncEngine', () => {
       promoEndInclusive: utc('2026-06-30'),
       prices: buildPrices({ ac_price_per_kwh: 39 }),
     })
-    await schedulePermanentTariffVersion({
+    await createSuccessorTariffVersion({
       userId: 'user-1',
       providerId: 'provider-swm',
       name: 'SWM',
+      nextName: 'SWM',
       effectiveFrom: utc('2026-07-01'),
       prices: buildPrices({ ac_price_per_kwh: 65 }),
     })

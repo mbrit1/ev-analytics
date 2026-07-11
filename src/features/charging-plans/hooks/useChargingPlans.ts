@@ -1,40 +1,30 @@
 import { useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { buildCurrentChargingPlans, buildLogicalTariffs, type LogicalTariff } from '../model/logicalTariffs';
+import { buildLogicalTariffs, type LogicalTariff } from '../model/logicalTariffs';
 import {
   createSuccessorTariffVersion,
-  deleteChargingPlan,
   deleteLogicalTariff as deleteLogicalTariffService,
   getChargingPlanVersions,
   saveChargingPlan,
-  schedulePermanentTariffVersion,
   scheduleTemporaryPromotion,
   type LogicalTariffIdentityInput,
   type CreateSuccessorTariffVersionInput,
-  type SchedulePermanentTariffVersionInput,
   type ScheduleTemporaryPromotionInput,
   type UpdateCurrentTariffVersionInput,
-  type UpdateLogicalTariffDetailsInput,
   updateCurrentTariffVersion as updateCurrentTariffVersionService,
-  updateLogicalTariffDetails as updateLogicalTariffDetailsService,
 } from '../services/planService';
 import type { ChargingPlan } from '../../../infra/db';
 import { useAuth } from '../../auth';
 import { useUtcToday } from './useUtcToday';
 
 export interface UseChargingPlansResult {
-  /** Current effective tariff versions for today's date. */
-  plans: ChargingPlan[];
   /** Full tariff version history, including past and future scheduled versions. */
   planVersions: ChargingPlan[];
   isLoading: boolean;
   addChargingPlan: (plan: ChargingPlan) => Promise<void>;
-  removeChargingPlan: (id: string) => Promise<void>;
   logicalTariffs: LogicalTariff[];
   updateCurrentVersion: (input: UpdateCurrentTariffVersionInput) => Promise<void>;
   createSuccessorVersion: (input: CreateSuccessorTariffVersionInput) => Promise<void>;
-  updateLogicalTariffDetails: (input: UpdateLogicalTariffDetailsInput) => Promise<void>;
-  schedulePermanentChange: (input: SchedulePermanentTariffVersionInput) => Promise<void>;
   schedulePromotion: (input: ScheduleTemporaryPromotionInput) => Promise<void>;
   deleteLogicalTariff: (input: LogicalTariffIdentityInput) => Promise<void>;
 }
@@ -52,10 +42,6 @@ export function useChargingPlans(): UseChargingPlansResult {
     if (!user) return [];
     return getChargingPlanVersions(user.id);
   }, [user?.id]);
-  const plans = useMemo(
-    () => buildCurrentChargingPlans(versions ?? [], { at: today }),
-    [today, versions]
-  );
   const logicalTariffs = useMemo(
     () => buildLogicalTariffs(versions ?? [], today),
     [today, versions]
@@ -66,25 +52,12 @@ export function useChargingPlans(): UseChargingPlansResult {
     await saveChargingPlan(plan);
   };
 
-  const removeChargingPlan = async (id: string) => {
-    // Plans are soft-deleted so existing session snapshots remain meaningful.
-    await deleteChargingPlan(id);
-  };
-
-  const updateLogicalTariffDetails = async (input: UpdateLogicalTariffDetailsInput) => {
-    await updateLogicalTariffDetailsService(input);
-  };
-
   const updateCurrentVersion = async (input: UpdateCurrentTariffVersionInput) => {
     await updateCurrentTariffVersionService(input);
   };
 
   const createSuccessorVersion = async (input: CreateSuccessorTariffVersionInput) => {
     await createSuccessorTariffVersion(input);
-  };
-
-  const schedulePermanentChange = async (input: SchedulePermanentTariffVersionInput) => {
-    await schedulePermanentTariffVersion(input);
   };
 
   const schedulePromotion = async (input: ScheduleTemporaryPromotionInput) => {
@@ -96,16 +69,12 @@ export function useChargingPlans(): UseChargingPlansResult {
   };
 
   return {
-    plans,
     planVersions: versions ?? [],
     logicalTariffs,
     isLoading: versions === undefined,
     addChargingPlan,
-    removeChargingPlan,
     updateCurrentVersion,
     createSuccessorVersion,
-    updateLogicalTariffDetails,
-    schedulePermanentChange,
     schedulePromotion,
     deleteLogicalTariff,
   };

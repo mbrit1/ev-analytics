@@ -1,14 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { db, type ChargingPlan, type ChargingSession } from '../../../infra/db'
 import {
-  createSuccessorTariffVersion,
-  deleteChargingPlan,
   deleteLogicalTariff,
   getChargingPlans,
   getChargingPlanVersions,
   getEffectiveChargingPlanAt,
   saveChargingPlan,
-  schedulePermanentTariffVersion,
+  createSuccessorTariffVersion,
   scheduleTemporaryPromotion,
   updateCurrentTariffVersion,
   updateLogicalTariffDetails,
@@ -123,10 +121,11 @@ describe('planService', () => {
     await seedOpenBaseline()
 
     // Act: Schedule a permanent successor starting on the requested boundary date.
-    await schedulePermanentTariffVersion({
+    await createSuccessorTariffVersion({
       userId: 'user-1',
       providerId: 'provider-1',
       name: 'Lidl',
+      nextName: 'Lidl',
       effectiveFrom: utc('2026-08-15'),
       prices: buildPrices({ ac_price_per_kwh: 35 }),
     })
@@ -207,10 +206,11 @@ describe('planService', () => {
       promoEndInclusive: utc('2026-06-30'),
       prices: buildPrices({ ac_price_per_kwh: 39 }),
     })
-    await schedulePermanentTariffVersion({
+    await createSuccessorTariffVersion({
       userId: 'user-1',
       providerId: 'provider-swm',
       name: 'SWM',
+      nextName: 'SWM',
       effectiveFrom: utc('2026-07-01'),
       prices: buildPrices({ ac_price_per_kwh: 65 }),
     })
@@ -352,10 +352,11 @@ describe('planService', () => {
     const plansBefore = await db.charging_plans.toArray()
 
     // Act/Assert: A conflicting permanent change is rejected and writes nothing.
-    await expect(schedulePermanentTariffVersion({
+    await expect(createSuccessorTariffVersion({
       userId: 'user-1',
       providerId: 'provider-1',
       name: 'Lidl',
+      nextName: 'Lidl',
       effectiveFrom: utc('2026-08-15'),
       prices: buildPrices({ ac_price_per_kwh: 24 }),
     })).rejects.toThrow('Cannot schedule tariff change because version starting 2026-09-01 already exists')
@@ -434,10 +435,11 @@ describe('planService', () => {
     await seedOpenBaseline({ id: 'base' })
 
     // Act/Assert: Scheduling on the baseline start date is invalid.
-    await expect(schedulePermanentTariffVersion({
+    await expect(createSuccessorTariffVersion({
       userId: 'user-1',
       providerId: 'provider-1',
       name: 'Lidl',
+      nextName: 'Lidl',
       effectiveFrom: utc('2026-01-01'),
       prices: buildPrices({ ac_price_per_kwh: 24 }),
     })).rejects.toThrow('effectiveFrom must be after the current baseline start date')
@@ -484,10 +486,11 @@ describe('planService', () => {
     await seedOpenBaseline({ id: 'base' })
 
     // Act/Assert: Logical mutation pricing enforces non-negative cents values.
-    await expect(schedulePermanentTariffVersion({
+    await expect(createSuccessorTariffVersion({
       userId: 'user-1',
       providerId: 'provider-1',
       name: 'Lidl',
+      nextName: 'Lidl',
       effectiveFrom: utc('2026-08-15'),
       prices: buildPrices({ ac_price_per_kwh: -1 }),
     })).rejects.toThrow('ac_price_per_kwh must be non-negative')
@@ -500,10 +503,11 @@ describe('planService', () => {
     await seedOpenBaseline({ id: 'base' })
 
     // Act/Assert: Logical mutation pricing still enforces integer cents validation.
-    await expect(schedulePermanentTariffVersion({
+    await expect(createSuccessorTariffVersion({
       userId: 'user-1',
       providerId: 'provider-1',
       name: 'Lidl',
+      nextName: 'Lidl',
       effectiveFrom: utc('2026-08-15'),
       prices: buildPrices({ ac_price_per_kwh: 24.5 }),
     })).rejects.toThrow('ac_price_per_kwh must be an integer number of cents')
@@ -515,10 +519,11 @@ describe('planService', () => {
     // Arrange: Leave the logical tariff timeline empty.
 
     // Act/Assert: Missing baseline versions are rejected before any write.
-    await expect(schedulePermanentTariffVersion({
+    await expect(createSuccessorTariffVersion({
       userId: 'user-1',
       providerId: 'provider-1',
       name: 'Lidl',
+      nextName: 'Lidl',
       effectiveFrom: utc('2026-08-15'),
       prices: buildPrices({ ac_price_per_kwh: 24 }),
     })).rejects.toThrow('No active tariff baseline exists for provider-1::lidl')
@@ -533,10 +538,11 @@ describe('planService', () => {
     const addSpy = vi.spyOn(db.sync_outbox, 'add').mockRejectedValueOnce(new Error('outbox failure'))
 
     // Act/Assert: The logical mutation rejects and leaves both plans and outbox unchanged.
-    await expect(schedulePermanentTariffVersion({
+    await expect(createSuccessorTariffVersion({
       userId: 'user-1',
       providerId: 'provider-1',
       name: 'Lidl',
+      nextName: 'Lidl',
       effectiveFrom: utc('2026-08-15'),
       prices: buildPrices({ ac_price_per_kwh: 35 }),
     })).rejects.toThrow('outbox failure')
@@ -1023,66 +1029,6 @@ describe('planService', () => {
 
     // Assert: Only the effective current version for each logical tariff is returned.
     expect(plans.map((plan) => plan.id)).toEqual(['current', 'other-current'])
-  })
-
-  it('should soft delete a charging plan and create a DELETE outbox entry', async () => {
-    // Arrange: Seed a charging plan that can be deleted.
-    const plan: ChargingPlan = {
-      id: 'plan-delete', user_id: 'u1', provider_id: 'provider-1', name: 'To Delete',
-      valid_from: new Date(),
-          valid_to: null,
-      ac_price_per_kwh: 50,
-      dc_price_per_kwh: 50 ,
-      monthly_base_fee: 0,
-      session_fee: 0 ,
-      created_at: new Date(), updated_at: new Date()
-    }
-    await db.charging_plans.add(plan)
-
-    // Act: Soft-delete the charging plan through the service.
-    await deleteChargingPlan('plan-delete')
-
-    // Assert: The charging plan is marked deleted and a DELETE outbox item is queued.
-    const retrieved = await db.charging_plans.get('plan-delete')
-    expect(retrieved?.deleted_at).toBeDefined()
-
-    const outbox = await db.sync_outbox.toArray()
-    expect(outbox).toHaveLength(1)
-    expect(outbox[0].action).toBe('DELETE')
-    expect(outbox[0]).toMatchObject({
-      retry_count: 0,
-      last_attempt_at: undefined,
-      next_attempt_at: undefined,
-      last_error: undefined
-    })
-  })
-
-  it('should soft delete an invalid stored charging plan without revalidating it', async () => {
-    // Arrange: Seed a legacy invalid plan that should still be deletable.
-    const plan: ChargingPlan = {
-      id: 'plan-invalid-delete',
-      user_id: 'u1',
-      provider_id: 'provider-1',
-      name: 'Legacy Invalid',
-      valid_from: new Date(),
-      valid_to: null,
-      monthly_base_fee: 0,
-      session_fee: 0,
-      created_at: new Date(),
-      updated_at: new Date()
-    }
-    await db.charging_plans.add(plan)
-
-    // Act: Soft-delete the stored plan.
-    await deleteChargingPlan('plan-invalid-delete')
-
-    // Assert: Deletion still succeeds and queues a delete mutation.
-    const deleted = await db.charging_plans.get('plan-invalid-delete')
-    expect(deleted?.deleted_at).toBeDefined()
-
-    const outbox = await db.sync_outbox.toArray()
-    expect(outbox).toHaveLength(1)
-    expect(outbox[0]?.action).toBe('DELETE')
   })
 
   it('should allow optional domestic prices and save roaming and fee based charging plan', async () => {

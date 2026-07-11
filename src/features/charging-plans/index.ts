@@ -8,7 +8,6 @@ export * from './model/logicalTariffs'
 export type {
   CreateSuccessorTariffVersionInput,
   LogicalTariffIdentityInput,
-  SchedulePermanentTariffVersionInput,
   ScheduleTemporaryPromotionInput,
   TariffPriceInput,
   UpdateCurrentTariffVersionInput,
