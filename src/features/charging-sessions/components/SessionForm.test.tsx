@@ -159,7 +159,6 @@ describe('SessionForm', () => {
   ): void {
     if (Array.isArray(plansOrConfig)) {
       vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-        plans: plansOrConfig,
         planVersions: plansOrConfig,
         isLoading: false,
       }));
@@ -167,7 +166,6 @@ describe('SessionForm', () => {
     }
 
     vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans: plansOrConfig.plans ?? [],
       planVersions: plansOrConfig.planVersions ?? plansOrConfig.plans ?? [],
       isLoading: false,
     }));
@@ -179,16 +177,12 @@ describe('SessionForm', () => {
     overrides: Partial<ChargingPlansHookValue> = {}
   ): ChargingPlansHookValue {
     return {
-      plans: [],
       planVersions: [],
       logicalTariffs: [],
       isLoading: false,
       addChargingPlan: vi.fn(),
-      removeChargingPlan: vi.fn(),
       updateCurrentVersion: vi.fn(),
       createSuccessorVersion: vi.fn(),
-      updateLogicalTariffDetails: vi.fn(),
-      schedulePermanentChange: vi.fn(),
       schedulePromotion: vi.fn(),
       deleteLogicalTariff: vi.fn(),
       ...overrides,
@@ -529,7 +523,6 @@ describe('SessionForm', () => {
     });
     vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: true });
     vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans: [],
       isLoading: true,
     }));
 
@@ -733,7 +726,6 @@ describe('SessionForm', () => {
     // Arrange: the persisted provider and plan are absent from active hook results.
     vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });
     vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({
-      plans: [],
       isLoading: false,
     }));
     const initialValues = buildSessionFixture({

@@ -169,16 +169,12 @@ const buildHookValue = (
   const logicalTariff = buildLogicalTariff();
 
   return {
-    plans: overrides.plans ?? logicalTariff.versions,
     planVersions: overrides.planVersions ?? logicalTariff.versions,
     logicalTariffs: overrides.logicalTariffs ?? [logicalTariff],
     isLoading: overrides.isLoading ?? false,
     addChargingPlan: overrides.addChargingPlan ?? vi.fn(),
-    removeChargingPlan: overrides.removeChargingPlan ?? vi.fn(),
     updateCurrentVersion: overrides.updateCurrentVersion ?? vi.fn(),
     createSuccessorVersion: overrides.createSuccessorVersion ?? vi.fn(),
-    updateLogicalTariffDetails: overrides.updateLogicalTariffDetails ?? vi.fn(),
-    schedulePermanentChange: overrides.schedulePermanentChange ?? vi.fn(),
     schedulePromotion: overrides.schedulePromotion ?? vi.fn(),
     deleteLogicalTariff: overrides.deleteLogicalTariff ?? vi.fn(),
   };

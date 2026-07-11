@@ -25,11 +25,6 @@ export interface TariffPriceInput {
   session_fee: number;
 }
 
-export interface SchedulePermanentTariffVersionInput extends LogicalTariffIdentityInput {
-  effectiveFrom: Date;
-  prices: TariffPriceInput;
-}
-
 export interface ScheduleTemporaryPromotionInput extends LogicalTariffIdentityInput {
   promoStart: Date;
   promoEndInclusive: Date;
@@ -352,83 +347,6 @@ export async function getChargingPlanVersions(userId: string): Promise<ChargingP
     .toArray();
 
   return plans.map(hydrateChargingPlanDates);
-}
-
-export async function deleteChargingPlan(id: string): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
-    const plan = await db.charging_plans.get(id);
-    if (!plan || plan.deleted_at) return;
-
-    const now = new Date();
-    const deletedPlan: ChargingPlan = {
-      ...plan,
-      deleted_at: now,
-      updated_at: now
-    };
-
-    await db.charging_plans.put(deletedPlan);
-    await db.sync_outbox.add({
-      table_name: 'charging_plans',
-      action: 'DELETE',
-      payload: deletedPlan,
-      timestamp: now,
-      retry_count: 0,
-      last_attempt_at: undefined,
-      next_attempt_at: undefined,
-      last_error: undefined
-    });
-  });
-}
-
-export async function schedulePermanentTariffVersion(
-  input: SchedulePermanentTariffVersionInput
-): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
-    const versions = await loadLogicalVersionsFromTable(
-      db.charging_plans,
-      input.userId,
-      input.providerId,
-      input.name
-    );
-    const baseline = resolveEffectivePlanForDate(versions, input.effectiveFrom);
-
-    if (!baseline) {
-      throw buildLogicalTariffMissingError(input.providerId, input.name);
-    }
-
-    if (input.effectiveFrom.getTime() <= baseline.valid_from.getTime()) {
-      throw new Error('effectiveFrom must be after the current baseline start date');
-    }
-
-    const conflictingVersion = findFirstVersionStartingWithin(versions, input.effectiveFrom);
-
-    if (conflictingVersion) {
-      throw new Error(
-        `Cannot schedule tariff change because version starting ${formatUtcDate(conflictingVersion.valid_from)} already exists`
-      );
-    }
-
-    const now = new Date();
-    const closedBaseline: ChargingPlan = {
-      ...baseline,
-      valid_to: input.effectiveFrom,
-      updated_at: now
-    };
-    const successor = buildSuccessorFromBaseline(
-      baseline,
-      input,
-      input.prices,
-      input.effectiveFrom,
-      baseline.valid_to,
-      now
-    );
-
-    validatePlan(closedBaseline);
-    validatePlan(successor);
-
-    await putPlanAndQueue(db.charging_plans, db.sync_outbox, closedBaseline, 'UPDATE', now);
-    await putPlanAndQueue(db.charging_plans, db.sync_outbox, successor, 'INSERT', now);
-  });
 }
 
 export async function scheduleTemporaryPromotion(
