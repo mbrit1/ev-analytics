@@ -1,4 +1,4 @@
-import { db, type ChargingSession, type ChargingPlan, type Provider } from '../../../infra/db';
+import { createSyncOutboxEntry, db, type ChargingSession, type ChargingPlan, type Provider } from '../../../infra/db';
 import type { SessionPreparationInput } from '../model/types';
 import { sortSessionsNewestFirst } from '../model/types';
 import {
@@ -396,16 +396,7 @@ export function prepareSessionEdit(
 
 async function persistSessionInsert(session: ChargingSession): Promise<void> {
   await db.sessions.put(session);
-  await db.sync_outbox.add({
-    table_name: 'sessions',
-    action: 'INSERT',
-    payload: session,
-    timestamp: new Date(),
-    retry_count: 0,
-    last_attempt_at: undefined,
-    next_attempt_at: undefined,
-    last_error: undefined
-  });
+  await db.sync_outbox.add(createSyncOutboxEntry('sessions', 'INSERT', session, new Date()));
 }
 
 async function persistSessionUpdate(session: ChargingSession): Promise<void> {
@@ -430,16 +421,7 @@ async function persistSessionUpdate(session: ChargingSession): Promise<void> {
     throw new Error(`Session not found: ${existing.id}`);
   }
 
-  await db.sync_outbox.add({
-    table_name: 'sessions',
-    action: 'UPDATE',
-    payload: updatedSession,
-    timestamp: updatedAt,
-    retry_count: 0,
-    last_attempt_at: undefined,
-    next_attempt_at: undefined,
-    last_error: undefined
-  });
+  await db.sync_outbox.add(createSyncOutboxEntry('sessions', 'UPDATE', updatedSession, updatedAt));
 }
 
 async function persistSessionRequest(
@@ -475,30 +457,22 @@ async function persistSessionRequest(
       );
       const updatedCurrent = await db.provider_plan_selections.get(planSelectionMutation.currentUpdate.id);
       if (updatedCurrent) {
-        await db.sync_outbox.add({
-          table_name: 'provider_plan_selections',
-          action: 'UPDATE',
-          payload: updatedCurrent,
-          timestamp: planSelectionMutation.currentUpdate.updated_at,
-          retry_count: 0,
-          last_attempt_at: undefined,
-          next_attempt_at: undefined,
-          last_error: undefined
-        });
+        await db.sync_outbox.add(createSyncOutboxEntry(
+          'provider_plan_selections',
+          'UPDATE',
+          updatedCurrent,
+          planSelectionMutation.currentUpdate.updated_at,
+        ));
       }
     }
 
     await db.provider_plan_selections.add(planSelectionMutation.nextSelection);
-    await db.sync_outbox.add({
-      table_name: 'provider_plan_selections',
-      action: 'INSERT',
-      payload: planSelectionMutation.nextSelection,
-      timestamp: planSelectionMutation.nextSelection.created_at,
-      retry_count: 0,
-      last_attempt_at: undefined,
-      next_attempt_at: undefined,
-      last_error: undefined
-    });
+    await db.sync_outbox.add(createSyncOutboxEntry(
+      'provider_plan_selections',
+      'INSERT',
+      planSelectionMutation.nextSelection,
+      planSelectionMutation.nextSelection.created_at,
+    ));
   });
 }
 

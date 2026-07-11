@@ -1,4 +1,4 @@
-import { db, type Provider, type SyncPayload } from '../../../infra/db';
+import { createSyncOutboxEntry, db, type Provider } from '../../../infra/db';
 
 /**
  * Saves a charging provider locally and queues the change for remote sync.
@@ -37,18 +37,12 @@ export async function saveProvider(provider: Provider): Promise<void> {
     };
 
     await db.providers.put(providerToSave);
-    await db.sync_outbox.add({
-      table_name: 'providers',
-      // The sync engine replays this as an upsert, but action still records the
-      // user's local intent for observability and future sync behavior.
-      action: existing ? 'UPDATE' : 'INSERT',
-      payload: providerToSave as SyncPayload,
-      timestamp: now,
-      retry_count: 0,
-      last_attempt_at: undefined,
-      next_attempt_at: undefined,
-      last_error: undefined
-    });
+    await db.sync_outbox.add(createSyncOutboxEntry(
+      'providers',
+      existing ? 'UPDATE' : 'INSERT',
+      providerToSave,
+      now,
+    ));
   });
 }
 

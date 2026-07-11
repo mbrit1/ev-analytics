@@ -1,5 +1,5 @@
 import Dexie from 'dexie';
-import { db, type ProviderPlanSelection, type SyncOutbox, type SyncPayload, type TariffPriceSnapshot } from '../../../infra/db';
+import { createSyncOutboxEntry, db, type ProviderPlanSelection, type SyncOutbox, type TariffPriceSnapshot } from '../../../infra/db';
 
 export interface SetActivePlanSelectionInput {
   userId: string;
@@ -34,16 +34,12 @@ export async function applyActivePlanSelectionChange(
     await providerPlanSelections.update(current.id, { valid_to: input.validFrom, updated_at: now });
     const updatedCurrent = await providerPlanSelections.get(current.id);
     if (updatedCurrent) {
-      await syncOutbox.add({
-        table_name: 'provider_plan_selections',
-        action: 'UPDATE',
-        payload: updatedCurrent as SyncPayload,
-        timestamp: now,
-        retry_count: 0,
-        last_attempt_at: undefined,
-        next_attempt_at: undefined,
-        last_error: undefined
-      });
+      await syncOutbox.add(createSyncOutboxEntry(
+        'provider_plan_selections',
+        'UPDATE',
+        updatedCurrent,
+        now,
+      ));
     }
   }
 
@@ -60,16 +56,12 @@ export async function applyActivePlanSelectionChange(
   };
 
   await providerPlanSelections.add(next);
-  await syncOutbox.add({
-    table_name: 'provider_plan_selections',
-    action: 'INSERT',
-    payload: next as SyncPayload,
-    timestamp: now,
-    retry_count: 0,
-    last_attempt_at: undefined,
-    next_attempt_at: undefined,
-    last_error: undefined
-  });
+  await syncOutbox.add(createSyncOutboxEntry(
+    'provider_plan_selections',
+    'INSERT',
+    next,
+    now,
+  ));
 
   return next;
 }
