@@ -2,11 +2,15 @@ import React from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { Save, X } from 'lucide-react';
 import { type ChargingPlan } from '../../../infra/db';
-import { formatCentsToDecimal, parseDecimalToCents } from '../../../shared/lib';
-import { DatePicker, Slab, ThinInput } from '../../../shared/ui';
+import { formatCentsToDecimal } from '../../../shared/lib';
+import { DatePicker, ThinInput } from '../../../shared/ui';
 import { useProviders } from '../hooks/useProviders';
+import {
+  tariffPriceFields,
+  toTariffPriceInput,
+} from './tariffMoney';
+import { TariffFormShell } from './TariffFormShell';
 
 interface TariffLogicalIdentity {
   providerId: string;
@@ -35,28 +39,12 @@ export interface TariffFormProps {
   initialValues?: Partial<ChargingPlan>;
 }
 
-const MONEY_INPUT_ERROR_MESSAGE = 'Enter a valid money amount';
-
-function isValidMoneyInput(value?: string): boolean {
-  if (value == null) return true;
-  const normalized = value.trim();
-  if (normalized === '') return true;
-  return /^-?\d+(?:[.,]\d+)?$/.test(normalized);
-}
-
-const moneyFieldSchema = z.string().optional().refine(isValidMoneyInput, MONEY_INPUT_ERROR_MESSAGE);
-
 const tariffFormSchema = z.object({
   name: z.string().optional(),
   provider_id: z.string().min(1, 'Provider is required'),
   valid_from: z.string().min(1, 'Valid from date is required'),
   valid_to: z.string().optional(),
-  ac_price: moneyFieldSchema,
-  dc_price: moneyFieldSchema,
-  roaming_ac_price: moneyFieldSchema,
-  roaming_dc_price: moneyFieldSchema,
-  monthly_base_fee: moneyFieldSchema,
-  session_fee: moneyFieldSchema,
+  ...tariffPriceFields,
   affiliation: z.string().optional(),
   notes: z.string().optional(),
 });
@@ -146,69 +134,6 @@ function ProviderSelect({
   );
 }
 
-interface TariffFormShellProps {
-  title: string;
-  onCancel: () => void;
-  onSubmit: React.FormEventHandler<HTMLFormElement>;
-  isSubmitting: boolean;
-  submitLabel: string;
-  submitDisabled?: boolean;
-  submitError?: string;
-  children: React.ReactNode;
-}
-
-function TariffFormShell({
-  title,
-  onCancel,
-  onSubmit,
-  isSubmitting,
-  submitLabel,
-  submitDisabled = false,
-  submitError,
-  children,
-}: TariffFormShellProps): React.ReactElement {
-  return (
-    <Slab>
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex flex-col">
-          <h2 className="text-2xl font-bold text-primary">{title}</h2>
-          <p className="text-sm text-secondary mt-1">
-            <span className="text-primary font-medium" aria-hidden="true">*</span> Required fields
-          </p>
-        </div>
-        <button type="button" onClick={onCancel} aria-label="Cancel" className="p-2 text-secondary/40 hover:text-secondary rounded-full hover:bg-secondary/10 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center">
-          <X className="w-6 h-6" />
-        </button>
-      </div>
-      <form onSubmit={onSubmit} className="space-y-8" noValidate>
-        {submitError && (
-          <p role="alert" className="text-sm text-red-500 font-medium">
-            {submitError}
-          </p>
-        )}
-        {children}
-        <div className="pt-6 flex flex-col sm:flex-row gap-4">
-          <button
-            type="submit"
-            disabled={submitDisabled || isSubmitting}
-            className="flex-1 flex items-center justify-center py-4 px-6 bg-accent text-white font-bold rounded-xl hover:opacity-90 transition-all disabled:opacity-50 min-h-[56px] shadow-lg shadow-accent/20"
-          >
-            <Save className="w-5 h-5 mr-2" />
-            {submitLabel}
-          </button>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="flex-1 py-4 px-6 bg-secondary/10 text-primary font-bold rounded-xl hover:bg-secondary/20 transition-all min-h-[56px]"
-          >
-            Cancel
-          </button>
-        </div>
-      </form>
-    </Slab>
-  );
-}
-
 function StandardTariffForm({
   mode,
   onSubmit,
@@ -255,6 +180,7 @@ function StandardTariffForm({
     const isSameValidFrom = resolvedMode === 'edit' && resolvedOriginalValidFrom != null
       ? submittedValidFrom.getTime() === resolvedOriginalValidFrom.getTime()
       : false;
+    const prices = toTariffPriceInput(values);
     const plan: ChargingPlan = {
       id: resolvedMode === 'edit' && isSameValidFrom
         ? initialValues?.id ?? crypto.randomUUID()
@@ -264,12 +190,7 @@ function StandardTariffForm({
       name: normalizedPlanName,
       valid_from: submittedValidFrom,
       valid_to: values.valid_to ? parseDateInputAsUtc(values.valid_to) : null,
-      ac_price_per_kwh: parseDecimalToCents(values.ac_price ?? ''),
-      dc_price_per_kwh: parseDecimalToCents(values.dc_price ?? ''),
-      roaming_ac_price_per_kwh: parseDecimalToCents(values.roaming_ac_price ?? ''),
-      roaming_dc_price_per_kwh: parseDecimalToCents(values.roaming_dc_price ?? ''),
-      monthly_base_fee: parseDecimalToCents(values.monthly_base_fee ?? '') ?? 0,
-      session_fee: parseDecimalToCents(values.session_fee ?? '') ?? 0,
+      ...prices,
       affiliation: values.affiliation || undefined,
       notes: values.notes || undefined,
       created_at: initialValues?.created_at ?? now,
@@ -307,6 +228,7 @@ function StandardTariffForm({
   return (
     <TariffFormShell
       title={resolvedMode === 'edit' ? 'Edit Tariff' : 'New Tariff'}
+      description={<><span className="text-primary font-medium" aria-hidden="true">*</span> Required fields</>}
       onCancel={onCancel}
       onSubmit={handleSubmit(handleFormSubmit)}
       isSubmitting={isSubmitting}
