@@ -1,5 +1,5 @@
 import { type Table } from 'dexie';
-import { db, type ChargingPlan, type ProviderPlanSelection, type SyncOutbox, type SyncPayload } from '../../../infra/db';
+import { createSyncOutboxEntry, db, type ChargingPlan, type ProviderPlanSelection, type SyncOutbox } from '../../../infra/db';
 import {
   addUtcDays,
   buildCurrentChargingPlans,
@@ -122,16 +122,7 @@ async function putPlanAndQueue(
     validatePlan(plan);
   }
   await plans.put(plan);
-  await outbox.add({
-    table_name: 'charging_plans',
-    action,
-    payload: plan as SyncPayload,
-    timestamp: now,
-    retry_count: 0,
-    last_attempt_at: undefined,
-    next_attempt_at: undefined,
-    last_error: undefined
-  });
+  await outbox.add(createSyncOutboxEntry('charging_plans', action, plan, now));
 }
 
 async function putSelectionAndQueue(
@@ -142,16 +133,12 @@ async function putSelectionAndQueue(
   now: Date
 ): Promise<void> {
   await selections.put(selection);
-  await outbox.add({
-    table_name: 'provider_plan_selections',
+  await outbox.add(createSyncOutboxEntry(
+    'provider_plan_selections',
     action,
-    payload: selection as SyncPayload,
-    timestamp: now,
-    retry_count: 0,
-    last_attempt_at: undefined,
-    next_attempt_at: undefined,
-    last_error: undefined
-  });
+    selection,
+    now,
+  ));
 }
 
 function dateToComparableMs(value: Date | null | undefined): number {
