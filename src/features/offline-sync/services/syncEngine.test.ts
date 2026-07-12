@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import {
+  clearLocalUserData,
   db,
   type Provider,
   type ChargingPlan,
@@ -144,6 +145,7 @@ describe('syncEngine', () => {
     await db.sync_outbox.clear()
     await db.providers.clear()
     await db.charging_plans.clear()
+    await db.provider_plan_selections.clear()
     await db.sessions.clear()
     vi.clearAllMocks()
   })
@@ -171,6 +173,52 @@ describe('syncEngine', () => {
     // Assert: Successful uploads are removed from the outbox.
     const outboxItems = await db.sync_outbox.toArray()
     expect(outboxItems).toHaveLength(0)
+  })
+
+  it('stops an active outbox pass without later items or local bookkeeping after disposal', async () => {
+    // Arrange: Queue two ordered writes and keep the first remote upload pending.
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: buildChargingSession({ id: 'active-upload' }),
+        timestamp: new Date('2026-05-21T10:00:00.000Z')
+      },
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: buildChargingSession({ id: 'later-upload' }),
+        timestamp: new Date('2026-05-21T10:01:00.000Z')
+      }
+    ])
+    let resolveFirstUpload: (() => void) | undefined
+    const mockUpsert = vi.fn((payload: { id: string }) => {
+      if (payload.id === 'active-upload') {
+        return new Promise<{ error: null }>((resolve) => {
+          resolveFirstUpload = () => resolve({ error: null })
+        })
+      }
+      return Promise.resolve({ error: null })
+    })
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+    const abortController = new AbortController()
+
+    // Act: Abort while the first upload is active, then let its response finish.
+    const processingPromise = processOutbox({ signal: abortController.signal })
+    await vi.waitFor(() => {
+      expect(mockUpsert).toHaveBeenCalledTimes(1)
+    })
+    abortController.abort()
+    resolveFirstUpload?.()
+    await processingPromise
+
+    // Assert: Neither deletion/retry bookkeeping nor the later upload executes.
+    expect(mockUpsert).toHaveBeenCalledTimes(1)
+    const remainingItems = await db.sync_outbox.orderBy('timestamp').toArray()
+    expect(remainingItems.map((item) => item.payload.id)).toEqual(['active-upload', 'later-upload'])
+    expect(remainingItems[0]).not.toHaveProperty('last_attempt_at')
+    expect(remainingItems[0]).not.toHaveProperty('next_attempt_at')
+    expect(remainingItems[0]).not.toHaveProperty('last_error')
   })
 
   it('strips legacy pricing_context before uploading sessions', async () => {
@@ -1083,6 +1131,56 @@ describe('syncEngine', () => {
     const localProviders = await db.providers.toArray()
     expect(localProviders).toHaveLength(2)
     expect(localProviders[0].name).toBe('Ionity')
+  })
+
+  it('does not repopulate local user tables when hydration resolves after logout cleanup', async () => {
+    // Arrange: Seed every local user table and defer the first hydration response.
+    const existingProvider = buildProvider({ id: 'existing-provider' })
+    const existingPlan = buildChargingPlan({ id: 'existing-plan' })
+    const existingSelection = buildProviderPlanSelection({ id: 'existing-selection' })
+    const existingSession = buildChargingSession({ id: 'existing-session' })
+    await db.providers.add(existingProvider)
+    await db.charging_plans.add(existingPlan)
+    await db.provider_plan_selections.add(existingSelection)
+    await db.sessions.add(existingSession)
+    await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'INSERT',
+      payload: existingSession,
+      timestamp: new Date('2026-05-21T10:00:00.000Z')
+    })
+    let resolveProviderHydration: ((result: { data: Provider[]; error: null }) => void) | undefined
+    const providerHydration = new Promise<{ data: Provider[]; error: null }>((resolve) => {
+      resolveProviderHydration = resolve
+    })
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      select: () => tableName === 'providers'
+        ? providerHydration
+        : Promise.resolve({ data: [], error: null })
+    }) as unknown as ReturnType<typeof supabase.from>)
+    const abortController = new AbortController()
+
+    // Act: Begin hydration, abort it, purge logout data, then release the response.
+    const hydrationPromise = initialSync({ signal: abortController.signal })
+    await vi.waitFor(() => {
+      expect(supabase.from).toHaveBeenCalledWith('providers')
+    })
+    abortController.abort()
+    await clearLocalUserData()
+    resolveProviderHydration?.({
+      data: [buildProvider({ id: 'delayed-provider', user_id: 'former-user' })],
+      error: null
+    })
+    await hydrationPromise
+
+    // Assert: The delayed response cannot recreate any former-user local data.
+    expect(await db.providers.count()).toBe(0)
+    expect(await db.charging_plans.count()).toBe(0)
+    expect(await db.provider_plan_selections.count()).toBe(0)
+    expect(await db.sessions.count()).toBe(0)
+    expect(await db.sync_outbox.count()).toBe(0)
+    expect(supabase.from).not.toHaveBeenCalledWith('charging_plans')
+    expect(supabase.from).not.toHaveBeenCalledWith('charging_sessions')
   })
 
   it('should hydrate providers, charging plans, and sessions from their remote tables', async () => {

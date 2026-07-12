@@ -200,6 +200,36 @@ describe('syncRuntime', () => {
     expect(processOutbox).toHaveBeenCalledTimes(2);
   });
 
+  it('aborts an active outbox pass and drops its queued rerun on dispose', async () => {
+    // Arrange: Keep the startup outbox pass pending and capture its lifecycle signal.
+    let resolveOutbox: (() => void) | undefined;
+    let receivedSignal: AbortSignal | undefined;
+    const processOutbox = vi.fn((options?: { signal?: AbortSignal }) => {
+      receivedSignal = options?.signal;
+      return new Promise<void>((resolve) => {
+        resolveOutbox = resolve;
+      });
+    });
+    const { deps } = createDeps({
+      initialSync: vi.fn(async () => undefined),
+      processOutbox
+    });
+
+    // Act: Queue a rerun, dispose the active pass, then release its remote work.
+    const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
+    await vi.waitFor(() => {
+      expect(processOutbox).toHaveBeenCalledTimes(1);
+    });
+    triggerOnline?.();
+    const disposalPromise = dispose();
+    expect(receivedSignal?.aborted).toBe(true);
+    resolveOutbox?.();
+    await disposalPromise;
+
+    // Assert: The disposed runtime never starts the coalesced follow-up pass.
+    expect(processOutbox).toHaveBeenCalledTimes(1);
+  });
+
   it('does not run when unauthenticated', async () => {
     // Arrange: Provide no-op sync dependencies.
     const loadSyncEngine = vi.fn(async () => ({
@@ -285,6 +315,33 @@ describe('syncRuntime', () => {
 
     // Assert: No sync engine function executes after dispose race.
     expect(initialSync).not.toHaveBeenCalled();
+    expect(processOutbox).not.toHaveBeenCalled();
+  });
+
+  it('does not start outbox processing when disposed during initial hydration', async () => {
+    // Arrange: Keep initial hydration pending after the engine has loaded.
+    let resolveInitialSync: (() => void) | undefined;
+    let receivedSignal: AbortSignal | undefined;
+    const initialSync = vi.fn((options?: { signal?: AbortSignal }) => {
+      receivedSignal = options?.signal;
+      return new Promise<void>((resolve) => {
+        resolveInitialSync = resolve;
+      });
+    });
+    const processOutbox = vi.fn(async () => undefined);
+    const { deps } = createDeps({ initialSync, processOutbox });
+
+    // Act: Dispose the runtime while hydration is active, then resolve it.
+    const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
+    await vi.waitFor(() => {
+      expect(initialSync).toHaveBeenCalledTimes(1);
+    });
+    const disposalPromise = dispose();
+    expect(receivedSignal?.aborted).toBe(true);
+    resolveInitialSync?.();
+    await disposalPromise;
+
+    // Assert: Disposal after engine load prevents the subsequent outbox phase.
     expect(processOutbox).not.toHaveBeenCalled();
   });
 

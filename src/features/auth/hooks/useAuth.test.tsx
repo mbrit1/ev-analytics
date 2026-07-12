@@ -11,6 +11,7 @@ const mockGetSession = vi.hoisted(() => vi.fn());
 const mockOnAuthStateChange = vi.hoisted(() => vi.fn());
 const mockUnsubscribe = vi.hoisted(() => vi.fn());
 const mockClearLocalUserData = vi.hoisted(() => vi.fn());
+const mockDisposeActiveSyncRuntime = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../infra/mocks', () => ({
   isMockMode: mockIsMockMode,
@@ -29,6 +30,10 @@ vi.mock('../../../infra/supabase', () => ({
 
 vi.mock('../../../infra/db', () => ({
   clearLocalUserData: mockClearLocalUserData,
+}));
+
+vi.mock('../../offline-sync', () => ({
+  disposeActiveSyncRuntime: mockDisposeActiveSyncRuntime,
 }));
 
 /**
@@ -53,6 +58,7 @@ describe('useAuth', () => {
     });
     mockSignInWithPassword.mockResolvedValue({ error: null });
     mockSignOut.mockResolvedValue({ error: null });
+    mockDisposeActiveSyncRuntime.mockResolvedValue(undefined);
     mockClearLocalUserData.mockResolvedValue(undefined);
   });
 
@@ -124,6 +130,7 @@ describe('useAuth', () => {
 
     // Assert: Supabase signOut is invoked and succeeds.
     expect(mockSignOut).toHaveBeenCalledTimes(1);
+    expect(mockDisposeActiveSyncRuntime).toHaveBeenCalledTimes(1);
     expect(mockClearLocalUserData).toHaveBeenCalledTimes(1);
     expect(response.error).toBeNull();
   });
@@ -144,7 +151,36 @@ describe('useAuth', () => {
 
     // Assert
     expect(response.error).toBe(authError);
+    expect(mockDisposeActiveSyncRuntime).not.toHaveBeenCalled();
     expect(mockClearLocalUserData).not.toHaveBeenCalled();
+  });
+
+  it('waits for the disposed sync runtime before clearing local user data', async () => {
+    // Arrange: Keep runtime disposal pending after successful remote sign-out.
+    mockIsMockMode.mockReturnValue(false);
+    let resolveDisposal: (() => void) | undefined;
+    mockDisposeActiveSyncRuntime.mockImplementation(() => new Promise<void>((resolve) => {
+      resolveDisposal = resolve;
+    }));
+    const { result } = renderHook(() => useAuth(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.loading).toBe(false);
+    });
+
+    // Act: Start sign-out, then release the runtime completion barrier.
+    const signOutPromise = result.current.signOut();
+    await waitFor(() => {
+      expect(mockDisposeActiveSyncRuntime).toHaveBeenCalledTimes(1);
+    });
+    expect(mockClearLocalUserData).not.toHaveBeenCalled();
+    resolveDisposal?.();
+    await signOutPromise;
+
+    // Assert: Dexie cleanup starts only after the old runtime is quiescent.
+    expect(mockClearLocalUserData).toHaveBeenCalledTimes(1);
+    expect(mockDisposeActiveSyncRuntime.mock.invocationCallOrder[0])
+      .toBeLessThan(mockClearLocalUserData.mock.invocationCallOrder[0]);
   });
 
   it('returns successful no-op auth actions in mock mode', async () => {
@@ -161,6 +197,7 @@ describe('useAuth', () => {
     expect(signOutResponse.error).toBeNull();
     expect(mockSignInWithPassword).not.toHaveBeenCalled();
     expect(mockSignOut).not.toHaveBeenCalled();
+    expect(mockDisposeActiveSyncRuntime).toHaveBeenCalledTimes(1);
     expect(mockClearLocalUserData).toHaveBeenCalledTimes(1);
   });
 

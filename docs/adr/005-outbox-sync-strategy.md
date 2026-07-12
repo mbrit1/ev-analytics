@@ -34,7 +34,7 @@ Use Dexie as the local source for domain data and a transactional outbox for rem
 - On authenticated startup, the runtime performs initial hydration once and then processes the outbox.
 - Browser `online` events and committed outbox insertions request another run.
 - Only one run may execute at a time. Triggers received during a run are coalesced into one subsequent pass.
-- Disposing the authenticated runtime removes its listeners and prevents future triggered runs; an already in-flight operation may finish.
+- Disposing the authenticated runtime removes its listeners, aborts later phases and local bookkeeping after asynchronous boundaries, and exposes a completion barrier that logout awaits before clearing Dexie.
 
 ### Initial hydration
 

@@ -66,7 +66,7 @@ function App() {
     // processing for online and newly queued local writes.
     const disposeSyncRuntime = startSyncRuntime({ isAuthenticated: Boolean(user) });
     return () => {
-      disposeSyncRuntime();
+      void disposeSyncRuntime();
     };
   }, [user]);
 

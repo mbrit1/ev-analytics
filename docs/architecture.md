@@ -74,6 +74,8 @@ Domain screens read from Dexie. Feature hooks scope records to the authenticated
 - requests additional passes after browser `online` events and committed outbox insertions; and
 - coalesces overlapping triggers so only one pass runs at a time.
 
+Runtime disposal aborts later synchronization phases and local bookkeeping after asynchronous boundaries. Sign-out waits for the disposed runtime's active pass to quiesce before atomically clearing local user data, so a delayed hydration response cannot repopulate Dexie after logout cleanup.
+
 Initial hydration pulls `providers`, `charging_plans`, and remote `charging_sessions`, then bulk-upserts them into the corresponding local tables. Pull failures are isolated per table. It does not clear local tables or the outbox first.
 
 The current reconciliation model is deliberately simple: remote hydration uses primary-key upserts, then queued local payloads replay to Supabase. There is no general multi-writer merge algorithm. A pending outbox payload survives hydration, but a remote row with the same ID can temporarily replace its local domain row until replay or another local write occurs. The private, single-user product posture limits this trade-off.
