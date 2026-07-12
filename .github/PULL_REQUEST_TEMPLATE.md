@@ -1,12 +1,13 @@
 # Description
-Please include a summary of the change and which issue is fixed.
+Please include a summary of the change and the issue it addresses, if applicable.
 
-Fixes # (issue)
+No linked issue, or `Fixes #<issue-number>` if applicable.
 
 ## Type of Change
 - [ ] Bug fix (non-breaking change which fixes an issue)
 - [ ] New feature (non-breaking change which adds functionality)
 - [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
+- [ ] Refactor (internal structural or behavioral improvement without a user-facing feature or bug fix)
 - [ ] Documentation update
 
 ## Quality Checklist
