@@ -69,6 +69,16 @@ After configuring `.env.local`:
 
 If sign-in works but data access fails, check RLS and the row's `user_id` before changing application code.
 
+### Verify RLS authorization boundaries
+
+Run the RLS verifier only against a disposable Supabase test project. It creates and removes probes for two test users and must never be aimed at production. After supplying the listed environment variables through a trusted shell or secret manager, run:
+
+```bash
+node scripts/verify-rls-live.mjs
+```
+
+The verifier uses `SUPABASE_URL`, one publishable/anon key (`SUPABASE_KEY`, `SUPABASE_ANON_KEY`, or `VITE_SUPABASE_PUBLISHABLE_KEY`), plus `RLS_USER1_EMAIL`, `RLS_USER1_PASSWORD`, `RLS_USER2_EMAIL`, and `RLS_USER2_PASSWORD`. It checks owner CRUD, anonymous and cross-user denial, spoofed ownership, and ownership-scoped foreign keys for all domain tables. It cannot prove the policies deployed to a different project; run it separately against each disposable deployment under review.
+
 ## Deploy to Cloudflare
 
 The application is deployed with Wrangler using the configuration in `wrangler.jsonc`. The `npm run deploy` command builds the Vite application before running `wrangler deploy`.
