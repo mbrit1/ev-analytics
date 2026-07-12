@@ -4,6 +4,7 @@ import type { User, Session, AuthError } from '@supabase/supabase-js';
 import { supabase } from '../../../infra/supabase';
 import { isMockMode } from '../../../infra/mocks';
 import { clearLocalUserData } from '../../../infra/db';
+import { disposeActiveSyncRuntime } from '../../offline-sync';
 
 interface AuthContextType {
   /** The current Supabase user, or the local mock user when mock mode is active. */
@@ -81,6 +82,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = async (): Promise<{ error: AuthError | null }> => {
     if (isMockMode()) {
       try {
+        await disposeActiveSyncRuntime();
         await clearLocalUserData();
         return { error: null };
       } catch (error) {
@@ -95,6 +97,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
+      await disposeActiveSyncRuntime();
       await clearLocalUserData();
       return { error: null };
     } catch (clearError) {

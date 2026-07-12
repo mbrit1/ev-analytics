@@ -1,9 +1,12 @@
 import { db } from '../../../infra/db';
 
 export interface SyncEngineModule {
-  initialSync: () => Promise<void>;
-  processOutbox: () => Promise<void>;
+  initialSync: (options?: { signal?: AbortSignal }) => Promise<void>;
+  processOutbox: (options?: { signal?: AbortSignal }) => Promise<void>;
 }
+
+/** Stops a sync runtime and resolves after its active pass has quiesced. */
+export type DisposeSyncRuntime = () => Promise<void>;
 
 /**
  * Dependencies used by the sync runtime orchestrator.
@@ -41,6 +44,8 @@ const defaultDeps: SyncRuntimeDeps = {
   logger: console
 };
 
+const activeRuntimeDisposers = new Set<DisposeSyncRuntime>();
+
 /**
  * Creates the default runtime dependencies used in production wiring.
  *
@@ -49,6 +54,13 @@ const defaultDeps: SyncRuntimeDeps = {
  */
 export function createDefaultSyncRuntimeDeps(): SyncRuntimeDeps {
   return defaultDeps;
+}
+
+/**
+ * Disposes the currently authenticated runtime before logout clears Dexie.
+ */
+export async function disposeActiveSyncRuntime(): Promise<void> {
+  await Promise.all([...activeRuntimeDisposers].map((dispose) => dispose()));
 }
 
 /**
@@ -61,18 +73,62 @@ export function createDefaultSyncRuntimeDeps(): SyncRuntimeDeps {
 export function startSyncRuntime(
   options: { isAuthenticated: boolean },
   deps: SyncRuntimeDeps = createDefaultSyncRuntimeDeps()
-): () => void {
+): DisposeSyncRuntime {
   if (!options.isAuthenticated) {
-    return () => undefined;
+    return async () => undefined;
   }
 
+  const abortController = new AbortController();
   let isDisposed = false;
   let isRunning = false;
   let rerunRequested = false;
   let hasHydrated = false;
   let engineModule: SyncEngineModule | undefined;
+  let activeRunPromise: Promise<void> | undefined;
+  let disposePromise: Promise<void> | undefined;
 
-  const run = async (): Promise<void> => {
+  const executeRun = async (): Promise<void> => {
+    if (!engineModule) {
+      try {
+        engineModule = await deps.loadSyncEngine();
+      } catch (error) {
+        deps.logger.error('Loading sync engine failed:', error);
+        return;
+      }
+    }
+
+    if (isDisposed || !engineModule) {
+      return;
+    }
+
+    do {
+      rerunRequested = false;
+
+      if (!hasHydrated) {
+        try {
+          await engineModule.initialSync({ signal: abortController.signal });
+          if (isDisposed) {
+            return;
+          }
+          hasHydrated = true;
+        } catch (error) {
+          deps.logger.error('Initial sync failed:', error);
+        }
+      }
+
+      if (isDisposed) {
+        return;
+      }
+
+      try {
+        await engineModule.processOutbox({ signal: abortController.signal });
+      } catch (error) {
+        deps.logger.error('Outbox processing failed:', error);
+      }
+    } while (!isDisposed && rerunRequested);
+  };
+
+  const requestRun = (): void => {
     if (isDisposed) {
       return;
     }
@@ -83,56 +139,42 @@ export function startSyncRuntime(
     }
 
     isRunning = true;
-    try {
-      if (!engineModule) {
-        try {
-          engineModule = await deps.loadSyncEngine();
-        } catch (error) {
-          deps.logger.error('Loading sync engine failed:', error);
-          return;
-        }
-      }
-
-      if (isDisposed || !engineModule) {
-        return;
-      }
-
-      do {
-        rerunRequested = false;
-
-        if (!hasHydrated) {
-          try {
-            await engineModule.initialSync();
-            hasHydrated = true;
-          } catch (error) {
-            deps.logger.error('Initial sync failed:', error);
-          }
-        }
-
-        try {
-          await engineModule.processOutbox();
-        } catch (error) {
-          deps.logger.error('Outbox processing failed:', error);
-        }
-
-      } while (!isDisposed && rerunRequested);
-    } finally {
+    const runPromise = executeRun().finally(() => {
       isRunning = false;
-    }
+      if (activeRunPromise === runPromise) {
+        activeRunPromise = undefined;
+      }
+    });
+    activeRunPromise = runPromise;
+    void runPromise;
   };
 
   const unsubscribeOnline = deps.addOnlineListener(() => {
-    void run();
+    requestRun();
   });
   const unsubscribeOutbox = deps.subscribeOutboxCreates(() => {
-    void run();
+    requestRun();
   });
 
-  void run();
+  const dispose: DisposeSyncRuntime = () => {
+    if (disposePromise) {
+      return disposePromise;
+    }
 
-  return () => {
     isDisposed = true;
+    abortController.abort();
     unsubscribeOnline();
     unsubscribeOutbox();
+    const pendingRun = activeRunPromise;
+    disposePromise = (async () => {
+      await pendingRun;
+      activeRuntimeDisposers.delete(dispose);
+    })();
+    return disposePromise;
   };
+
+  activeRuntimeDisposers.add(dispose);
+  requestRun();
+
+  return dispose;
 }

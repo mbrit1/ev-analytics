@@ -74,6 +74,11 @@ const REMOTE_CHARGING_SESSION_SELECT = REMOTE_CHARGING_SESSION_COLUMNS.join(', '
 
 export interface ProcessOutboxOptions {
   now?: () => Date;
+  signal?: AbortSignal;
+}
+
+export interface InitialSyncOptions {
+  signal?: AbortSignal;
 }
 
 interface SyncFailure {
@@ -282,8 +287,15 @@ function getInitialSyncSelectColumns(tableName: 'providers' | 'charging_plans' |
 export async function processOutbox(options: ProcessOutboxOptions = {}): Promise<void> {
   const now = options.now ?? (() => new Date());
   const items = await db.sync_outbox.orderBy('timestamp').toArray();
+  if (options.signal?.aborted) {
+    return;
+  }
 
   for (const item of items) {
+    if (options.signal?.aborted) {
+      return;
+    }
+
     const currentTime = now();
     if (item.next_attempt_at && item.next_attempt_at > currentTime) {
       // Skip delayed items but continue scanning so later ready items do not
@@ -292,6 +304,10 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
     }
 
     const result = await syncItem(item);
+    if (options.signal?.aborted) {
+      return;
+    }
+
     if (result.success) {
       await db.sync_outbox.delete(item.id!);
     } else {
@@ -404,10 +420,14 @@ async function syncItem(item: SyncOutbox): Promise<{ success: true } | ({ succes
  * without clearing any pending local writes that may still exist in the outbox.
  * Typically called on app startup or after login.
  */
-export async function initialSync(): Promise<void> {
+export async function initialSync(options: InitialSyncOptions = {}): Promise<void> {
   const tables = ['providers', 'charging_plans', 'sessions'] as const;
 
   for (const tableName of tables) {
+    if (options.signal?.aborted) {
+      return;
+    }
+
     const table = db[tableName];
     if (typeof table === 'object' && 'bulkPut' in table) {
       // Supabase keeps charging sessions under a more explicit table name than
@@ -419,7 +439,11 @@ export async function initialSync(): Promise<void> {
           data: Provider[] | RemoteChargingPlan[] | RemoteChargingSession[] | null;
           error: { message: string } | null;
         };
-      
+
+      if (options.signal?.aborted) {
+        return;
+      }
+
       if (error) {
         // Continue with the remaining tables so one failed pull does not block
         // all locally cached data from refreshing.
