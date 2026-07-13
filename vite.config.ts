@@ -1,14 +1,31 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import { visualizer } from 'rollup-plugin-visualizer'
 
 import { cloudflare } from "@cloudflare/vite-plugin";
+import { createSecurityHeaders } from './scripts/security-headers.mjs'
+
+function cloudflareStaticAssetSecurityHeaders(supabaseUrl: string): Plugin {
+  return {
+    name: 'cloudflare-static-asset-security-headers',
+    apply: 'build',
+    generateBundle() {
+      this.emitFile({
+        type: 'asset',
+        fileName: '_headers',
+        source: createSecurityHeaders(supabaseUrl),
+      })
+    },
+  }
+}
 
 // https://vite.dev/config/
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
   const shouldAnalyze = process.env.ANALYZE === 'true'
+  const supabaseUrl = env.VITE_SUPABASE_URL
 
   const plugins = [react(), tailwindcss(), VitePWA({
     registerType: 'autoUpdate',
@@ -37,7 +54,7 @@ export default defineConfig(() => {
         }
       ]
     }
-  }), cloudflare({
+  }), cloudflareStaticAssetSecurityHeaders(supabaseUrl), cloudflare({
     // DevTools inspector is optional for this SPA and prevents local dev
     // startup in restricted environments that cannot bind the default port.
     inspectorPort: false,

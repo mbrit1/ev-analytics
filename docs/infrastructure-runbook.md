@@ -109,6 +109,24 @@ The application is deployed with Wrangler using the configuration in `wrangler.j
    - an offline local write remains available after reload; and
    - the queued write synchronizes after connectivity returns.
 
+### Deployment security headers
+
+The Vite build emits a Cloudflare Workers Static Assets `_headers` file from
+[`scripts/security-headers.mjs`](../scripts/security-headers.mjs). This is the
+Workers-supported static-asset mechanism, so the policy applies to the root
+document, static PWA assets, and SPA fallback responses without adding a custom
+Worker request handler. It sets a restrictive Content Security Policy with the
+build's exact `VITE_SUPABASE_URL` origin in `connect-src`, plus anti-framing,
+MIME-sniffing, referrer, and permissions protections. The build requires an
+absolute HTTPS Supabase URL for this policy.
+
+HSTS is intentionally not emitted by the repository because its domain scope
+and preload suitability must be decided for the deployed Cloudflare hostname(s).
+Before enabling it in Cloudflare, verify the target custom-domain and
+`workers.dev` exposure policy, HTTPS-only availability, and any subdomain
+impact. After deployment, inspect response headers on both `/` and a direct SPA
+route to confirm Cloudflare is serving the emitted policy.
+
 ## Troubleshooting
 
 ### Missing Supabase configuration
