@@ -23,6 +23,7 @@ import { DatePicker, Slab } from '../../../shared/ui';
 import { ThinInput } from '../../../shared/ui';
 import { TactileMatrix } from '../../../shared/ui';
 import { formatCurrency } from '../../../shared/lib/utils';
+import { AdHocIdentityFields } from './AdHocIdentityFields';
 
 /**
  * Browser form values are kept as strings so react-hook-form can preserve
@@ -33,6 +34,8 @@ const sessionSchema = z.object({
   session_timestamp: z.string().min(1, 'Date is required'),
   /** Selected provider determines the available tariff options in plan mode. */
   provider_id: z.string(),
+  /** Company or app that billed an ad-hoc session. */
+  billing_provider_name: z.string(),
   session_mode: z.enum(['plan', 'ad_hoc']),
   /** Selected logical tariff resolves to a raw version on the chosen date. */
   logical_tariff_key: z.string().optional(),
@@ -121,11 +124,11 @@ const sessionSchema = z.object({
     return;
   }
 
-  if (!values.cpo_name?.trim()) {
+  if (!values.billing_provider_name.trim()) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ['cpo_name'],
-      message: 'CPO/Operator is required',
+      path: ['billing_provider_name'],
+      message: 'Billing provider is required',
     });
   }
 
@@ -377,6 +380,9 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       start_soc_percentage: initialValues?.start_soc_percentage?.toString() || '',
       end_soc_percentage: initialValues?.end_soc_percentage?.toString() || '',
       provider_id: initialValues?.provider_id || '',
+      billing_provider_name: initialValues?.session_mode === 'ad_hoc'
+        ? initialValues.provider_name_snapshot
+        : '',
       logical_tariff_key: '',
       kwh_billed: formatDecimalInputValue(initialValues?.kwh_billed),
       kwh_added: formatDecimalInputValue(initialValues?.kwh_added),
@@ -744,21 +750,12 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         : otherFeesAmount == null
           ? undefined
           : [{ label: 'Other fees', amount: otherFeesAmount }];
-      const selectedBillingProvider = providers.find((candidate) => candidate.id === providerId);
-      const billingProviderName = selectedBillingProvider?.name
-        ?? (existingSession?.session_mode === 'ad_hoc'
-          ? existingSession.provider_name_snapshot
-          : undefined);
-      if (!billingProviderName) {
-        throw new Error('Select a billing provider');
-      }
-
       const input = {
         ...sessionBase,
         session_mode: 'ad_hoc' as const,
         tariff_plan_id: null,
         plan_selection_id: null,
-        billing_provider_name: billingProviderName,
+        billing_provider_name: values.billing_provider_name,
         cpo_name: values.cpo_name,
         price_snapshot: {
           label: 'Ad-Hoc',
@@ -976,57 +973,11 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
               )}
             </>
           ) : (
-            <>
-              <div className="flex flex-col">
-                <label htmlFor="provider_id" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
-                  Provider <span className="text-primary" aria-hidden="true">*</span>
-                </label>
-                <Controller
-                  name="provider_id"
-                  control={control}
-                  render={({ field }) => (
-                    <select
-                      id="provider_id"
-                      {...field}
-                      onChange={(event) => {
-                        hasUserChangedProviderRef.current = true;
-                        field.onChange(event);
-                      }}
-                      required
-                      aria-required="true"
-                      aria-invalid={errors.provider_id ? 'true' : 'false'}
-                      aria-describedby={providerErrorId}
-                      className={`w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors ${
-                        selectedProviderId ? 'text-primary' : 'text-primary/70'
-                      }`}
-                    >
-                      <option value="">Select Provider</option>
-                      {hasHistoricalProviderFallback && existingSession && (
-                          <option value={existingSession.provider_id ?? undefined}>
-                          {existingSession.provider_name_snapshot}
-                        </option>
-                      )}
-                      {providers.map(p => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                    </select>
-                  )}
-                />
-                {errors.provider_id && (
-                  <p id={providerErrorId} className="text-sm text-red-500 font-medium mt-1.5">{errors.provider_id.message}</p>
-                )}
-              </div>
-              <ThinInput
-                label="CPO/Operator"
-                requiredIndicator
-                required
-                aria-required="true"
-                type="text"
-                placeholder="Operator name"
-                {...register('cpo_name')}
-                error={errors.cpo_name?.message}
-              />
-            </>
+            <AdHocIdentityFields
+              billingProviderRegistration={register('billing_provider_name')}
+              billingProviderError={errors.billing_provider_name?.message}
+              cpoRegistration={register('cpo_name')}
+            />
           )}
         </div>
 
