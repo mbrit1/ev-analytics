@@ -76,7 +76,7 @@ Domain screens read from Dexie. Feature hooks scope records to the authenticated
 
 Runtime disposal aborts later synchronization phases and local bookkeeping after asynchronous boundaries. Sign-out waits for the disposed runtime's active pass to quiesce before atomically clearing local user data, so a delayed hydration response cannot repopulate Dexie after logout cleanup.
 
-Initial hydration pulls `providers`, `charging_plans`, and remote `charging_sessions`, then bulk-upserts them into the corresponding local tables. Pull failures are isolated per table. It does not clear local tables or the outbox first.
+Initial hydration pulls `providers`, `charging_plans`, and remote `charging_sessions`, then bulk-upserts them into the corresponding local tables. Remote session rows are validated against the plan/ad-hoc mode contract before any session batch is written. Pull, validation, and write failures are isolated per table. Hydration does not clear local tables or the outbox first.
 
 The current reconciliation model is deliberately simple: remote hydration uses primary-key upserts, then queued local payloads replay to Supabase. There is no general multi-writer merge algorithm. A pending outbox payload survives hydration, but a remote row with the same ID can temporarily replace its local domain row until replay or another local write occurs. The private, single-user product posture limits this trade-off.
 
@@ -101,10 +101,12 @@ The canonical local model and Dexie versions live in [`src/infra/db/db.ts`](../s
 | Provider | `providers` | `providers` | User-owned, unique active name, soft-deleted |
 | Charging plan version | `charging_plans` | `charging_plans` | Date-bounded pricing version; remote schema prevents overlapping active versions for the same user/provider/name |
 | Provider plan selection | `provider_plan_selections` | `provider_plan_selections` | Validity history with a price snapshot; replayed by the outbox but not initially hydrated |
-| Charging session | `sessions` | `charging_sessions` | Plan or ad-hoc session with provider, plan, and price snapshots for historical stability |
+| Charging session | `sessions` | `charging_sessions` | Plan session linked to a saved provider and plan, or unlinked ad-hoc session with billing-provider, optional CPO, and price snapshots |
 | Pending mutation | `sync_outbox` | None | Local-only durable replay queue with action, payload, timestamps, retry metadata, and error state |
 
 Shared UUIDs identify the same domain rows locally and remotely. Supabase RLS restricts every remote domain table to `auth.uid() = user_id`, as recorded in [ADR 004](./adr/004-supabase-auth-and-rls.md).
+
+Charging sessions use a mode-discriminated identity contract. Plan sessions require a saved `provider_id` and `tariff_plan_id` and cannot carry ad-hoc pricing. Ad-hoc sessions require `provider_id`, `tariff_plan_id`, and `plan_selection_id` to be null; their nonblank `provider_name_snapshot` is the billing provider, while `ad_hoc_pricing.cpoName` is optional charging-station-operator context. Saving an ad-hoc session does not create a provider, charging plan, or plan-selection row. The mode/linkage invariant is represented by the local discriminated union, validated during remote hydration, and enforced by Supabase constraints.
 
 Money values, including session totals and per-kWh prices, are integer cents. Energy values are decimal kWh. Timestamps are stored as UTC-capable instants; charging-plan validity uses date values. Optional measurements remain absent when unknown rather than being converted to zero. Session pricing snapshots preserve historical display and calculation inputs even when plans later change or are deleted; see [ADR 006](./adr/006-tariff-snapshots.md).
 
