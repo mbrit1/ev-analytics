@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react'
+import { act, renderHook, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ChargingPlan } from '../../../infra/db'
 import { getChargingPlanHistory } from '../services/planService'
@@ -68,5 +68,38 @@ describe('useChargingPlanHistory', () => {
     // Assert: The failure is an explicit state, not successful empty data.
     await waitFor(() => expect(result.current.status).toBe('error'))
     expect(result.current).toEqual({ status: 'error', error })
+  })
+
+  it('returns to loading instead of exposing stale history when references change', async () => {
+    // Arrange: Resolve plan 1, then hold the replacement plan 2 query open.
+    const planTwo = { ...plan, id: 'plan-2' }
+    let resolvePlanTwo: ((plans: ChargingPlan[]) => void) | undefined
+    vi.mocked(getChargingPlanHistory)
+      .mockResolvedValueOnce([plan])
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolvePlanTwo = resolve
+      }))
+    const { result, rerender } = renderHook(
+      ({ planIds }) => useChargingPlanHistory(planIds),
+      { initialProps: { planIds: ['plan-1'] } },
+    )
+    await waitFor(() => expect(result.current).toEqual({
+      status: 'success',
+      planVersions: [plan],
+    }))
+
+    // Act: Request a different tariff history while its query is unresolved.
+    rerender({ planIds: ['plan-2'] })
+
+    // Assert: The old plan cannot be mistaken for the new reference result.
+    expect(result.current).toEqual({ status: 'loading' })
+    await waitFor(() => expect(resolvePlanTwo).toBeDefined())
+    await act(async () => {
+      resolvePlanTwo?.([planTwo])
+    })
+    await waitFor(() => expect(result.current).toEqual({
+      status: 'success',
+      planVersions: [planTwo],
+    }))
   })
 })

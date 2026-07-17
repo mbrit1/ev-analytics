@@ -43,6 +43,8 @@ describe('useMonthlySessionSpend', () => {
       sessions: [buildSession(new Date(2026, 5, 10, 12), 1234, 18.4)],
       pendingSyncIds: new Set(),
       isLoading: true,
+      error: null,
+      pendingSyncError: null,
     })
 
     // Act: Render the hook for June.
@@ -66,6 +68,8 @@ describe('useMonthlySessionSpend', () => {
       ],
       pendingSyncIds: new Set(),
       isLoading: false,
+      error: null,
+      pendingSyncError: null,
     })
     const now = new Date(2026, 6, 15)
 
