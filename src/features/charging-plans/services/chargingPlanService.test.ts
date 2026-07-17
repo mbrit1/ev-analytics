@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { db, type ChargingPlan, type ChargingSession } from '../../../infra/db'
 import {
   deleteLogicalTariff,
+  getChargingPlanHistory,
   getChargingPlans,
   getChargingPlanVersions,
   getEffectiveChargingPlanAt,
@@ -118,6 +119,84 @@ describe('planService', () => {
     await db.provider_plan_selections.clear()
     await db.sessions.clear()
     await db.sync_outbox.clear()
+  })
+
+  it('returns an empty charging-plan history for no referenced plan ids', async () => {
+    // Arrange: Seed unrelated history that must not leak into an unscoped read.
+    await db.charging_plans.add(buildPlan({ id: 'unrelated' }))
+
+    // Act: Request history without any session references.
+    const plans = await getChargingPlanHistory('user-1', [])
+
+    // Assert: The narrow read returns an empty successful result.
+    expect(plans).toEqual([])
+  })
+
+  it('returns referenced plans and their user-scoped logical-tariff siblings', async () => {
+    // Arrange: Seed one referenced deleted promotion and its complete timeline.
+    const deletedPromotion = buildPlan({
+      id: 'deleted-promotion',
+      name: ' EnBW L ',
+      valid_from: '2026-06-01' as unknown as Date,
+      valid_to: '2026-07-01' as unknown as Date,
+      deleted_at: '2026-08-01' as unknown as Date,
+    })
+    const activeSibling = buildPlan({
+      id: 'active-sibling',
+      name: 'enbw l',
+      valid_from: '2026-07-01' as unknown as Date,
+    })
+    const unrelatedDeleted = buildPlan({
+      id: 'unrelated-deleted',
+      name: 'EnBW M',
+      deleted_at: utc('2026-08-01'),
+    })
+    const otherUserSibling = buildPlan({
+      id: 'other-user-sibling',
+      user_id: 'user-2',
+      name: 'ENBW L',
+    })
+    const otherUserReference = buildPlan({
+      id: 'other-user-reference',
+      user_id: 'user-2',
+      provider_id: 'provider-2',
+      name: 'Private tariff',
+    })
+    await db.charging_plans.bulkAdd([
+      unrelatedDeleted,
+      otherUserSibling,
+      activeSibling,
+      deletedPromotion,
+      otherUserReference,
+    ])
+    await db.provider_plan_selections.add({
+      id: 'selection-1',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      tariff_plan_id: deletedPromotion.id,
+      valid_from: utc('2026-06-01'),
+      valid_to: null,
+      price_snapshot: { label: 'EnBW L', kWhPrice: 49 },
+      created_at: utc('2026-06-01'),
+      updated_at: utc('2026-06-01'),
+    })
+
+    // Act: Include duplicates, a missing id, and another user's exact id.
+    const plans = await getChargingPlanHistory('user-1', [
+      deletedPromotion.id,
+      'missing-plan',
+      deletedPromotion.id,
+      otherUserReference.id,
+    ])
+
+    // Assert: Only the complete relevant user-owned logical timeline is returned.
+    expect(plans.map((plan) => plan.id)).toEqual([
+      'deleted-promotion',
+      'active-sibling',
+    ])
+    expect(plans.every((plan) => plan.valid_from instanceof Date)).toBe(true)
+    expect(plans[0]?.valid_to).toBeInstanceOf(Date)
+    expect(plans[0]?.deleted_at).toBeInstanceOf(Date)
   })
 
   it('schedules a permanent successor and queues two atomic outbox mutations', async () => {
