@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS public.charging_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   session_timestamp TIMESTAMPTZ NOT NULL,
-  provider_id UUID NOT NULL,
+  provider_id UUID,
   provider_name_snapshot TEXT NOT NULL,
   charging_plan_name_snapshot TEXT,
   charging_type TEXT NOT NULL CHECK (charging_type IN ('AC', 'DC')),
@@ -185,27 +185,41 @@ CREATE TABLE IF NOT EXISTS public.charging_sessions (
       start_soc_percentage IS NULL
       OR end_soc_percentage IS NULL
       OR end_soc_percentage >= start_soc_percentage
+    )
+);
+
+-- Keep the canonical schema rerunnable against an existing private project.
+-- The production workflow verifies that no legacy ad-hoc rows exist before
+-- replacing the former plan/ad-hoc checks with the one-version contract.
+ALTER TABLE public.charging_sessions
+  ALTER COLUMN provider_id DROP NOT NULL,
+  DROP CONSTRAINT IF EXISTS sessions_plan_requirement_check,
+  DROP CONSTRAINT IF EXISTS charging_sessions_plan_mode_requirements,
+  DROP CONSTRAINT IF EXISTS charging_sessions_mode_contract_check,
+  DROP CONSTRAINT IF EXISTS charging_sessions_provider_name_snapshot_check;
+
+ALTER TABLE public.charging_sessions
+  ADD CONSTRAINT charging_sessions_provider_name_snapshot_check
+    CHECK (
+      provider_name_snapshot ~ '[^[:space:]]'
+      AND provider_name_snapshot !~ '^[[:space:]]|[[:space:]]$'
     ),
-  -- Enforce mutually exclusive pricing payloads by session_mode.
-  CONSTRAINT sessions_plan_requirement_check
+  ADD CONSTRAINT charging_sessions_mode_contract_check
     CHECK (
       (
         session_mode = 'plan'
+        AND provider_id IS NOT NULL
         AND tariff_plan_id IS NOT NULL
         AND ad_hoc_pricing IS NULL
       )
       OR (
         session_mode = 'ad_hoc'
+        AND provider_id IS NULL
         AND tariff_plan_id IS NULL
+        AND plan_selection_id IS NULL
         AND ad_hoc_pricing IS NOT NULL
       )
-    ),
-  CONSTRAINT charging_sessions_plan_mode_requirements
-    CHECK (
-      (session_mode = 'plan' AND tariff_plan_id IS NOT NULL)
-      OR (session_mode = 'ad_hoc' AND tariff_plan_id IS NULL AND plan_selection_id IS NULL)
-    )
-);
+    );
 
 ALTER TABLE public.charging_sessions ENABLE ROW LEVEL SECURITY;
 
