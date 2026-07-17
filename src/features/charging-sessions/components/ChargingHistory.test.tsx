@@ -116,6 +116,115 @@ describe('ChargingHistory', () => {
     expect(screen.queryByText('Charging History')).not.toBeInTheDocument();
   });
 
+  it('renders the billing provider as primary identity and a distinct CPO as secondary context', async () => {
+    // Arrange: persist the real-world two-party ad-hoc identity example.
+    const session = buildSession('session-cariqa', '2026-07-17T10:00:00.000Z', {
+      session_mode: 'ad_hoc',
+      provider_id: null,
+      provider_name_snapshot: 'Cariqa',
+      charging_plan_name_snapshot: 'Ad-Hoc',
+      tariff_plan_id: null,
+      plan_selection_id: null,
+      pricing_context: 'ad_hoc',
+      ad_hoc_pricing: {
+        cpoName: 'TEAG',
+        pricePerKwh: 59,
+        pricePerSession: null,
+        receiptUrl: null,
+        notes: null,
+      },
+    });
+    await act(async () => {
+      await saveSession(session);
+    });
+
+    // Act: render the history card from local persistence.
+    render(<ChargingHistory />);
+
+    // Assert: commercial roles are presented with the required hierarchy and copy.
+    expect(await screen.findByRole('heading', { name: 'Cariqa' })).toBeInTheDocument();
+    expect(screen.getByText('Operated by TEAG')).toBeInTheDocument();
+    expect(screen.queryByText(/^TEAG$/)).not.toBeInTheDocument();
+  });
+
+  it('omits unavailable or equivalent operator metadata without changing the billing identity', async () => {
+    // Arrange: persist one missing-CPO session and one case/whitespace-equivalent session.
+    await act(async () => {
+      await saveSession(buildSession('session-no-cpo', '2026-07-17T10:00:00.000Z', {
+        session_mode: 'ad_hoc',
+        provider_id: null,
+        provider_name_snapshot: 'Cariqa',
+        charging_plan_name_snapshot: 'Ad-Hoc',
+        tariff_plan_id: null,
+        plan_selection_id: null,
+        pricing_context: 'ad_hoc',
+        ad_hoc_pricing: {
+          cpoName: null,
+          pricePerKwh: 59,
+          pricePerSession: null,
+          receiptUrl: null,
+          notes: null,
+        },
+      }));
+      await saveSession(buildSession('session-same-cpo', '2026-07-18T10:00:00.000Z', {
+        session_mode: 'ad_hoc',
+        provider_id: null,
+        provider_name_snapshot: 'FastNet',
+        charging_plan_name_snapshot: 'Ad-Hoc',
+        tariff_plan_id: null,
+        plan_selection_id: null,
+        pricing_context: 'ad_hoc',
+        ad_hoc_pricing: {
+          cpoName: '  fastnet  ',
+          pricePerKwh: 59,
+          pricePerSession: null,
+          receiptUrl: null,
+          notes: null,
+        },
+      }));
+    });
+
+    // Act: render both canonical display cases.
+    render(<ChargingHistory />);
+
+    // Assert: no invented or duplicate operator line is shown.
+    expect(await screen.findByRole('heading', { name: 'Cariqa' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'FastNet' })).toBeInTheDocument();
+    expect(screen.queryByText(/Operated by/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Unknown/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps a long billing-provider name readable within the history card', async () => {
+    // Arrange: persist an ad-hoc session with a deliberately long primary identity.
+    const longName = 'A very long billing provider name used for cross-border charging receipts';
+    await act(async () => {
+      await saveSession(buildSession('session-long-provider', '2026-07-19T10:00:00.000Z', {
+        session_mode: 'ad_hoc',
+        provider_id: null,
+        provider_name_snapshot: longName,
+        charging_plan_name_snapshot: 'Ad-Hoc',
+        tariff_plan_id: null,
+        plan_selection_id: null,
+        pricing_context: 'ad_hoc',
+        ad_hoc_pricing: {
+          cpoName: null,
+          pricePerKwh: 59,
+          pricePerSession: null,
+          receiptUrl: null,
+          notes: null,
+        },
+      }));
+    });
+
+    // Act: render the long identity.
+    render(<ChargingHistory />);
+
+    // Assert: the complete name remains visible and may wrap instead of overflowing.
+    const heading = await screen.findByRole('heading', { name: longName });
+    expect(heading).toHaveClass('break-words');
+    expect(heading.parentElement).toHaveClass('min-w-0');
+  });
+
   it('renders month group labels and stable summaries while keeping session cards visible', async () => {
     // Arrange: Save sessions across two months, including explicit zero totals.
     render(<ChargingHistory />);
