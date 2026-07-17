@@ -132,15 +132,18 @@ type RemoteChargingPlanPayload = Pick<
 type RemoteChargingPlan = ChargingPlan & {
   valid_period?: unknown;
 };
-type RemoteChargingSession = Omit<
-  ChargingSession,
-  'session_timestamp' | 'created_at' | 'updated_at' | 'deleted_at'
-> & {
+interface RemoteChargingSession extends Record<string, unknown> {
   session_timestamp: Date | string;
+  provider_id: string | null;
+  provider_name_snapshot: string;
+  session_mode: 'plan' | 'ad_hoc';
+  tariff_plan_id: string | null;
+  ad_hoc_pricing?: unknown;
+  plan_selection_id?: string | null;
   created_at: Date | string;
   updated_at: Date | string;
-  deleted_at?: Date | string;
-};
+  deleted_at?: Date | string | null;
+}
 
 function getRetryDelayMs(retryCount: number): number {
   const exponentialDelay = BASE_RETRY_DELAY_MS * (2 ** Math.max(0, retryCount - 1));
@@ -251,14 +254,108 @@ function normalizeRemoteChargingPlan(plan: RemoteChargingPlan): ChargingPlan {
   return localPlan;
 }
 
-function normalizeRemoteChargingSession(session: RemoteChargingSession): ChargingSession {
-  return {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isNonBlankTrimmedString(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.trim() === value;
+}
+
+function parseRemoteDate(value: unknown, fieldName: string): Date {
+  if (!(typeof value === 'string' || value instanceof Date)) {
+    throw new Error(`Invalid charging session ${fieldName}`);
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(`Invalid charging session ${fieldName}`);
+  }
+
+  return parsed;
+}
+
+function parseRemoteChargingSession(value: unknown): RemoteChargingSession {
+  if (!isRecord(value)) {
+    throw new Error('Invalid charging session row');
+  }
+
+  if (
+    !isNonBlankTrimmedString(value.id)
+    || !isNonBlankTrimmedString(value.user_id)
+    || !isNonBlankTrimmedString(value.provider_name_snapshot)
+    || (value.charging_type !== 'AC' && value.charging_type !== 'DC')
+    || typeof value.kwh_billed !== 'number'
+    || !Number.isFinite(value.kwh_billed)
+    || typeof value.total_cost !== 'number'
+    || !Number.isFinite(value.total_cost)
+    || typeof value.applied_session_fee !== 'number'
+    || !Number.isFinite(value.applied_session_fee)
+  ) {
+    throw new Error('Invalid charging session base fields');
+  }
+
+  parseRemoteDate(value.session_timestamp, 'session_timestamp');
+  parseRemoteDate(value.created_at, 'created_at');
+  parseRemoteDate(value.updated_at, 'updated_at');
+  if (value.deleted_at != null) {
+    parseRemoteDate(value.deleted_at, 'deleted_at');
+  }
+
+  if (value.session_mode === 'plan') {
+    if (!isNonBlankTrimmedString(value.provider_id)) {
+      throw new Error('Plan charging session requires a provider id');
+    }
+    if (!isNonBlankTrimmedString(value.tariff_plan_id)) {
+      throw new Error('Plan charging session requires a tariff plan id');
+    }
+    if (value.ad_hoc_pricing != null) {
+      throw new Error('Plan charging session cannot include ad-hoc pricing');
+    }
+    if (value.plan_selection_id != null && !isNonBlankTrimmedString(value.plan_selection_id)) {
+      throw new Error('Plan charging session has an invalid plan selection id');
+    }
+  } else if (value.session_mode === 'ad_hoc') {
+    if (value.provider_id !== null) {
+      throw new Error('Ad-hoc charging session cannot include a provider id');
+    }
+    if (value.tariff_plan_id !== null || value.plan_selection_id !== null) {
+      throw new Error('Ad-hoc charging session cannot include plan linkage');
+    }
+    if (!isRecord(value.ad_hoc_pricing)) {
+      throw new Error('Ad-hoc charging session requires pricing details');
+    }
+
+    const pricePerKwh = value.ad_hoc_pricing.pricePerKwh;
+    if (pricePerKwh !== null && (typeof pricePerKwh !== 'number' || !Number.isFinite(pricePerKwh))) {
+      throw new Error('Ad-hoc charging session has invalid pricing details');
+    }
+
+    const cpoName = value.ad_hoc_pricing.cpoName;
+    if (cpoName != null && !isNonBlankTrimmedString(cpoName)) {
+      throw new Error('Ad-hoc charging session has an invalid CPO snapshot');
+    }
+  } else {
+    throw new Error('Invalid charging session mode');
+  }
+
+  return value as RemoteChargingSession;
+}
+
+function normalizeRemoteChargingSession(value: unknown): ChargingSession {
+  const session = parseRemoteChargingSession(value);
+  const normalized = {
     ...session,
-    session_timestamp: new Date(session.session_timestamp),
-    created_at: new Date(session.created_at),
-    updated_at: new Date(session.updated_at),
-    deleted_at: session.deleted_at == null ? undefined : new Date(session.deleted_at),
-  } as ChargingSession;
+    session_timestamp: parseRemoteDate(session.session_timestamp, 'session_timestamp'),
+    created_at: parseRemoteDate(session.created_at, 'created_at'),
+    updated_at: parseRemoteDate(session.updated_at, 'updated_at'),
+    deleted_at: session.deleted_at == null
+      ? undefined
+      : parseRemoteDate(session.deleted_at, 'deleted_at'),
+    pricing_context: session.session_mode === 'ad_hoc' ? 'ad_hoc' : undefined,
+  };
+
+  return normalized as ChargingSession;
 }
 
 function getInitialSyncSelectColumns(tableName: 'providers' | 'charging_plans' | 'sessions'): string {
@@ -452,14 +549,20 @@ export async function initialSync(options: InitialSyncOptions = {}): Promise<voi
       }
 
       if (data && data.length > 0) {
-        if (tableName === 'providers') await db.providers.bulkPut(data as Provider[]);
-        if (tableName === 'charging_plans') {
-          await db.charging_plans.bulkPut((data as RemoteChargingPlan[]).map(normalizeRemoteChargingPlan));
-        }
-        if (tableName === 'sessions') {
-          await db.sessions.bulkPut(
-            (data as RemoteChargingSession[]).map(normalizeRemoteChargingSession)
-          );
+        try {
+          if (tableName === 'providers') await db.providers.bulkPut(data as Provider[]);
+          if (tableName === 'charging_plans') {
+            await db.charging_plans.bulkPut((data as RemoteChargingPlan[]).map(normalizeRemoteChargingPlan));
+          }
+          if (tableName === 'sessions') {
+            const sessions = (data as RemoteChargingSession[]).map(normalizeRemoteChargingSession);
+            await db.sessions.bulkPut(sessions);
+          }
+        } catch (err) {
+          // A malformed or unwritable table response must not block the other
+          // independently hydrated domain tables.
+          const message = err instanceof Error ? err.message : String(err);
+          console.error(`Error hydrating data for ${tableName}:`, message);
         }
       }
     }
