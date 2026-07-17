@@ -190,8 +190,8 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
           <div className="space-y-4">
             {group.sessions.map((session) => {
               const cardContent = (
-                <div className="flex justify-between items-center">
-                  <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0 flex-1 space-y-1.5">
                     <div className="flex items-center text-[10px] font-bold uppercase tracking-widest text-secondary">
                       <Calendar className="w-3 h-3 mr-1.5" />
                       {new Date(session.session_timestamp).toLocaleDateString('de-DE', {
@@ -200,7 +200,7 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
                         year: 'numeric',
                       })}
                     </div>
-                    <h3 className="text-lg font-bold text-primary leading-tight">
+                    <h3 className="break-words text-lg font-bold leading-tight text-primary">
                       {session.provider_name_snapshot || 'Unknown Provider'}
                     </h3>
                     <div className="flex flex-wrap items-center gap-3">
@@ -215,15 +215,13 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
                         const cpoName = session.ad_hoc_pricing?.cpoName?.trim();
                         const providerName = (session.provider_name_snapshot || '').trim().toLowerCase();
                         const shouldShowCpoName = cpoName != null && cpoName.toLowerCase() !== providerName;
-                        const metadataParts = [shouldShowCpoName ? cpoName : null].filter(Boolean);
-
-                        if (metadataParts.length === 0) {
+                        if (!shouldShowCpoName) {
                           return null;
                         }
 
                         return (
                           <p className="text-xs text-secondary/80 font-medium">
-                            {metadataParts.join(' • ')}
+                            Operated by {cpoName}
                           </p>
                         );
                       })()}
@@ -234,7 +232,7 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
                       )}
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="shrink-0 text-right">
                     <p className="text-4xl font-semibold text-primary tabular-nums tracking-tight">
                       {formatCurrency(session.total_cost)}
                     </p>
