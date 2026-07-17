@@ -169,4 +169,55 @@ describe('EVAnalyticsDB', () => {
     expect(retrieved?.start_soc_percentage).toBeUndefined()
     expect(retrieved?.end_soc_percentage).toBeUndefined()
   })
+
+  it('should atomically round-trip an ad-hoc session and outbox payload with no provider link', async () => {
+    // Arrange: Build the canonical local record for Cariqa billing at a TEAG charger.
+    const now = new Date('2026-07-17T08:00:00.000Z')
+    const session: Extract<ChargingSession, { session_mode: 'ad_hoc' }> = {
+      id: 'ad-hoc-null-provider',
+      user_id: 'user-123',
+      session_timestamp: now,
+      provider_id: null,
+      provider_name_snapshot: 'Cariqa',
+      tariff_plan_id: null,
+      charging_plan_name_snapshot: null,
+      charging_type: 'DC',
+      kwh_billed: 20,
+      total_cost: 1180,
+      session_mode: 'ad_hoc',
+      plan_selection_id: null,
+      pricing_context: 'ad_hoc',
+      ad_hoc_pricing: { cpoName: 'TEAG', pricePerKwh: 59 },
+      applied_price_per_kwh: 59,
+      applied_session_fee: 0,
+      created_at: now,
+      updated_at: now,
+    }
+
+    // Act: Persist the session and matching outbox entry in one local transaction.
+    await db.transaction('rw', [db.sessions, db.sync_outbox], async () => {
+      await db.sessions.put(session)
+      await db.sync_outbox.add({
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: session,
+        timestamp: now,
+      })
+    })
+
+    // Assert: IndexedDB preserves null linkage and both identity snapshots.
+    const storedSession = await db.sessions.get(session.id)
+    const [storedOutbox] = await db.sync_outbox.toArray()
+    expect(storedSession).toMatchObject({
+      provider_id: null,
+      provider_name_snapshot: 'Cariqa',
+      ad_hoc_pricing: { cpoName: 'TEAG' },
+    })
+    expect(storedOutbox.payload).toMatchObject({
+      id: session.id,
+      provider_id: null,
+      provider_name_snapshot: 'Cariqa',
+      ad_hoc_pricing: { cpoName: 'TEAG' },
+    })
+  })
 })

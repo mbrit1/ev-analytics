@@ -110,6 +110,33 @@ function buildChargingSession(overrides: SessionOverrides = {}): ChargingSession
   } as unknown as ChargingSession
 }
 
+function buildAdHocChargingSession(
+  overrides: Partial<Extract<ChargingSession, { session_mode: 'ad_hoc' }>> = {}
+): Extract<ChargingSession, { session_mode: 'ad_hoc' }> {
+  const now = new Date('2026-05-21T00:00:00.000Z')
+  return {
+    id: 'ad-hoc-session-default',
+    user_id: 'user-1',
+    session_timestamp: new Date('2026-05-21T12:00:00.000Z'),
+    provider_id: null,
+    provider_name_snapshot: 'Cariqa',
+    tariff_plan_id: null,
+    charging_plan_name_snapshot: null,
+    charging_type: 'DC',
+    kwh_billed: 10,
+    total_cost: 590,
+    session_mode: 'ad_hoc',
+    plan_selection_id: null,
+    pricing_context: 'ad_hoc',
+    ad_hoc_pricing: { cpoName: 'TEAG', pricePerKwh: 59 },
+    applied_price_per_kwh: 59,
+    applied_session_fee: 0,
+    created_at: now,
+    updated_at: now,
+    ...overrides,
+  }
+}
+
 function buildProviderPlanSelection(overrides: Partial<ProviderPlanSelection> = {}): ProviderPlanSelection {
   const now = new Date('2026-05-21T00:00:00.000Z')
   return {
@@ -838,6 +865,40 @@ describe('syncEngine', () => {
     })
   })
 
+  it('uploads explicit provider identities for plan and ad-hoc sessions', async () => {
+    // Arrange: Queue one linked plan session and one unlinked ad-hoc session.
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: buildChargingSession({ id: 'plan-provider-upload', provider_id: 'provider-plan' }),
+        timestamp: new Date('2026-05-21T12:00:00.000Z'),
+      },
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: buildAdHocChargingSession({ id: 'ad-hoc-provider-upload' }),
+        timestamp: new Date('2026-05-21T12:01:00.000Z'),
+      },
+    ])
+
+    // Act: Upload both canonical session variants.
+    await processOutbox()
+
+    // Assert: Plan linkage is preserved and ad-hoc identity remains snapshot-only.
+    expect(mockUpsert).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      id: 'plan-provider-upload',
+      provider_id: 'provider-plan',
+    }))
+    expect(mockUpsert).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      id: 'ad-hoc-provider-upload',
+      provider_id: null,
+      provider_name_snapshot: 'Cariqa',
+    }))
+  })
+
   it('should treat check-constraint violations as non-retryable validation failures', async () => {
     // Arrange: Return a Supabase check violation for a session payload.
     const now = new Date('2026-05-21T12:00:00.000Z')
@@ -1354,6 +1415,96 @@ describe('syncEngine', () => {
     expect(localSession?.created_at).toBeInstanceOf(Date)
     expect(localSession?.updated_at).toBeInstanceOf(Date)
     expect(localSession?.session_timestamp.toISOString()).toBe('2026-06-03T08:15:00.000Z')
+  })
+
+  it('hydrates an ad-hoc billing provider and CPO without creating a provider link', async () => {
+    // Arrange: Supabase returns the billing-provider and operator snapshots.
+    const remoteSession = {
+      ...buildAdHocChargingSession({ id: 'ad-hoc-hydration' }),
+      session_timestamp: '2026-06-03T08:15:00.000Z',
+      created_at: '2026-06-03T08:20:00.000Z',
+      updated_at: '2026-06-03T08:20:00.000Z',
+    }
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      select: () => Promise.resolve({
+        data: tableName === 'charging_sessions' ? [remoteSession] : [],
+        error: null,
+      })
+    }) as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Hydrate the remote session into Dexie.
+    await initialSync()
+
+    // Assert: The role snapshots round-trip while provider linkage remains absent.
+    const localSession = await db.sessions.get('ad-hoc-hydration')
+    expect(localSession).toMatchObject({
+      session_mode: 'ad_hoc',
+      provider_id: null,
+      provider_name_snapshot: 'Cariqa',
+      ad_hoc_pricing: { cpoName: 'TEAG', pricePerKwh: 59 },
+    })
+  })
+
+  it.each([
+    ['plan session without a provider', { ...buildChargingSession(), provider_id: null }],
+    ['ad-hoc session with a provider link', { ...buildAdHocChargingSession(), provider_id: 'provider-linked' }],
+    ['ad-hoc session without a billing-provider snapshot', { ...buildAdHocChargingSession(), provider_name_snapshot: '   ' }],
+    ['ad-hoc session with a blank CPO snapshot', {
+      ...buildAdHocChargingSession(),
+      ad_hoc_pricing: { cpoName: '   ', pricePerKwh: 59 },
+    }],
+    ['ad-hoc session with a non-string CPO snapshot', {
+      ...buildAdHocChargingSession(),
+      ad_hoc_pricing: { cpoName: 42, pricePerKwh: 59 },
+    }],
+  ])('rejects %s before writing the session batch', async (_description, invalidSession) => {
+    // Arrange: Keep an existing row that an invalid remote batch must not replace.
+    const existingSession = buildChargingSession({ id: 'existing-session' })
+    await db.sessions.add(existingSession)
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      select: () => Promise.resolve({
+        data: tableName === 'charging_sessions'
+          ? [buildChargingSession({ id: 'otherwise-valid-session' }), invalidSession]
+          : [],
+        error: null,
+      })
+    }) as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Attempt to hydrate a session batch containing an invalid row.
+    await initialSync()
+
+    // Assert: Validation is atomic for the session table.
+    expect(await db.sessions.toArray()).toEqual([existingSession])
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      'Error hydrating data for sessions:',
+      expect.any(String)
+    )
+  })
+
+  it('isolates invalid session hydration from providers and charging plans', async () => {
+    // Arrange: Return valid earlier tables and an invalid session provider combination.
+    const provider = buildProvider({ id: 'hydrated-provider' })
+    const plan = buildChargingPlan({ id: 'hydrated-plan', provider_id: provider.id })
+    const existingSession = buildChargingSession({ id: 'preserved-session' })
+    await db.sessions.add(existingSession)
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      select: () => Promise.resolve({
+        data: tableName === 'providers'
+          ? [provider]
+          : tableName === 'charging_plans'
+            ? [plan]
+            : [{ ...buildAdHocChargingSession(), provider_id: provider.id }],
+        error: null,
+      })
+    }) as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Hydrate all remote tables.
+    await initialSync()
+
+    // Assert: Only the invalid sessions table is rejected.
+    expect(await db.providers.toArray()).toEqual([provider])
+    expect(await db.charging_plans.toArray()).toEqual([plan])
+    expect(await db.sessions.toArray()).toEqual([existingSession])
   })
 
   it('should continue initialSync when one remote table fails', async () => {
