@@ -17,6 +17,10 @@ vi.mock('../../auth', () => ({
  * from the Dexie live-query subscription used by {@link useSessions}.
  */
 describe('ChargingHistory', () => {
+  type SessionOverrides =
+    | Partial<Extract<ChargingSession, { session_mode: 'plan' }>>
+    | Partial<Extract<ChargingSession, { session_mode: 'ad_hoc' }>>;
+
   const scrollIntoViewMock = vi.fn();
   const scrollToMock = vi.fn();
   const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
@@ -25,7 +29,7 @@ describe('ChargingHistory', () => {
   function buildSession(
     id: string,
     sessionTimestamp: string,
-    overrides: Partial<ChargingSession> = {}
+    overrides: SessionOverrides = {}
   ): ChargingSession {
     const timestamp = new Date(sessionTimestamp);
 
@@ -54,7 +58,7 @@ describe('ChargingHistory', () => {
       created_at: timestamp,
       updated_at: timestamp,
       ...overrides,
-    };
+    } as unknown as ChargingSession;
   }
 
   beforeEach(async () => {

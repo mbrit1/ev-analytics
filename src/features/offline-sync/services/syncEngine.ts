@@ -258,7 +258,7 @@ function normalizeRemoteChargingSession(session: RemoteChargingSession): Chargin
     created_at: new Date(session.created_at),
     updated_at: new Date(session.updated_at),
     deleted_at: session.deleted_at == null ? undefined : new Date(session.deleted_at),
-  };
+  } as ChargingSession;
 }
 
 function getInitialSyncSelectColumns(tableName: 'providers' | 'charging_plans' | 'sessions'): string {

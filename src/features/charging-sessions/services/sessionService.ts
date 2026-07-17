@@ -1,5 +1,16 @@
-import { createSyncOutboxEntry, db, type ChargingSession, type ChargingPlan, type Provider } from '../../../infra/db';
-import type { SessionPreparationInput } from '../model/types';
+import {
+  createSyncOutboxEntry,
+  db,
+  type AdHocPricingSnapshot,
+  type ChargingPlan,
+  type ChargingPlanSession,
+  type ChargingSession,
+  type Provider,
+} from '../../../infra/db';
+import type {
+  ChargingPlanSessionPreparationInput,
+  SessionPreparationInput,
+} from '../model/types';
 import { sortSessionsNewestFirst } from '../model/types';
 import {
   type SetActivePlanSelectionInput,
@@ -97,29 +108,30 @@ export function prepareSession(
   plan?: ChargingPlan,
   provider?: Provider
 ): ChargingSession {
-  const nextModeInput = input as SessionPreparationInput & {
-    session_mode?: 'plan' | 'ad_hoc';
-    tariff_plan_id?: string | null;
-    plan_selection_id?: string | null;
-    price_snapshot?: {
-      label: string;
-      kWhPrice: number;
-      sessionFee?: number;
-      blockingFee?: number;
-    };
+  const boundaryInput = input as SessionPreparationInput & {
+    provider_id?: unknown;
+    tariff_plan_id?: unknown;
+    plan_selection_id?: unknown;
+    ad_hoc_pricing?: unknown;
   };
 
-  if (nextModeInput.session_mode === 'plan') {
-    if (!nextModeInput.tariff_plan_id) {
+  if (input.session_mode === 'plan') {
+    if (!input.tariff_plan_id) {
       throw new Error('tariff_plan_id is required for plan pricing');
+    }
+    if (boundaryInput.ad_hoc_pricing != null) {
+      throw new Error('ad_hoc_pricing must be absent for plan pricing');
     }
   }
 
-  if (nextModeInput.session_mode === 'ad_hoc') {
-    if (nextModeInput.tariff_plan_id) {
+  if (input.session_mode === 'ad_hoc') {
+    if (boundaryInput.provider_id != null) {
+      throw new Error('provider_id must be null for ad_hoc pricing');
+    }
+    if (boundaryInput.tariff_plan_id != null) {
       throw new Error('tariff_plan_id must be null for ad_hoc pricing');
     }
-    if (nextModeInput.plan_selection_id) {
+    if (boundaryInput.plan_selection_id != null) {
       throw new Error('plan_selection_id must be null for ad_hoc pricing');
     }
   }
@@ -215,8 +227,8 @@ export function prepareSession(
       id: crypto.randomUUID(),
       session_mode: 'plan',
       tariff_plan_id: input.tariff_plan_id,
-      plan_selection_id: nextModeInput.plan_selection_id,
-      price_snapshot: nextModeInput.price_snapshot ?? {
+      plan_selection_id: input.plan_selection_id,
+      price_snapshot: input.price_snapshot ?? {
         label: `${provider.name} ${plan.name}`,
         kWhPrice: normalizedAppliedPricePerKwh,
         sessionFee: appliedSessionFee
@@ -241,21 +253,15 @@ export function prepareSession(
   if (!input.ad_hoc_pricing) {
     throw new Error('ad_hoc_pricing is required for ad_hoc pricing');
   }
-  if (!input.provider_id) {
-    throw new Error('provider_id is required for ad_hoc pricing');
-  }
-  if (input.tariff_plan_id != null) {
-    throw new Error('tariff_plan_id must be null for ad_hoc pricing');
-  }
-  if (!input.ad_hoc_pricing.cpoName?.trim()) {
-    throw new Error('ad_hoc_pricing.cpoName is required for ad_hoc pricing');
+  const billingProviderName = input.billing_provider_name.trim();
+  if (!billingProviderName) {
+    throw new Error('billing_provider_name is required for ad_hoc pricing');
   }
 
-  const ad_hocSnapshot: ChargingSession['ad_hoc_pricing'] = structuredClone(input.ad_hoc_pricing);
-  const cpoNameRaw = ad_hocSnapshot.cpoName;
-  if (!cpoNameRaw?.trim()) {
-    throw new Error('ad_hoc_pricing.cpoName is required for ad_hoc pricing');
-  }
+  const ad_hocSnapshot: AdHocPricingSnapshot = {
+    ...structuredClone(input.ad_hoc_pricing),
+    cpoName: input.cpo_name?.trim() || null,
+  };
   const pricePerKwh = ad_hocSnapshot.pricePerKwh == null
     ? null
     : assertIntegerCents(ad_hocSnapshot.pricePerKwh, 'ad_hoc_pricing.pricePerKwh');
@@ -273,25 +279,31 @@ export function prepareSession(
   const otherFeesTotal = ad_hocSnapshot.otherFees?.reduce((sum, fee) => {
     return sum + assertIntegerCents(fee.amount, `ad_hoc_pricing.otherFees.${fee.label}.amount`);
   }, 0) ?? 0;
-  const cpoName = cpoNameRaw.trim();
-
   const totalCost = assertNonNegativeTotalCost(perKwhCost + sessionCost + otherFeesTotal);
-
   return {
-    ...input,
+    user_id: input.user_id,
+    session_timestamp: input.session_timestamp,
+    charging_type: input.charging_type,
+    kwh_billed: input.kwh_billed,
+    kwh_added: input.kwh_added,
+    odometer_km: input.odometer_km,
+    start_soc_percentage: input.start_soc_percentage,
+    end_soc_percentage: input.end_soc_percentage,
+    notes: input.notes,
     id: crypto.randomUUID(),
     session_mode: 'ad_hoc',
     tariff_plan_id: null,
     plan_selection_id: null,
-    price_snapshot: nextModeInput.price_snapshot ?? {
+    price_snapshot: input.price_snapshot ?? {
       label: 'Ad-Hoc',
       kWhPrice: pricePerKwh ?? 0,
       sessionFee: sessionCost,
       blockingFee: otherFeesTotal > 0 ? otherFeesTotal : undefined
     },
-    provider_id: input.provider_id,
-    provider_name_snapshot: cpoName,
+    provider_id: null,
+    provider_name_snapshot: billingProviderName,
     charging_plan_name_snapshot: 'Ad-Hoc',
+    pricing_context: 'ad_hoc',
     total_cost: totalCost,
     ad_hoc_pricing: ad_hocSnapshot,
     applied_price_per_kwh: pricePerKwh ?? undefined,
@@ -307,11 +319,11 @@ export function prepareSession(
 }
 
 type PlanPricingIdentityInput = Pick<
-  SessionPreparationInput,
+  ChargingPlanSessionPreparationInput,
   'provider_id' | 'session_timestamp' | 'charging_type'
 > & {
   tariff_plan_id?: string | null;
-  pricing_context?: ChargingSession['pricing_context'];
+  pricing_context?: ChargingPlanSession['pricing_context'];
 };
 
 /**
@@ -339,12 +351,13 @@ export function prepareSessionEdit(
   plan?: ChargingPlan,
   provider?: Provider
 ): ChargingSession {
-  if ((existing.session_mode ?? 'plan') !== input.session_mode) {
+  if (existing.session_mode !== input.session_mode) {
     throw new Error('Pricing source cannot be changed while editing a session');
   }
 
   if (
-    input.session_mode === 'plan'
+    existing.session_mode === 'plan'
+    && input.session_mode === 'plan'
     && !hasPlanPricingIdentityChanged(existing, input)
   ) {
     assertChargingSessionInvariants(input);
@@ -405,21 +418,30 @@ async function persistSessionUpdate(session: ChargingSession): Promise<void> {
     throw new Error(`Session not found: ${session.id}`);
   }
 
-  const updatedAt = new Date();
-  const updatedSession: ChargingSession = {
-    ...session,
-    id: existing.id,
-    user_id: existing.user_id,
-    created_at: existing.created_at,
-    session_mode: existing.session_mode,
-    deleted_at: existing.deleted_at,
-    updated_at: updatedAt,
-  };
-
-  const updatedRows = await db.sessions.update(existing.id, updatedSession);
-  if (updatedRows !== 1) {
-    throw new Error(`Session not found: ${existing.id}`);
+  if (existing.session_mode !== session.session_mode) {
+    throw new Error('Pricing source cannot be changed while editing a session');
   }
+
+  const updatedAt = new Date();
+  const updatedSession: ChargingSession = session.session_mode === 'plan'
+    ? {
+      ...session,
+      id: existing.id,
+      user_id: existing.user_id,
+      created_at: existing.created_at,
+      deleted_at: existing.deleted_at,
+      updated_at: updatedAt,
+    }
+    : {
+      ...session,
+      id: existing.id,
+      user_id: existing.user_id,
+      created_at: existing.created_at,
+      deleted_at: existing.deleted_at,
+      updated_at: updatedAt,
+    };
+
+  await db.sessions.put(updatedSession);
 
   await db.sync_outbox.add(createSyncOutboxEntry('sessions', 'UPDATE', updatedSession, updatedAt));
 }
@@ -433,6 +455,9 @@ async function persistSessionRequest(
     let planSelectionMutation: Awaited<ReturnType<typeof buildPlanSelectionMutationWithinSessionTransaction>> | undefined;
 
     if (request.planSelectionChange) {
+      if (session.session_mode !== 'plan') {
+        throw new Error('Plan selection changes require a plan session');
+      }
       planSelectionMutation = await buildPlanSelectionMutationWithinSessionTransaction(request.planSelectionChange);
       session = {
         ...session,
