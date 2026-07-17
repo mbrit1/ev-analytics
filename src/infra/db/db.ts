@@ -101,17 +101,15 @@ export interface ProviderPlanSelection {
 }
 
 /**
- * Charging event entered by the user and stored offline-first.
+ * Fields shared by every charging event stored offline-first.
  */
-export interface ChargingSession {
+interface ChargingSessionBase {
   /** UUID shared between local Dexie and Supabase. */
   id: string;
   /** Owner id used by Supabase RLS policies. */
   user_id: string;
   /** Date/time when the charging session occurred. */
   session_timestamp: Date;
-  /** Provider id selected for the session (plan and ad-hoc). */
-  provider_id: string;
   /** Provider name snapshot for stable history rendering. */
   provider_name_snapshot: string;
   /** Optional charging plan name snapshot for stable history rendering. */
@@ -124,18 +122,8 @@ export interface ChargingSession {
   kwh_added?: number;
   /** Calculated total session cost in cents. */
   total_cost: number;
-  /** Canonical session mode for hard-cutover model. */
-  session_mode?: 'plan' | 'ad_hoc';
-  /** Canonical tariff plan id in hard-cutover model. */
-  tariff_plan_id?: string | null;
-  /** Canonical plan selection history row id in hard-cutover model. */
-  plan_selection_id?: string | null;
   /** Canonical immutable snapshot in hard-cutover model. */
   price_snapshot?: TariffPriceSnapshot;
-  /** Transitional compatibility mode to preserve standard vs roaming semantics. */
-  pricing_context?: 'standard' | 'roaming' | 'ad_hoc';
-  /** Optional ad-hoc pricing snapshot used for this session. */
-  ad_hoc_pricing?: AdHocPricingSnapshot | null;
   /** Optional odometer reading captured with the session. */
   odometer_km?: number;
   /** Battery state of charge before charging, as a percentage. */
@@ -167,6 +155,33 @@ export interface ChargingSession {
   /** Soft-delete marker retained so deletes can sync remotely. */
   deleted_at?: Date;
 }
+
+/**
+ * Charging session priced through a saved provider and charging plan.
+ */
+export interface ChargingPlanSession extends ChargingSessionBase {
+  session_mode: 'plan';
+  provider_id: string;
+  tariff_plan_id: string;
+  plan_selection_id?: string | null;
+  pricing_context?: 'standard' | 'roaming';
+  ad_hoc_pricing?: never;
+}
+
+/**
+ * One-off charging session whose billing provider is stored only as a snapshot.
+ */
+export interface AdHocChargingSession extends ChargingSessionBase {
+  session_mode: 'ad_hoc';
+  provider_id: null;
+  tariff_plan_id: null;
+  plan_selection_id: null;
+  pricing_context: 'ad_hoc';
+  ad_hoc_pricing: AdHocPricingSnapshot;
+}
+
+/** Charging event stored as one of the canonical pricing-source variants. */
+export type ChargingSession = ChargingPlanSession | AdHocChargingSession;
 
 /**
  * Data payload types that can be replayed by the offline sync outbox.

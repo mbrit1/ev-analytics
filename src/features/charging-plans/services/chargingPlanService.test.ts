@@ -67,7 +67,11 @@ const seedBaselineAndScheduledSuccessor = async (): Promise<void> => {
   ])
 }
 
-const buildSession = (overrides: Partial<ChargingSession> = {}): ChargingSession => ({
+type SessionOverrides =
+  | Partial<Extract<ChargingSession, { session_mode: 'plan' }>>
+  | Partial<Extract<ChargingSession, { session_mode: 'ad_hoc' }>>
+
+const buildSession = (overrides: SessionOverrides = {}): ChargingSession => ({
   id: crypto.randomUUID(),
   user_id: 'user-1',
   session_timestamp: utc('2026-06-01'),
@@ -83,7 +87,7 @@ const buildSession = (overrides: Partial<ChargingSession> = {}): ChargingSession
   created_at: utc('2026-06-01'),
   updated_at: utc('2026-06-01'),
   ...overrides,
-})
+} as unknown as ChargingSession)
 
 const sortedLogicalRows = (plans: ChargingPlan[]): ChargingPlan[] =>
   [...plans].sort((left, right) => {

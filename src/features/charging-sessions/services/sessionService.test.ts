@@ -107,7 +107,11 @@ describe('sessionService', () => {
     ];
   }
 
-  function buildSessionFixture(overrides: Partial<ChargingSession> = {}): ChargingSession {
+  type SessionOverrides =
+    | Partial<Extract<ChargingSession, { session_mode: 'plan' }>>
+    | Partial<Extract<ChargingSession, { session_mode: 'ad_hoc' }>>;
+
+  function buildSessionFixture(overrides: SessionOverrides = {}): ChargingSession {
     return {
       id: 'session-fixture',
       user_id: 'user-456',
@@ -130,7 +134,7 @@ describe('sessionService', () => {
       created_at: new Date(),
       updated_at: new Date(),
       ...overrides
-    };
+    } as unknown as ChargingSession;
   }
 
   it('requires tariff_plan_id/provider/plan when session_mode is plan', () => {
@@ -239,12 +243,13 @@ describe('sessionService', () => {
     const input = {
       user_id: 'u1',
       session_timestamp: new Date('2026-05-28T00:00:00Z'),
-      provider_id: 'p1',
       session_mode: 'ad_hoc' as const,
       tariff_plan_id: 'tp1',
       plan_selection_id: 'ps1',
       charging_type: 'AC' as const,
       kwh_billed: 10,
+      billing_provider_name: 'Cariqa',
+      cpo_name: 'TEAG',
       price_snapshot: { label: 'Ad-Hoc', kWhPrice: 59 },
     } as unknown as Parameters<typeof prepareSession>[0];
 
@@ -341,11 +346,13 @@ describe('sessionService', () => {
     const input = {
       user_id: 'u1',
       session_timestamp: new Date(),
-      provider_id: 'p1',
       tariff_plan_id: null,
+      plan_selection_id: null,
       charging_type: 'AC' as const,
       session_mode: 'ad_hoc' as const,
-      kwh_billed: 10
+      kwh_billed: 10,
+      billing_provider_name: 'Cariqa',
+      cpo_name: null,
     } as unknown as Parameters<typeof prepareSession>[0];
 
     // Act/Assert: ad-hoc pricing snapshot is mandatory.
@@ -353,17 +360,23 @@ describe('sessionService', () => {
   });
 
   it('calculates ad_hoc totals from supported components without saved plan', () => {
-    // Arrange: Ad-hoc pricing with energy, session, and additional fees.
+    // Arrange: Cariqa bills the session while TEAG operates the charger.
     const input = {
       user_id: 'u1',
       session_timestamp: new Date(),
-      provider_id: 'p1',
       tariff_plan_id: null,
+      plan_selection_id: null,
       charging_type: 'DC' as const,
       session_mode: 'ad_hoc' as const,
       kwh_billed: 10,
-      ad_hoc_pricing: ad_hocPricing
-    };
+      billing_provider_name: '  Cariqa  ',
+      cpo_name: '  TEAG  ',
+      ad_hoc_pricing: {
+        pricePerKwh: 55,
+        pricePerSession: 199,
+        otherFees: [{ label: 'Parking', amount: 50, notes: 'First hour' }]
+      }
+    } as unknown as Parameters<typeof prepareSession>[0];
 
     // Act: Prepare session using only ad-hoc snapshot input.
     const session = prepareSession(input);
@@ -371,12 +384,17 @@ describe('sessionService', () => {
     // Assert: 10*55 + 199 + 50 = 799 cents.
     expect(session.total_cost).toBe(799);
     expect(session.applied_price_per_kwh).toBe(55);
-    expect(session.provider_name_snapshot).toBe('Guest CPO');
-    expect(session.provider_id).toBe('p1');
+    expect(session.provider_name_snapshot).toBe('Cariqa');
+    expect(session.provider_id).toBeNull();
     expect(session.tariff_plan_id).toBeNull();
     expect(session.charging_plan_name_snapshot).toBe('Ad-Hoc');
     expect(session.session_mode).toBe('ad_hoc');
-    expect(session.ad_hoc_pricing).toEqual(ad_hocPricing);
+    expect(session.ad_hoc_pricing).toEqual({
+      cpoName: 'TEAG',
+      pricePerKwh: 55,
+      pricePerSession: 199,
+      otherFees: [{ label: 'Parking', amount: 50, notes: 'First hour' }]
+    });
     expect(Number.isInteger(session.total_cost)).toBe(true);
   });
 
@@ -385,17 +403,19 @@ describe('sessionService', () => {
     const input = {
       user_id: 'u1',
       session_timestamp: new Date(),
-      provider_id: 'p1',
       tariff_plan_id: null,
+      plan_selection_id: null,
       charging_type: 'DC' as const,
       session_mode: 'ad_hoc' as const,
       kwh_billed: 3,
+      billing_provider_name: 'Cariqa',
+      cpo_name: 'TEAG',
       ad_hoc_pricing: { ...ad_hocPricing, otherFees: [...(ad_hocPricing.otherFees ?? [])] }
-    };
+    } as unknown as Parameters<typeof prepareSession>[0];
 
     // Act: build session, then mutate source snapshot object.
     const session = prepareSession(input);
-    input.ad_hoc_pricing.otherFees?.push({ label: 'Late fee', amount: 400, notes: 'Mutated later' });
+    input.ad_hoc_pricing?.otherFees?.push({ label: 'Late fee', amount: 400, notes: 'Mutated later' });
 
     // Assert: stored snapshot does not change after caller mutation.
     expect(session.ad_hoc_pricing?.otherFees).toHaveLength(1);
@@ -407,19 +427,21 @@ describe('sessionService', () => {
     const input = {
       user_id: 'u1',
       session_timestamp: new Date(),
-      provider_id: 'p1',
       tariff_plan_id: 'should-not-persist',
+      plan_selection_id: null,
       charging_type: 'AC' as const,
       session_mode: 'ad_hoc' as const,
       kwh_billed: 1,
-      ad_hoc_pricing: ad_hocPricing
-    };
+      billing_provider_name: 'Cariqa',
+      cpo_name: 'TEAG',
+      ad_hoc_pricing: { pricePerKwh: 55 }
+    } as unknown as Parameters<typeof prepareSession>[0];
 
     // Act/Assert
     expect(() => prepareSession(input)).toThrow('tariff_plan_id must be null for ad_hoc pricing');
   });
 
-  it('ignores ad_hoc_pricing on plan sessions', () => {
+  it('rejects ad_hoc_pricing on plan sessions', () => {
     // Arrange: include ad_hoc_pricing even though session_mode is plan.
     const input = {
       user_id: 'u1',
@@ -431,13 +453,12 @@ describe('sessionService', () => {
       pricing_context: 'standard' as const,
       kwh_billed: 2,
       ad_hoc_pricing: ad_hocPricing
-    };
+    } as unknown as Parameters<typeof prepareSession>[0];
 
-    // Act
-    const session = prepareSession(input, mockChargingPlan, mockProvider);
-
-    // Assert
-    expect(session.ad_hoc_pricing).toBeUndefined();
+    // Act/Assert: invalid mode combinations are rejected at the boundary.
+    expect(() => prepareSession(input, mockChargingPlan, mockProvider)).toThrow(
+      'ad_hoc_pricing must be absent for plan pricing'
+    );
   });
 
   it('throws when ad_hoc monetary components are non-integer cents', () => {
@@ -445,16 +466,18 @@ describe('sessionService', () => {
     const input = {
       user_id: 'u1',
       session_timestamp: new Date(),
-      provider_id: 'p1',
       tariff_plan_id: null,
+      plan_selection_id: null,
       charging_type: 'DC' as const,
       session_mode: 'ad_hoc' as const,
       kwh_billed: 4,
+      billing_provider_name: 'Cariqa',
+      cpo_name: 'TEAG',
       ad_hoc_pricing: {
         ...ad_hocPricing,
         pricePerMinute: 1.5
       }
-    };
+    } as unknown as Parameters<typeof prepareSession>[0];
 
     // Act/Assert
     expect(() => prepareSession(input)).toThrow('ad_hoc_pricing.pricePerMinute must be an integer cent amount');
@@ -465,16 +488,18 @@ describe('sessionService', () => {
     const input = {
       user_id: 'u1',
       session_timestamp: new Date(),
-      provider_id: 'p1',
       tariff_plan_id: null,
+      plan_selection_id: null,
       charging_type: 'DC' as const,
       session_mode: 'ad_hoc' as const,
       kwh_billed: 4,
+      billing_provider_name: 'Cariqa',
+      cpo_name: 'TEAG',
       ad_hoc_pricing: {
         ...ad_hocPricing,
         pricePerMinute: 3
       }
-    };
+    } as unknown as Parameters<typeof prepareSession>[0];
 
     // Act/Assert
     expect(() => prepareSession(input)).toThrow(
@@ -482,50 +507,78 @@ describe('sessionService', () => {
     );
   });
 
-  it('requires ad_hoc_pricing.cpoName when session_mode is ad_hoc', () => {
+  it('stores an unavailable CPO when the optional operator is blank', () => {
+    const input = {
+      user_id: 'u1',
+      session_timestamp: new Date(),
+      tariff_plan_id: null,
+      plan_selection_id: null,
+      charging_type: 'DC' as const,
+      session_mode: 'ad_hoc' as const,
+      kwh_billed: 4,
+      billing_provider_name: 'Cariqa',
+      cpo_name: '   ',
+      ad_hoc_pricing: {
+        pricePerKwh: 55,
+      }
+    } as unknown as Parameters<typeof prepareSession>[0];
+
+    const session = prepareSession(input);
+
+    if (session.session_mode !== 'ad_hoc') {
+      throw new Error('Expected an ad-hoc session');
+    }
+    expect(session.ad_hoc_pricing.cpoName).toBeNull();
+  });
+
+  it('rejects a blank billing provider for ad_hoc pricing', () => {
+    const input = {
+      user_id: 'u1',
+      session_timestamp: new Date(),
+      tariff_plan_id: null,
+      plan_selection_id: null,
+      charging_type: 'DC' as const,
+      session_mode: 'ad_hoc' as const,
+      kwh_billed: 4,
+      billing_provider_name: '   ',
+      cpo_name: null,
+      ad_hoc_pricing: { pricePerKwh: 55 }
+    } as unknown as Parameters<typeof prepareSession>[0];
+
+    expect(() => prepareSession(input)).toThrow('billing_provider_name is required for ad_hoc pricing');
+  });
+
+  it('rejects a saved provider relationship for ad_hoc pricing', () => {
     const input = {
       user_id: 'u1',
       session_timestamp: new Date(),
       provider_id: 'p1',
       tariff_plan_id: null,
+      plan_selection_id: null,
       charging_type: 'DC' as const,
       session_mode: 'ad_hoc' as const,
       kwh_billed: 4,
-      ad_hoc_pricing: {
-        ...ad_hocPricing,
-        cpoName: '   '
-      }
-    };
+      billing_provider_name: 'Cariqa',
+      cpo_name: 'TEAG',
+      ad_hoc_pricing: { pricePerKwh: 55 }
+    } as unknown as Parameters<typeof prepareSession>[0];
 
-    expect(() => prepareSession(input)).toThrow('ad_hoc_pricing.cpoName is required for ad_hoc pricing');
-  });
-
-  it('requires provider_id when session_mode is ad_hoc', () => {
-    const input = {
-      user_id: 'u1',
-      session_timestamp: new Date(),
-      provider_id: '',
-      tariff_plan_id: null,
-      charging_type: 'DC' as const,
-      session_mode: 'ad_hoc' as const,
-      kwh_billed: 4,
-      ad_hoc_pricing: ad_hocPricing
-    };
-
-    expect(() => prepareSession(input)).toThrow('provider_id is required for ad_hoc pricing');
+    expect(() => prepareSession(input)).toThrow('provider_id must be null for ad_hoc pricing');
   });
 
   it('requires tariff_plan_id to be null when session_mode is ad_hoc', () => {
     const input = {
       user_id: 'u1',
       session_timestamp: new Date(),
-      provider_id: 'p1',
       tariff_plan_id: 'cp1',
+      plan_selection_id: null,
       charging_type: 'DC' as const,
       session_mode: 'ad_hoc' as const,
       kwh_billed: 4,
-      ad_hoc_pricing: ad_hocPricing
-    };
+      billing_provider_name: 'Cariqa',
+      cpo_name: 'TEAG',
+      ad_hoc_pricing: { pricePerKwh: 55 }
+    } as unknown as Parameters<typeof prepareSession>[0];
 
     expect(() => prepareSession(input)).toThrow('tariff_plan_id must be null for ad_hoc pricing');
   });
@@ -571,6 +624,9 @@ describe('sessionService', () => {
       provider_name_snapshot: 'Historical Provider',
       charging_plan_name_snapshot: 'Historical Plan',
     });
+    if (original.session_mode !== 'plan') {
+      throw new Error('Expected a plan session fixture');
+    }
 
     // Act: edit only billed energy and notes without supplying current plan data.
     const edited = prepareSessionEdit(original, {
@@ -702,14 +758,15 @@ describe('sessionService', () => {
     expect(() => prepareSessionEdit(original, {
       user_id: original.user_id,
       session_timestamp: original.session_timestamp,
-      provider_id: original.provider_id,
       charging_type: original.charging_type,
       kwh_billed: original.kwh_billed,
       session_mode: 'ad_hoc',
       tariff_plan_id: null,
+      plan_selection_id: null,
+      billing_provider_name: 'Cariqa',
+      cpo_name: 'Guest CPO',
       pricing_context: 'ad_hoc',
       ad_hoc_pricing: {
-        cpoName: 'Guest CPO',
         pricePerKwh: 55,
       },
     })).toThrow('Pricing source cannot be changed while editing a session');
@@ -725,6 +782,9 @@ describe('sessionService', () => {
       pricing_context: 'standard',
       session_timestamp: new Date('2026-06-01T00:00:00.000Z'),
     });
+    if (original.session_mode !== 'plan') {
+      throw new Error('Expected a plan session fixture');
+    }
 
     // Act/Assert: unchanged-identity edits still enforce the same input invariants.
     expect(() => prepareSessionEdit(original, {
@@ -746,6 +806,7 @@ describe('sessionService', () => {
     const original = buildSessionFixture({
       id: 'session-ad-hoc-preserve-fees',
       session_mode: 'ad_hoc',
+      provider_id: null,
       tariff_plan_id: null,
       plan_selection_id: null,
       pricing_context: 'ad_hoc',
@@ -770,15 +831,16 @@ describe('sessionService', () => {
     const edited = prepareSessionEdit(original, {
       user_id: original.user_id,
       session_timestamp: original.session_timestamp,
-      provider_id: original.provider_id,
       charging_type: original.charging_type,
       kwh_billed: original.kwh_billed,
       notes: 'Updated note',
       session_mode: 'ad_hoc',
       tariff_plan_id: null,
+      plan_selection_id: null,
+      billing_provider_name: 'Guest CPO',
+      cpo_name: 'Guest CPO',
       pricing_context: 'ad_hoc',
       ad_hoc_pricing: {
-        cpoName: 'Guest CPO',
         pricePerKwh: 55,
         pricePerSession: 199,
         otherFees: [
@@ -802,6 +864,7 @@ describe('sessionService', () => {
     const original = buildSessionFixture({
       id: 'session-ad-hoc-rewrite-fees',
       session_mode: 'ad_hoc',
+      provider_id: null,
       tariff_plan_id: null,
       plan_selection_id: null,
       pricing_context: 'ad_hoc',
@@ -826,14 +889,15 @@ describe('sessionService', () => {
     const edited = prepareSessionEdit(original, {
       user_id: original.user_id,
       session_timestamp: original.session_timestamp,
-      provider_id: original.provider_id,
       charging_type: original.charging_type,
       kwh_billed: original.kwh_billed,
       session_mode: 'ad_hoc',
       tariff_plan_id: null,
+      plan_selection_id: null,
+      billing_provider_name: 'Guest CPO',
+      cpo_name: 'Guest CPO',
       pricing_context: 'ad_hoc',
       ad_hoc_pricing: {
-        cpoName: 'Guest CPO',
         pricePerKwh: 55,
         pricePerSession: 199,
         otherFees: [{ label: 'Other fees', amount: 250 }],
@@ -894,6 +958,9 @@ describe('sessionService', () => {
       plan_selection_id: 'selection-new',
       price_snapshot: { label: 'Provider Plan', kWhPrice: 40, sessionFee: 0 },
     });
+    if (session.session_mode !== 'plan') {
+      throw new Error('Expected a plan session fixture');
+    }
     const request: SessionPersistenceRequest = {
       session,
       planSelectionChange: {
@@ -940,6 +1007,9 @@ describe('sessionService', () => {
       plan_selection_id: 'selection-new',
       price_snapshot: { label: 'Provider Plan', kWhPrice: 40, sessionFee: 0 },
     });
+    if (session.session_mode !== 'plan') {
+      throw new Error('Expected a plan session fixture');
+    }
 
     // Act/Assert: no partial selection or session data survives the rejected transaction.
     await expect(updateSessionWithPlanSelection({
@@ -975,7 +1045,6 @@ describe('sessionService', () => {
       ...original,
       user_id: 'caller-user',
       created_at: new Date('2026-06-02T08:00:00.000Z'),
-      session_mode: 'ad_hoc',
       deleted_at: undefined,
       notes: 'Edited',
     });

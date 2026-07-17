@@ -189,7 +189,11 @@ describe('SessionForm', () => {
     };
   }
 
-  function buildSessionFixture(overrides: Partial<ChargingSession> = {}): ChargingSession {
+  type SessionOverrides =
+    | Partial<Extract<ChargingSession, { session_mode: 'plan' }>>
+    | Partial<Extract<ChargingSession, { session_mode: 'ad_hoc' }>>;
+
+  function buildSessionFixture(overrides: SessionOverrides = {}): ChargingSession {
     const timestamp = new Date('2026-06-01T00:00:00.000Z');
 
     return {
@@ -217,7 +221,7 @@ describe('SessionForm', () => {
       created_at: timestamp,
       updated_at: timestamp,
       ...overrides,
-    };
+    } as unknown as ChargingSession;
   }
 
   beforeEach(() => {
@@ -1020,7 +1024,7 @@ describe('SessionForm', () => {
     // Arrange: the saved provider no longer exists in the live provider list.
     const initialValues = buildSessionFixture({
       id: 'session-retired-ad-hoc',
-      provider_id: 'retired-provider',
+      provider_id: null,
       provider_name_snapshot: 'Retired Provider',
       session_mode: 'ad_hoc',
       tariff_plan_id: null,
@@ -1046,14 +1050,15 @@ describe('SessionForm', () => {
     fireEvent.change(screen.getByLabelText(/^notes$/i), { target: { value: 'Updated note' } });
     fireEvent.click(screen.getByRole('button', { name: /save session/i }));
 
-    // Assert: edit submission still succeeds and preserves the retired provider id.
+    // Assert: edit submission preserves the billing-provider snapshot without restoring a provider link.
     await waitFor(() => {
       expect(mockOnSubmit).toHaveBeenCalledWith(
         expect.objectContaining({
           session: expect.objectContaining({
             id: 'session-retired-ad-hoc',
             session_mode: 'ad_hoc',
-            provider_id: 'retired-provider',
+            provider_id: null,
+            provider_name_snapshot: 'Retired Provider',
             tariff_plan_id: null,
             ad_hoc_pricing: expect.objectContaining({
               cpoName: 'FastNet',
@@ -1213,7 +1218,8 @@ describe('SessionForm', () => {
         expect.objectContaining({
           session: expect.objectContaining({
             session_mode: 'ad_hoc',
-            provider_id: 'p1',
+            provider_id: null,
+            provider_name_snapshot: 'ChargePoint',
             tariff_plan_id: null,
             ad_hoc_pricing: expect.objectContaining({
               cpoName: 'FastNet',

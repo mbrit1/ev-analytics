@@ -34,7 +34,11 @@ function buildChargingPlan(overrides: Partial<ChargingPlan> = {}): ChargingPlan 
   };
 }
 
-function buildChargingSession(overrides: Partial<ChargingSession> = {}): ChargingSession {
+type SessionOverrides =
+  | Partial<Extract<ChargingSession, { session_mode: 'plan' }>>
+  | Partial<Extract<ChargingSession, { session_mode: 'ad_hoc' }>>;
+
+function buildChargingSession(overrides: SessionOverrides = {}): ChargingSession {
   const now = new Date('2026-05-21T00:00:00.000Z');
   return {
     id: 'session-default',
@@ -53,7 +57,7 @@ function buildChargingSession(overrides: Partial<ChargingSession> = {}): Chargin
     created_at: now,
     updated_at: now,
     ...overrides
-  };
+  } as unknown as ChargingSession;
 }
 
 /**

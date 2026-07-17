@@ -32,7 +32,7 @@ const sessionSchema = z.object({
   /** Date-only input; converted to a Date when the session is prepared. */
   session_timestamp: z.string().min(1, 'Date is required'),
   /** Selected provider determines the available tariff options in plan mode. */
-  provider_id: z.string().min(1, 'Provider is required'),
+  provider_id: z.string(),
   session_mode: z.enum(['plan', 'ad_hoc']),
   /** Selected logical tariff resolves to a raw version on the chosen date. */
   logical_tariff_key: z.string().optional(),
@@ -102,15 +102,15 @@ const sessionSchema = z.object({
     }
   }
 
-  if (!values.provider_id?.trim()) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['provider_id'],
-      message: 'Provider is required',
-    });
-  }
-
   if (values.session_mode === 'plan') {
+    if (!values.provider_id.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['provider_id'],
+        message: 'Provider is required',
+      });
+    }
+
     if (!values.logical_tariff_key) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -641,9 +641,9 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       };
 
       const providerId = values.provider_id;
-      if (!providerId) return;
 
       if (values.session_mode === 'plan') {
+        if (!providerId) return;
         if (!values.logical_tariff_key) {
           setError('logical_tariff_key', {
             type: 'manual',
@@ -744,13 +744,22 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         : otherFeesAmount == null
           ? undefined
           : [{ label: 'Other fees', amount: otherFeesAmount }];
+      const selectedBillingProvider = providers.find((candidate) => candidate.id === providerId);
+      const billingProviderName = selectedBillingProvider?.name
+        ?? (existingSession?.session_mode === 'ad_hoc'
+          ? existingSession.provider_name_snapshot
+          : undefined);
+      if (!billingProviderName) {
+        throw new Error('Select a billing provider');
+      }
 
       const input = {
         ...sessionBase,
-        provider_id: providerId,
         session_mode: 'ad_hoc' as const,
         tariff_plan_id: null,
         plan_selection_id: null,
+        billing_provider_name: billingProviderName,
+        cpo_name: values.cpo_name,
         price_snapshot: {
           label: 'Ad-Hoc',
           kWhPrice: pricePerKwh,
@@ -759,7 +768,6 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         },
         pricing_context: 'ad_hoc' as const,
         ad_hoc_pricing: {
-          cpoName: values.cpo_name?.trim() || null,
           pricePerKwh,
           pricePerSession: sessionFee,
           receiptUrl: values.ad_hoc_receipt_url || null,
@@ -884,7 +892,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                     >
                       <option value="">Select Provider</option>
                       {hasHistoricalProviderFallback && existingSession && (
-                        <option value={existingSession.provider_id}>
+                          <option value={existingSession.provider_id ?? undefined}>
                           {existingSession.provider_name_snapshot}
                         </option>
                       )}
@@ -994,7 +1002,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                     >
                       <option value="">Select Provider</option>
                       {hasHistoricalProviderFallback && existingSession && (
-                        <option value={existingSession.provider_id}>
+                          <option value={existingSession.provider_id ?? undefined}>
                           {existingSession.provider_name_snapshot}
                         </option>
                       )}

@@ -9,11 +9,15 @@ import { groupSessionsByMonth } from './groupSessionsByMonth';
  * and immutability of the original session input.
  */
 describe('groupSessionsByMonth', () => {
+  type SessionOverrides =
+    | Partial<Extract<ChargingSession, { session_mode: 'plan' }>>
+    | Partial<Extract<ChargingSession, { session_mode: 'ad_hoc' }>>;
+
   function buildSession(
     id: string,
     sessionTimestamp: string,
     createdAt: string,
-    overrides: Partial<ChargingSession> = {}
+    overrides: SessionOverrides = {}
   ): ChargingSession {
     return {
       id,
@@ -40,7 +44,7 @@ describe('groupSessionsByMonth', () => {
       created_at: new Date(createdAt),
       updated_at: new Date(createdAt),
       ...overrides,
-    };
+    } as unknown as ChargingSession;
   }
 
   it('groups sessions by month with newest months first', () => {
