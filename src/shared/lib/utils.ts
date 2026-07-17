@@ -19,6 +19,22 @@ export function formatCurrency(cents: number): string {
   return `${formatCentsToDecimal(cents)} €`;
 }
 
+/**
+ * Formats a full-precision cents-per-kWh rate for primary KPI display.
+ *
+ * @param ctPerKwh - The unrounded rate in cents per kWh
+ * @param locale - The active locale supplied by the presentation layer
+ * @returns Localized rate with exactly one fractional digit and its unit
+ */
+export function formatCtPerKwh(ctPerKwh: number, locale: string): string {
+  const formattedRate = new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(ctPerKwh);
+
+  return `${formattedRate} ct/kWh`;
+}
+
 /** Formats a local calendar month for the English-language application UI. */
 export function formatMonthLabel(year: number, month: number): string {
   return new Intl.DateTimeFormat('en-GB', {
