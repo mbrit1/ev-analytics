@@ -7,6 +7,11 @@ import { formatCentsToDecimal } from '../../../shared/lib';
 import { DatePicker, ThinInput } from '../../../shared/ui';
 import { useProviders } from '../hooks/useProviders';
 import {
+  addUtcDays,
+  formatUtcDate,
+  parseUtcDateInput,
+} from '../model/logicalTariffs';
+import {
   tariffPriceFields,
   toTariffPriceInput,
 } from './tariffMoney';
@@ -76,20 +81,16 @@ function coerceDate(value: unknown): Date | null {
 function formatDateInputValue(dateLike: unknown): string {
   const date = coerceDate(dateLike);
   if (!date) return '';
-  const year = date.getUTCFullYear();
-  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(date.getUTCDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return formatUtcDate(date);
 }
 
 /**
- * Parses a `YYYY-MM-DD` date input string into a UTC `Date`.
- *
- * This avoids local time zone offsets when persisting plan validity boundaries.
+ * Converts a stored exclusive tariff end into the last billable picker day.
  */
-function parseDateInputAsUtc(dateInput: string): Date {
-  const [year, month, day] = dateInput.split('-').map(Number);
-  return new Date(Date.UTC(year, month - 1, day));
+function formatExclusiveEndDateInputValue(dateLike: unknown): string {
+  const date = coerceDate(dateLike);
+  if (!date) return '';
+  return formatUtcDate(addUtcDays(date, -1));
 }
 
 interface ProviderSelectProps {
@@ -147,7 +148,7 @@ function StandardTariffForm({
       name: initialValues?.name ?? '',
       provider_id: initialValues?.provider_id ?? '',
       valid_from: formatDateInputValue(initialValues?.valid_from ?? new Date()),
-      valid_to: initialValues?.valid_to ? formatDateInputValue(initialValues.valid_to) : '',
+      valid_to: initialValues?.valid_to ? formatExclusiveEndDateInputValue(initialValues.valid_to) : '',
       ac_price: initialValues?.ac_price_per_kwh != null ? formatCentsToDecimal(initialValues.ac_price_per_kwh) : '',
       dc_price: initialValues?.dc_price_per_kwh != null ? formatCentsToDecimal(initialValues.dc_price_per_kwh) : '',
       roaming_ac_price: initialValues?.roaming_ac_price_per_kwh != null ? formatCentsToDecimal(initialValues.roaming_ac_price_per_kwh) : '',
@@ -163,7 +164,7 @@ function StandardTariffForm({
     const now = new Date();
     const normalizedPlanName = (values.name ?? '').trim();
     const originalValidFrom = initialValues?.valid_from ? coerceDate(initialValues.valid_from) : null;
-    const submittedValidFrom = parseDateInputAsUtc(values.valid_from);
+    const submittedValidFrom = parseUtcDateInput(values.valid_from);
     clearErrors('root.submit');
 
     if (resolvedMode === 'edit' && originalValidFrom == null) {
@@ -189,7 +190,7 @@ function StandardTariffForm({
       provider_id: values.provider_id,
       name: normalizedPlanName,
       valid_from: submittedValidFrom,
-      valid_to: values.valid_to ? parseDateInputAsUtc(values.valid_to) : null,
+      valid_to: values.valid_to ? addUtcDays(parseUtcDateInput(values.valid_to), 1) : null,
       ...prices,
       affiliation: values.affiliation || undefined,
       notes: values.notes || undefined,
