@@ -349,6 +349,43 @@ export async function getChargingPlanVersions(userId: string): Promise<ChargingP
   return plans.map(hydrateChargingPlanDates);
 }
 
+/**
+ * Loads the user-owned historical plan rows needed by referenced sessions.
+ *
+ * Exact referenced versions establish which logical tariffs are in scope;
+ * unresolved or cross-user ids remain absent. Matching siblings include
+ * soft-deleted rows so callers can reconstruct the complete tariff timeline.
+ */
+export async function getChargingPlanHistory(
+  userId: string,
+  referencedPlanIds: readonly string[]
+): Promise<ChargingPlan[]> {
+  const distinctPlanIds = [...new Set(referencedPlanIds)];
+  if (distinctPlanIds.length === 0) {
+    return [];
+  }
+
+  const referencedPlans = (await db.charging_plans.bulkGet(distinctPlanIds))
+    .filter((plan): plan is ChargingPlan => plan !== undefined && plan.user_id === userId)
+    .map(hydrateChargingPlanDates);
+  if (referencedPlans.length === 0) {
+    return [];
+  }
+
+  const logicalTariffKeys = new Set(referencedPlans.map(getLogicalTariffKey));
+  const providerIds = [...new Set(referencedPlans.map((plan) => plan.provider_id))];
+  const relatedPlans = await db.charging_plans
+    .where('provider_id')
+    .anyOf(providerIds)
+    .filter((plan) => (
+      plan.user_id === userId
+      && logicalTariffKeys.has(getLogicalTariffKey(plan))
+    ))
+    .toArray();
+
+  return sortPlansByStartDate(relatedPlans.map(hydrateChargingPlanDates));
+}
+
 export async function scheduleTemporaryPromotion(
   input: ScheduleTemporaryPromotionInput
 ): Promise<void> {
