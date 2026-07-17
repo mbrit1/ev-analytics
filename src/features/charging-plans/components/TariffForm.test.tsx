@@ -202,22 +202,43 @@ describe('TariffForm', () => {
     );
   });
 
-  it('coerces persisted date strings into displayed picker values', () => {
+  it('coerces persisted date strings and displays the exclusive end as the preceding day', () => {
     // Arrange: Provide initialValues with string dates as they might be rehydrated from storage.
     render(
       <TariffForm
         onSubmit={mockOnSubmit}
         onCancel={mockOnCancel}
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        initialValues={{ valid_from: '2026-05-31T00:00:00.000Z', valid_to: '2026-06-30T00:00:00.000Z' } as any}
+        initialValues={{ valid_from: '2026-05-31T00:00:00.000Z', valid_to: '2026-07-01T00:00:00.000Z' } as any}
       />
     );
 
     // Act: Inspect the normalized date picker triggers.
 
-    // Assert: Date pickers show normalized UTC calendar values.
+    // Assert: Valid From preserves its UTC day and Valid To shows the last billable day.
     expect(screen.getByLabelText(/valid from/i)).toHaveTextContent('31.05.2026');
     expect(screen.getByLabelText(/valid to/i)).toHaveTextContent('30.06.2026');
+  });
+
+  it('submits a selected inclusive valid-to date as the following exclusive UTC day', async () => {
+    // Arrange: Render a new tariff and choose the last billable day.
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+    pickDate(/valid to/i, '2026-06-30');
+
+    // Act: Save the tariff.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Persistence receives the canonical exclusive UTC boundary.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+    expect(mockOnSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        intent: 'create',
+        plan: expect.objectContaining({
+          valid_to: new Date('2026-07-01T00:00:00.000Z'),
+        }),
+      })
+    );
   });
 
   it('shows open-ended for an empty optional valid-to date and submits null', async () => {
@@ -353,7 +374,7 @@ describe('TariffForm', () => {
     expect(providerError.id).toBe(providerSelect.getAttribute('aria-describedby'));
   });
 
-  it('renders stored UTC dates without timezone drift in edit mode', () => {
+  it('renders the preceding UTC day for a stored exclusive end without timezone drift', () => {
     // Arrange: Use a UTC midnight date that can drift in local timezone formatting.
     render(
       <TariffForm
@@ -363,14 +384,14 @@ describe('TariffForm', () => {
           name: 'UTC Tariff',
           provider_id: 'p1',
           valid_from: new Date('2026-01-01T00:00:00.000Z'),
-          valid_to: new Date('2026-01-31T00:00:00.000Z'),
+          valid_to: new Date('2026-02-01T00:00:00.000Z'),
         }}
       />
     );
 
     // Act: Inspect the rendered edit-mode date fields.
 
-    // Assert: Date pickers preserve UTC calendar date.
+    // Assert: Valid From preserves its day and Valid To shows the inclusive boundary.
     expect(screen.getByLabelText(/valid from/i)).toHaveTextContent('01.01.2026');
     expect(screen.getByLabelText(/valid to/i)).toHaveTextContent('31.01.2026');
   });
@@ -409,6 +430,7 @@ describe('TariffForm', () => {
           provider_id: 'p1',
           name: 'Lidl',
           valid_from: new Date('2026-01-01T00:00:00.000Z'),
+          valid_to: new Date('2026-02-01T00:00:00.000Z'),
         }}
       />
     );
@@ -427,6 +449,9 @@ describe('TariffForm', () => {
           name: 'Lidl',
         },
         originalValidFrom: new Date('2026-01-01T00:00:00.000Z'),
+        plan: expect.objectContaining({
+          valid_to: new Date('2026-02-01T00:00:00.000Z'),
+        }),
       })
     );
   });
@@ -447,6 +472,7 @@ describe('TariffForm', () => {
       />
     );
     pickDate(/valid from/i, '2026-08-15');
+    pickDate(/valid to/i, '2026-12-31');
 
     // Act: change Valid From to 2026-08-15 and save.
     fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
@@ -461,6 +487,9 @@ describe('TariffForm', () => {
           name: 'Lidl',
         },
         originalValidFrom: new Date('2026-01-01T00:00:00.000Z'),
+        plan: expect.objectContaining({
+          valid_to: new Date('2027-01-01T00:00:00.000Z'),
+        }),
       })
     );
   });
