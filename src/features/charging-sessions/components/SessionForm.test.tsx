@@ -376,10 +376,11 @@ describe('SessionForm', () => {
     // Act: Select ad-hoc as pricing source.
     fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
 
-    // Assert: Provider and plan selectors are hidden and ad-hoc fields appear.
-    expect(screen.getByLabelText(/provider/i)).toBeDefined();
+    // Assert: Saved-provider controls are replaced by ad-hoc identity fields.
+    expect(screen.getByLabelText(/^billing provider/i)).toBeDefined();
+    expect(screen.queryByRole('combobox', { name: /provider/i })).toBeNull();
     expect(screen.queryByLabelText(/^plan\s*\*?$/i)).toBeNull();
-    expect(screen.getByLabelText(/cpo\/operator/i)).toBeDefined();
+    expect(screen.getByLabelText(/^charging-station operator \(cpo\)$/i)).toBeDefined();
     expect(screen.getByLabelText(/price per kwh/i)).toBeDefined();
     expect(screen.getByLabelText(/session fee/i)).toBeDefined();
     expect(screen.getByLabelText(/receipt url/i)).toBeDefined();
@@ -422,13 +423,99 @@ describe('SessionForm', () => {
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
 
-    // Assert: Conditional required labels are shown for ad-hoc fields.
+    // Assert: Only the required ad-hoc identity field receives a marker.
     expect(getLabelByTextContent('Date *')).toBeDefined();
-    expect(getLabelByTextContent('CPO/Operator *')).toBeDefined();
+    expect(getLabelByTextContent('Billing provider *')).toBeDefined();
+    expect(getLabelByTextContent('Charging-station operator (CPO)')).toBeDefined();
+    expect(() => getLabelByTextContent('Charging-station operator (CPO) *')).toThrow();
     expect(getLabelByTextContent('Price per kWh *')).toBeDefined();
     expect(getLabelByTextContent('kWh Billed *')).toBeDefined();
-    expect(screen.getByLabelText(/provider/i)).toBeDefined();
+    expect(screen.getByLabelText(/^billing provider/i)).toHaveAttribute('required');
+    expect(screen.getByLabelText(/^billing provider/i)).toHaveAttribute('aria-required', 'true');
+    expect(screen.getByLabelText(/^charging-station operator \(cpo\)$/i)).not.toHaveAttribute('required');
+    expect(screen.getByLabelText(/^charging-station operator \(cpo\)$/i)).not.toHaveAttribute('aria-required', 'true');
     expect(screen.queryByLabelText(/^plan\s*\*?$/i)).toBeNull();
+  });
+
+  it('associates persistent helper text with both ad-hoc identity fields', () => {
+    // Arrange: Render the form in ad-hoc mode.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
+
+    // Act: Locate the identity fields and their visible helper text.
+    const billingProvider = screen.getByLabelText(/^billing provider/i);
+    const billingHelper = screen.getByText('Company or app that charged you');
+    const cpo = screen.getByLabelText(/^charging-station operator \(cpo\)$/i);
+    const cpoHelper = screen.getByText('Who operates the charger? Leave blank if unknown.');
+
+    // Assert: Stable helper IDs are exposed through aria-describedby.
+    expect(billingHelper).toHaveAttribute('id', 'ad-hoc-billing-provider-help');
+    expect(billingProvider).toHaveAttribute('aria-describedby', billingHelper.getAttribute('id'));
+    expect(cpoHelper).toHaveAttribute('id', 'ad-hoc-cpo-help');
+    expect(cpo).toHaveAttribute('aria-describedby', cpoHelper.getAttribute('id'));
+  });
+
+  it('allows thin ad-hoc inputs to shrink within a 320px layout', () => {
+    // Arrange: Render the dense ad-hoc form where input intrinsic width matters.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
+
+    // Act: Inspect identity and pricing inputs that share the thin-input primitive.
+    const billingProvider = screen.getByLabelText(/^billing provider/i);
+    const pricePerKwh = screen.getByLabelText(/price per kwh/i);
+
+    // Assert: Both can shrink with their responsive container instead of forcing overflow.
+    expect(billingProvider).toHaveClass('min-w-0');
+    expect(pricePerKwh).toHaveClass('min-w-0');
+  });
+
+  it('announces and focuses a blank billing-provider error while retaining helper context', async () => {
+    // Arrange: Fill every other required ad-hoc field.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText(/price per kwh/i), { target: { value: '0,59' } });
+    fireEvent.change(screen.getByLabelText(/^billing provider/i), { target: { value: '   ' } });
+
+    // Act: Submit the otherwise valid form.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: Exact validation copy is announced, described, and focused.
+    const billingProvider = screen.getByLabelText(/^billing provider/i);
+    const error = await screen.findByText('Billing provider is required');
+    expect(error).toHaveAttribute('id', 'ad-hoc-billing-provider-error');
+    expect(error.closest('[aria-live]')).toHaveAttribute('aria-live', 'polite');
+    expect(billingProvider).toHaveAttribute('aria-invalid', 'true');
+    expect(billingProvider).toHaveAttribute(
+      'aria-describedby',
+      'ad-hoc-billing-provider-help ad-hoc-billing-provider-error'
+    );
+    expect(billingProvider).toHaveFocus();
+    expect(mockOnSubmit).not.toHaveBeenCalled();
+  });
+
+  it('preserves source-specific values and ignores hidden validation when modes switch', async () => {
+    // Arrange: Enter a plan provider, then create a visible ad-hoc validation error.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
+    fireEvent.change(screen.getByLabelText(/^billing provider/i), { target: { value: 'Cariqa' } });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText(/price per kwh/i), { target: { value: '0,59' } });
+    fireEvent.change(screen.getByLabelText(/^billing provider/i), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+    expect(await screen.findByText('Billing provider is required')).toBeInTheDocument();
+
+    // Act: Restore the ad-hoc value, switch away and back, then inspect both modes.
+    fireEvent.change(screen.getByLabelText(/^billing provider/i), { target: { value: 'Cariqa' } });
+    fireEvent.click(screen.getByRole('radio', { name: /charging plan/i }));
+    expect(screen.queryByText('Billing provider is required')).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/provider/i)).toHaveValue('p1');
+    fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
+
+    // Assert: In-progress values survive without leaking hidden errors.
+    expect(screen.getByLabelText(/^billing provider/i)).toHaveValue('Cariqa');
+    expect(screen.queryByText('Provider is required')).not.toBeInTheDocument();
   });
 
   it('sets required and aria-required attributes on required controls', () => {
@@ -987,6 +1074,7 @@ describe('SessionForm', () => {
     const initialValues = {
       session_timestamp: new Date('2024-05-15'),
       provider_id: 'p1',
+      provider_name_snapshot: 'ChargePoint',
       tariff_plan_id: 't1',
       kwh_billed: 25.5,
       charging_type: 'AC' as const,
@@ -1000,8 +1088,8 @@ describe('SessionForm', () => {
     // Act: Render with ad-hoc initial values.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
     // Assert: ad-hoc fields are visible.
-    expect(screen.getByLabelText(/cpo\/operator/i)).toBeDefined();
-    expect(screen.getByLabelText(/provider/i)).toBeDefined();
+    expect(screen.getByLabelText(/^charging-station operator \(cpo\)$/i)).toBeDefined();
+    expect(screen.getByLabelText(/^billing provider/i)).toHaveValue('ChargePoint');
     expect(screen.queryByLabelText(/^plan\s*\*?$/i)).toBeNull();
 
     // Act: submit without touching pricing source fields.
@@ -1046,7 +1134,11 @@ describe('SessionForm', () => {
     });
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
 
-    // Act: make an otherwise valid edit and submit without changing the retired provider.
+    // Act: update both identities and submit the otherwise valid edit.
+    expect(screen.getByLabelText(/^billing provider/i)).toHaveValue('Retired Provider');
+    expect(screen.getByLabelText(/^charging-station operator \(cpo\)$/i)).toHaveValue('FastNet');
+    fireEvent.change(screen.getByLabelText(/^billing provider/i), { target: { value: '  Cariqa  ' } });
+    fireEvent.change(screen.getByLabelText(/^charging-station operator \(cpo\)$/i), { target: { value: '  TEAG  ' } });
     fireEvent.change(screen.getByLabelText(/^notes$/i), { target: { value: 'Updated note' } });
     fireEvent.click(screen.getByRole('button', { name: /save session/i }));
 
@@ -1058,10 +1150,10 @@ describe('SessionForm', () => {
             id: 'session-retired-ad-hoc',
             session_mode: 'ad_hoc',
             provider_id: null,
-            provider_name_snapshot: 'Retired Provider',
+            provider_name_snapshot: 'Cariqa',
             tariff_plan_id: null,
             ad_hoc_pricing: expect.objectContaining({
-              cpoName: 'FastNet',
+              cpoName: 'TEAG',
               pricePerKwh: 59,
               pricePerSession: 150,
               notes: 'Updated note',
@@ -1069,6 +1161,48 @@ describe('SessionForm', () => {
           }),
         })
       );
+    });
+  });
+
+  it('clears an existing optional CPO when an ad-hoc edit submits it blank', async () => {
+    // Arrange: edit a valid ad-hoc session that currently has an operator snapshot.
+    const initialValues = buildSessionFixture({
+      id: 'session-clear-cpo',
+      provider_id: null,
+      provider_name_snapshot: 'Cariqa',
+      session_mode: 'ad_hoc',
+      tariff_plan_id: null,
+      plan_selection_id: null,
+      pricing_context: 'ad_hoc',
+      charging_plan_name_snapshot: 'Ad-Hoc',
+      ad_hoc_pricing: {
+        cpoName: 'TEAG',
+        pricePerKwh: 59,
+        pricePerSession: null,
+        receiptUrl: null,
+        notes: null,
+      },
+      price_snapshot: { label: 'Ad-Hoc', kWhPrice: 59 },
+      applied_price_per_kwh: 59,
+      applied_session_fee: 0,
+      total_cost: 1505,
+    });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+
+    // Act: clear the optional operator and save.
+    fireEvent.change(screen.getByLabelText(/^charging-station operator \(cpo\)$/i), {
+      target: { value: '' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: the prepared edit explicitly replaces the prior snapshot with unavailable.
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+        session: expect.objectContaining({
+          provider_name_snapshot: 'Cariqa',
+          ad_hoc_pricing: expect.objectContaining({ cpoName: null }),
+        }),
+      }));
     });
   });
 
@@ -1200,9 +1334,9 @@ describe('SessionForm', () => {
     // Arrange: Fill required session fields in ad-hoc mode.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
-    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^billing provider/i), { target: { value: '  Cariqa  ' } });
     fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10,5' } });
-    fireEvent.change(screen.getByLabelText(/cpo\/operator/i), { target: { value: 'FastNet' } });
+    fireEvent.change(screen.getByLabelText(/^charging-station operator \(cpo\)$/i), { target: { value: '  TEAG  ' } });
     fireEvent.change(screen.getByLabelText(/price per kwh/i), { target: { value: '0,59' } });
     fireEvent.change(screen.getByLabelText(/session fee/i), { target: { value: '1,50' } });
     fireEvent.change(screen.getByLabelText(/receipt url/i), { target: { value: 'https://example.com/receipt' } });
@@ -1219,10 +1353,10 @@ describe('SessionForm', () => {
           session: expect.objectContaining({
             session_mode: 'ad_hoc',
             provider_id: null,
-            provider_name_snapshot: 'ChargePoint',
+            provider_name_snapshot: 'Cariqa',
             tariff_plan_id: null,
             ad_hoc_pricing: expect.objectContaining({
-              cpoName: 'FastNet',
+              cpoName: 'TEAG',
               pricePerKwh: 59,
               pricePerSession: 150,
               receiptUrl: 'https://example.com/receipt',
@@ -1232,6 +1366,34 @@ describe('SessionForm', () => {
           }),
         })
       );
+    });
+  });
+
+  it('submits an ad-hoc session without a charging-station operator', async () => {
+    // Arrange: Fill the required ad-hoc fields and leave the optional CPO blank.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
+    fireEvent.change(screen.getByLabelText(/^billing provider/i), {
+      target: { value: 'A very long billing provider name that should remain intact' },
+    });
+    fireEvent.change(screen.getByLabelText(/^charging-station operator \(cpo\)$/i), {
+      target: { value: '   ' },
+    });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText(/price per kwh/i), { target: { value: '0,59' } });
+
+    // Act: Submit without supplying an operator.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: The billing name is preserved and blank CPO is canonicalized to unavailable.
+    await waitFor(() => {
+      expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+        session: expect.objectContaining({
+          provider_id: null,
+          provider_name_snapshot: 'A very long billing provider name that should remain intact',
+          ad_hoc_pricing: expect.objectContaining({ cpoName: null }),
+        }),
+      }));
     });
   });
 
@@ -1349,7 +1511,7 @@ describe('SessionForm', () => {
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
     fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10,5' } });
-    fireEvent.change(screen.getByLabelText(/cpo\/operator/i), { target: { value: 'Ionity' } });
+    fireEvent.change(screen.getByLabelText(/^billing provider/i), { target: { value: 'Ionity' } });
     fireEvent.change(screen.getByLabelText(/price per kwh/i), { target: { value: 'abc' } });
 
     // Act: Submit with invalid ad-hoc price per kWh format.

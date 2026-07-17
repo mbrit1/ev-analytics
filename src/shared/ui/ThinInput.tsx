@@ -80,7 +80,7 @@ export const ThinInput = forwardRef<HTMLInputElement, ThinInputProps>(
             aria-describedby={describedBy}
             aria-invalid={error ? 'true' : props['aria-invalid']}
             aria-required={props.required ? 'true' : props['aria-required']}
-            className={`flex-1 bg-transparent text-2xl md:text-4xl font-medium tabular-nums outline-none placeholder:text-secondary/20 transition-all ${
+            className={`min-w-0 flex-1 bg-transparent text-2xl md:text-4xl font-medium tabular-nums outline-none placeholder:text-secondary/20 transition-all ${
               textAlignment === 'right' ? 'text-right' : 'text-left'
             } ${className || ''}`}
           />
