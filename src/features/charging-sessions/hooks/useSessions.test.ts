@@ -40,6 +40,21 @@ describe('useSessions', () => {
     // Assert: Resolved sessions are exposed as a normalized array.
     expect(result.current.sessions).toHaveLength(1);
     expect(result.current.sessions[0].id).toBe('s1');
+    expect(result.current.error).toBeNull();
     expect(getSessions).toHaveBeenCalledWith('user-1');
+  });
+
+  it('surfaces session query failures without presenting successful empty data', async () => {
+    // Arrange: Reject the user-scoped local session read.
+    const error = new Error('IndexedDB session read failed');
+    vi.mocked(getSessions).mockRejectedValue(error);
+
+    // Act: Render the live session hook.
+    const { result } = renderHook(() => useSessions());
+
+    // Assert: The failure settles as an explicit technical error.
+    await waitFor(() => expect(result.current.error).toBe(error));
+    expect(result.current.sessions).toEqual([]);
+    expect(result.current.isLoading).toBe(false);
   });
 });

@@ -9,10 +9,10 @@ export type ChargingPlanHistoryState =
   | { status: 'error'; error: unknown }
   | { status: 'success'; planVersions: ChargingPlan[] }
 
-type SettledChargingPlanHistoryState = Exclude<
-  ChargingPlanHistoryState,
-  { status: 'loading' }
->
+type SettledChargingPlanHistoryState = (
+  | { status: 'error'; error: unknown }
+  | { status: 'success'; planVersions: ChargingPlan[] }
+) & { queryKey: string }
 
 /**
  * Subscribes to the user-owned tariff history required by plan references.
@@ -25,19 +25,25 @@ export function useChargingPlanHistory(
 ): ChargingPlanHistoryState {
   const { user } = useAuth()
   const distinctPlanIds = [...new Set(referencedPlanIds)].sort()
-  const referenceKey = JSON.stringify(distinctPlanIds)
+  const queryKey = JSON.stringify([user?.id ?? null, distinctPlanIds])
   const queryState = useLiveQuery<SettledChargingPlanHistoryState>(async () => {
     if (!user) {
-      return { status: 'success', planVersions: [] }
+      return { status: 'success', planVersions: [], queryKey }
     }
 
     try {
       const planVersions = await getChargingPlanHistory(user.id, distinctPlanIds)
-      return { status: 'success', planVersions }
+      return { status: 'success', planVersions, queryKey }
     } catch (error) {
-      return { status: 'error', error }
+      return { status: 'error', error, queryKey }
     }
-  }, [user?.id, referenceKey])
+  }, [queryKey])
 
-  return queryState ?? { status: 'loading' }
+  if (!queryState || queryState.queryKey !== queryKey) {
+    return { status: 'loading' }
+  }
+
+  return queryState.status === 'error'
+    ? { status: 'error', error: queryState.error }
+    : { status: 'success', planVersions: queryState.planVersions }
 }
