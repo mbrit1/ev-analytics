@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildLogicalTariffs } from '../features/charging-plans';
 import { type ChargingPlan } from '../infra/db';
-import { mockChargingPlans, mockSessions } from './seed-data';
+import { mockChargingPlans, mockProviders, mockSessions } from './seed-data';
 
 /**
  * Test suite for mock seed data coverage.
@@ -150,6 +150,28 @@ describe('seed-data', () => {
     expect(pricingContexts).toEqual(['ad_hoc', 'roaming', 'standard']);
   });
 
+  it('keeps ad-hoc billing providers independent from saved tariff providers', () => {
+    // Arrange: Read every ad-hoc fixture and the saved provider catalog.
+    const adHocSessions = mockSessions.filter((session) => session.session_mode === 'ad_hoc');
+    const savedProviderNames = mockProviders.map((provider) => provider.name);
+
+    // Act: Locate the representative two-party and unknown-operator sessions.
+    const cariqaSession = adHocSessions.find(
+      (session) => session.provider_name_snapshot === 'Cariqa'
+    );
+    const sessionWithoutCpo = adHocSessions.find(
+      (session) => session.ad_hoc_pricing?.cpoName == null
+    );
+
+    // Assert: Ad-hoc rows use snapshots only and do not clutter tariff providers.
+    expect(adHocSessions).toHaveLength(2);
+    expect(adHocSessions.every((session) => session.provider_id === null)).toBe(true);
+    expect(cariqaSession?.ad_hoc_pricing?.cpoName).toBe('TEAG');
+    expect(sessionWithoutCpo).toBeDefined();
+    expect(savedProviderNames).not.toContain('Cariqa');
+    expect(savedProviderNames).not.toContain('TEAG');
+  });
+
   it('includes two plan sessions whose tariffs expose different domestic and roaming prices', () => {
     // Arrange: Join seeded plan sessions back to their mocked tariff versions.
     const sessionsWithTariffs = mockSessions.flatMap((session) => {
@@ -247,7 +269,7 @@ describe('seed-data', () => {
     // Assert: Each mock session keeps a unique timestamp and the array is already
     // ordered newest-first for easy browser verification.
     expect(uniqueTimestamps.size).toBe(mockSessions.length);
-    expect(Object.keys(sessionTimestamps)).toEqual(['s7', 's1', 's5', 's2', 's6', 's4', 's3']);
+    expect(Object.keys(sessionTimestamps)).toEqual(['s7', 's1', 's5', 's2', 's8', 's6', 's4', 's3']);
     expect(Object.values(sessionTimestamps)).toEqual(sortedTimestamps);
   });
 });

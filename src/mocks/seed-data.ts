@@ -331,8 +331,8 @@ export const mockSessions = [
     id: 's2',
     user_id: 'mock-user-id',
     session_timestamp: buildSessionTimestamp(-4, 18, 45),
-    provider_id: 'p2',
-    provider_name_snapshot: 'EnBW',
+    provider_id: null,
+    provider_name_snapshot: 'Cariqa',
     tariff_plan_id: null,
     charging_plan_name_snapshot: null,
     charging_type: 'AC',
@@ -343,13 +343,37 @@ export const mockSessions = [
     plan_selection_id: null,
     price_snapshot: { label: 'Ad-Hoc', kWhPrice: 51, sessionFee: 0 },
     ad_hoc_pricing: {
-      cpoName: 'EnBW',
+      cpoName: 'TEAG',
       pricePerKwh: 51
     },
     applied_price_per_kwh: 51,
     applied_session_fee: 0,
     created_at: buildSessionTimestamp(-4, 18, 50),
     updated_at: buildSessionTimestamp(-4, 18, 50)
+  },
+  {
+    id: 's8',
+    user_id: 'mock-user-id',
+    session_timestamp: buildSessionTimestamp(-5, 10, 30),
+    provider_id: null,
+    provider_name_snapshot: 'Electroverse',
+    tariff_plan_id: null,
+    charging_plan_name_snapshot: null,
+    charging_type: 'AC',
+    kwh_billed: 12.4,
+    total_cost: 806,
+    session_mode: 'ad_hoc',
+    pricing_context: 'ad_hoc',
+    plan_selection_id: null,
+    price_snapshot: { label: 'Ad-Hoc', kWhPrice: 65, sessionFee: 0 },
+    ad_hoc_pricing: {
+      cpoName: null,
+      pricePerKwh: 65
+    },
+    applied_price_per_kwh: 65,
+    applied_session_fee: 0,
+    created_at: buildSessionTimestamp(-5, 10, 35),
+    updated_at: buildSessionTimestamp(-5, 10, 35)
   },
   {
     id: 's6',
