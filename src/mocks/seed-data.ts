@@ -1,3 +1,5 @@
+import { selectOverallPriceMockFixture } from './analytics-fixtures'
+
 /**
  * Seed providers returned by MSW when local mock mode hydrates Supabase data.
  */
@@ -50,7 +52,7 @@ export const mockProviders = [
 /**
  * Seed charging plans mirror flattened pricing columns persisted in Supabase.
  */
-export const mockChargingPlans = [
+const defaultMockChargingPlans = [
   {
     id: 'cp1',
     user_id: 'mock-user-id',
@@ -255,7 +257,7 @@ export const mockChargingPlans = [
  * Seed charging sessions include charging-plan/ad-hoc snapshots so history and sync flows
  * behave like production data during local development.
  */
-export const mockSessions = [
+const defaultMockSessions = [
   {
     id: 's7',
     user_id: 'mock-user-id',
@@ -446,3 +448,16 @@ export const mockSessions = [
     updated_at: buildSessionTimestamp(-20, 7, 10)
   }
 ];
+
+const overallPriceMockFixture = selectOverallPriceMockFixture(
+  import.meta.env.VITE_MOCK_ANALYTICS_SCENARIO,
+  {
+    chargingPlans: defaultMockChargingPlans,
+    sessions: defaultMockSessions,
+  },
+)
+
+/** Charging-plan rows selected for the explicit local mock-mode scenario. */
+export const mockChargingPlans = overallPriceMockFixture.chargingPlans
+/** Charging-session rows selected for the explicit local mock-mode scenario. */
+export const mockSessions = overallPriceMockFixture.sessions
