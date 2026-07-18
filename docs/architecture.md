@@ -123,7 +123,34 @@ The rules are intentionally narrow:
 - Only finite, positive billed-energy values contribute to the energy total. If no included session has a valid billed value, billed energy is unavailable (`null`), not zero. The result records how many sessions supplied valid billed energy so partial coverage can be disclosed.
 - The page refreshes its notion of “current month” at local midnight so month navigation and completion labels do not become stale while the page remains open.
 
-These semantics describe session spend and provider-billed energy only. New metrics must define their treatment of missing values, snapshots, time zones, and soft deletes before implementation.
+### Lifetime Overall Price
+
+[`useOverallChargingPrice`](../src/features/analytics/hooks/useOverallChargingPrice.ts)
+combines the same live local session stream with the scoped charging-plan
+history needed for fixed costs. It is lifetime-scoped rather than driven by the
+month selector, remains available offline, and follows the split authority in
+[ADR 008](./adr/008-overall-price-fixed-cost-authority.md).
+
+- Active sessions contribute their stored `total_cost` and provider-billed
+  `kwh_billed`. Every active session must have finite, positive billed energy
+  or the lifetime KPI is unavailable; this is stricter than the monthly
+  partial-coverage rule above.
+- Ad-hoc sessions contribute session spend and billed energy but never qualify
+  a tariff fee. A plan session qualifies its logical tariff in that local
+  calendar month.
+- Applicable fees use the relevant charging-plan version history, including
+  referenced soft-deleted versions. They are prorated by active calendar days,
+  stop at the current local day, and round once after all lifetime fee
+  contributions are accumulated.
+- The final rate divides included spend by total provider-billed energy.
+  Missing referenced history or conflicting qualifying paid tariffs returns an
+  unavailable KPI instead of a partial price.
+
+Local mock-mode browser checks can set `VITE_ENABLE_MOCKS=true` and
+`VITE_MOCK_ANALYTICS_SCENARIO` to `ready`, `empty`, `missing-history`, or
+`overlap`. Clear the `EVAnalyticsDB` IndexedDB database before changing the
+scenario, because hydration upserts returned rows but does not delete rows
+omitted by a later fixture.
 
 ## Security, Hosting, and Operational Sources
 
@@ -131,6 +158,7 @@ These semantics describe session spend and provider-billed energy only. New metr
 - Offline storage: [ADR 002](./adr/002-dexie-offline-first.md)
 - Outbox synchronization: [ADR 005](./adr/005-outbox-sync-strategy.md)
 - Session pricing snapshots: [ADR 006](./adr/006-tariff-snapshots.md)
+- Overall Price fixed-cost authority: [ADR 008](./adr/008-overall-price-fixed-cost-authority.md)
 - Cloudflare hosting: [ADR 007](./adr/007-cloudflare-workers-static-assets.md)
 - Environment provisioning and deployment: [infrastructure runbook](./infrastructure-runbook.md)
 
