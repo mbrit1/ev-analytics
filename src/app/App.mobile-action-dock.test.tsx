@@ -14,6 +14,7 @@ const {
   submittedSession,
   mockSaveSession,
   mockUpdateSession,
+  mockUseOverallChargingPrice,
 } = vi.hoisted(() => {
   const timestamp = new Date('2026-06-01T08:00:00.000Z');
   const baseSession = {
@@ -53,6 +54,7 @@ const {
     } satisfies SessionPersistenceRequest,
     mockSaveSession: vi.fn(),
     mockUpdateSession: vi.fn(),
+    mockUseOverallChargingPrice: vi.fn(),
   };
 });
 
@@ -151,6 +153,9 @@ vi.mock('../features/charging-sessions', () => ({
   updateSession: mockUpdateSession,
   useSessions: () => ({ sessions: [], pendingSyncIds: new Set<string>(), isLoading: false }),
 }));
+vi.mock('../features/analytics/hooks/useOverallChargingPrice', () => ({
+  useOverallChargingPrice: mockUseOverallChargingPrice,
+}));
 vi.mock('../shared/ui', () => ({
   Navigation: ({
     activeTab,
@@ -248,6 +253,10 @@ describe('App mobile action dock', () => {
     mockSignOut.mockResolvedValue({ error: null });
     mockSaveSession.mockReset();
     mockUpdateSession.mockReset();
+    mockUseOverallChargingPrice.mockReturnValue({
+      status: 'success',
+      result: { status: 'empty' },
+    });
     vi.mocked(useSyncStatus).mockReturnValue({
       queueLength: 0,
       hasPendingSync: false,
@@ -324,6 +333,8 @@ describe('App mobile action dock', () => {
     expect(screen.queryByText('Add Session Pill')).not.toBeInTheDocument();
     expect(screen.queryByText('Add Tariff Pill')).not.toBeInTheDocument();
     expect(screen.queryByText('Analytics is planned and will be available in a future update.')).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
+    await user.click(screen.getByRole('tab', { name: 'Monthly' }));
     expect(screen.getByText('No charging spend recorded for this month yet.')).toBeInTheDocument();
     expect(document.querySelector('main')).toHaveClass(
       'pb-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom)+32px)]',
@@ -335,6 +346,50 @@ describe('App mobile action dock', () => {
 
     // Assert: The established session form opens on the sessions destination.
     expect(screen.getByText('Session Form')).toBeInTheDocument();
+  });
+
+  it('opens the existing tariff list when an Overall Price conflict is reviewed', async () => {
+    // Arrange: Return the overlap state that exposes the Analytics remediation action.
+    mockUseOverallChargingPrice.mockReturnValue({
+      status: 'success',
+      result: {
+        status: 'unavailable',
+        reason: 'overlapping_paid_tariffs',
+        conflicts: [{
+          providerId: 'provider-enbw',
+          tariffNames: ['EnBW L', 'EnBW M'],
+          month: '2026-07',
+        }],
+      },
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Analytics' }));
+
+    // Act: Use the conflict remediation action.
+    await user.click(screen.getByRole('button', { name: 'Review tariffs' }));
+
+    // Assert: Reuse the primary Tariffs destination without opening a new form.
+    expect(await screen.findByText('Tariff List')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Tariffs' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByText('Tariff Form')).not.toBeInTheDocument();
+  });
+
+  it('resets the mobile Analytics subview to Overview after leaving and re-entering', async () => {
+    // Arrange: Enter the non-default monthly subview.
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Analytics' }));
+    await user.click(screen.getByRole('tab', { name: 'Monthly' }));
+    expect(screen.getByRole('tab', { name: 'Monthly' })).toHaveAttribute('aria-selected', 'true');
+
+    // Act: Leave the route, which unmounts local Analytics view state, then return.
+    await user.click(screen.getByRole('button', { name: 'Sessions' }));
+    await user.click(screen.getByRole('button', { name: 'Analytics' }));
+
+    // Assert: A fresh Analytics entry starts in its overview subview.
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('tabpanel', { name: 'Monthly' })).not.toBeInTheDocument();
   });
 
   it('opens the session form when Add Session is invoked from mobile contextual action', async () => {

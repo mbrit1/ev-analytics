@@ -131,8 +131,12 @@ function App() {
   }
 
   const handleAddSessionFromAnalytics = () => {
-    setActiveTab('sessions')
+    handleTabChange('sessions')
     handleOpenCreateSession()
+  }
+
+  const handleReviewTariffsFromAnalytics = () => {
+    handleTabChange('tariffs')
   }
 
   const handleOpenEditSession = (session: ChargingSession) => {
@@ -304,7 +308,10 @@ function App() {
                 </div>
               )}
               {activeTab === 'analytics' ? (
-                <AnalyticsPage onAddSession={handleAddSessionFromAnalytics} />
+                <AnalyticsPage
+                  onAddSession={handleAddSessionFromAnalytics}
+                  onReviewTariffs={handleReviewTariffsFromAnalytics}
+                />
               ) : activeTab === 'tariffs' ? (
                 <Suspense
                   fallback={(
