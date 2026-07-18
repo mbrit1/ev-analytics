@@ -262,6 +262,49 @@ function isNonBlankTrimmedString(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.trim() === value;
 }
 
+function isIntegerCents(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value);
+}
+
+function isOptionalNullableIntegerCents(value: unknown): boolean {
+  return value == null || isIntegerCents(value);
+}
+
+function isOptionalNullableString(value: unknown): boolean {
+  return value == null || typeof value === 'string';
+}
+
+function isAdHocOtherFee(value: unknown): boolean {
+  return isRecord(value)
+    && isNonBlankTrimmedString(value.label)
+    && isIntegerCents(value.amount)
+    && (value.notes === undefined || typeof value.notes === 'string');
+}
+
+function getAdHocPricingSnapshotError(value: Record<string, unknown>): string | undefined {
+  if (value.pricePerKwh !== null && !isIntegerCents(value.pricePerKwh)) {
+    return 'Ad-hoc charging session has an invalid price-per-kWh snapshot';
+  }
+  if (!isOptionalNullableIntegerCents(value.pricePerMinute)) {
+    return 'Ad-hoc charging session has an invalid price-per-minute snapshot';
+  }
+  if (!isOptionalNullableIntegerCents(value.pricePerSession)) {
+    return 'Ad-hoc charging session has an invalid session-fee snapshot';
+  }
+  if (value.cpoName != null && !isNonBlankTrimmedString(value.cpoName)) {
+    return 'Ad-hoc charging session has an invalid CPO snapshot';
+  }
+  if (value.otherFees !== undefined && (!Array.isArray(value.otherFees) || !value.otherFees.every(isAdHocOtherFee))) {
+    return 'Ad-hoc charging session has invalid other-fee snapshots';
+  }
+  if (!isOptionalNullableString(value.receiptUrl)) {
+    return 'Ad-hoc charging session has an invalid receipt URL snapshot';
+  }
+  if (!isOptionalNullableString(value.notes)) {
+    return 'Ad-hoc charging session has invalid pricing notes';
+  }
+}
+
 function parseRemoteDate(value: unknown, fieldName: string): Date {
   if (!(typeof value === 'string' || value instanceof Date)) {
     throw new Error(`Invalid charging session ${fieldName}`);
@@ -325,15 +368,9 @@ function parseRemoteChargingSession(value: unknown): RemoteChargingSession {
     if (!isRecord(value.ad_hoc_pricing)) {
       throw new Error('Ad-hoc charging session requires pricing details');
     }
-
-    const pricePerKwh = value.ad_hoc_pricing.pricePerKwh;
-    if (pricePerKwh !== null && (typeof pricePerKwh !== 'number' || !Number.isFinite(pricePerKwh))) {
-      throw new Error('Ad-hoc charging session has invalid pricing details');
-    }
-
-    const cpoName = value.ad_hoc_pricing.cpoName;
-    if (cpoName != null && !isNonBlankTrimmedString(cpoName)) {
-      throw new Error('Ad-hoc charging session has an invalid CPO snapshot');
+    const pricingError = getAdHocPricingSnapshotError(value.ad_hoc_pricing);
+    if (pricingError) {
+      throw new Error(pricingError);
     }
   } else {
     throw new Error('Invalid charging session mode');

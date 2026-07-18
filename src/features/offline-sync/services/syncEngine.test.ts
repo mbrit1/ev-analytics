@@ -1446,18 +1446,38 @@ describe('syncEngine', () => {
   })
 
   it.each([
-    ['plan session without a provider', { ...buildChargingSession(), provider_id: null }],
-    ['ad-hoc session with a provider link', { ...buildAdHocChargingSession(), provider_id: 'provider-linked' }],
-    ['ad-hoc session without a billing-provider snapshot', { ...buildAdHocChargingSession(), provider_name_snapshot: '   ' }],
+    ['plan session without a provider', { ...buildChargingSession(), provider_id: null }, 'Plan charging session requires a provider id'],
+    ['ad-hoc session with a provider link', { ...buildAdHocChargingSession(), provider_id: 'provider-linked' }, 'Ad-hoc charging session cannot include a provider id'],
+    ['ad-hoc session without a billing-provider snapshot', { ...buildAdHocChargingSession(), provider_name_snapshot: '   ' }, 'Invalid charging session base fields'],
     ['ad-hoc session with a blank CPO snapshot', {
       ...buildAdHocChargingSession(),
       ad_hoc_pricing: { cpoName: '   ', pricePerKwh: 59 },
-    }],
+    }, 'Ad-hoc charging session has an invalid CPO snapshot'],
     ['ad-hoc session with a non-string CPO snapshot', {
       ...buildAdHocChargingSession(),
       ad_hoc_pricing: { cpoName: 42, pricePerKwh: 59 },
-    }],
-  ])('rejects %s before writing the session batch', async (_description, invalidSession) => {
+    }, 'Ad-hoc charging session has an invalid CPO snapshot'],
+    ['ad-hoc session with an invalid session fee', {
+      ...buildAdHocChargingSession(),
+      ad_hoc_pricing: { cpoName: 'TEAG', pricePerKwh: 59, pricePerSession: '199' },
+    }, 'Ad-hoc charging session has an invalid session-fee snapshot'],
+    ['ad-hoc session with malformed other fees', {
+      ...buildAdHocChargingSession(),
+      ad_hoc_pricing: { cpoName: 'TEAG', pricePerKwh: 59, otherFees: { amount: 50 } },
+    }, 'Ad-hoc charging session has invalid other-fee snapshots'],
+    ['ad-hoc session with an invalid other-fee amount', {
+      ...buildAdHocChargingSession(),
+      ad_hoc_pricing: {
+        cpoName: 'TEAG',
+        pricePerKwh: 59,
+        otherFees: [{ label: 'Parking', amount: 12.5 }],
+      },
+    }, 'Ad-hoc charging session has invalid other-fee snapshots'],
+    ['ad-hoc session with a non-string receipt URL', {
+      ...buildAdHocChargingSession(),
+      ad_hoc_pricing: { cpoName: 'TEAG', pricePerKwh: 59, receiptUrl: 42 },
+    }, 'Ad-hoc charging session has an invalid receipt URL snapshot'],
+  ])('rejects %s before writing the session batch', async (_description, invalidSession, errorMessage) => {
     // Arrange: Keep an existing row that an invalid remote batch must not replace.
     const existingSession = buildChargingSession({ id: 'existing-session' })
     await db.sessions.add(existingSession)
@@ -1477,7 +1497,7 @@ describe('syncEngine', () => {
     expect(await db.sessions.toArray()).toEqual([existingSession])
     expect(consoleErrorSpy).toHaveBeenCalledWith(
       'Error hydrating data for sessions:',
-      expect.any(String)
+      errorMessage
     )
   })
 
