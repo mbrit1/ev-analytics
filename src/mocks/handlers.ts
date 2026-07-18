@@ -2,7 +2,9 @@ import { http, HttpResponse, delay } from 'msw'
 import { isMockMode, MOCK_SUPABASE_URL } from '../infra/mocks'
 import { mockProviders, mockChargingPlans, mockSessions } from './seed-data'
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || (isMockMode() ? MOCK_SUPABASE_URL : 'https://your-project.supabase.co')
+const SUPABASE_URL = isMockMode()
+  ? MOCK_SUPABASE_URL
+  : import.meta.env.VITE_SUPABASE_URL || 'https://your-project.supabase.co'
 
 /**
  * MSW handlers that emulate the small Supabase surface used in local mock mode.
