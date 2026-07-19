@@ -13,29 +13,46 @@ const baseStatus: SyncStatus = {
   blockingErrorMessage: undefined,
   retryCount: undefined,
   nextRetryAt: undefined,
+  hydration: {
+    providers: { status: 'ready' },
+    charging_plans: { status: 'ready' },
+    sessions: { status: 'ready' }
+  },
+  hasHydrationFailure: false,
+  isHydrating: false,
+  displayState: 'synced',
   isLoading: false
 };
 
 /**
  * Test suite for the sync status indicator component.
  *
- * Verifies compact rendering for loading, synced, and pending outbox states
- * while the outbox status hook is mocked.
+ * Verifies compact rendering across resolved hydration and outbox states while
+ * the normalized sync status hook is mocked.
  */
 describe('SyncStatusIndicator', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('renders the loading sync status', () => {
-    // Arrange: Return the unresolved outbox query state.
-    vi.mocked(useSyncStatus).mockReturnValue({ ...baseStatus, isLoading: true });
+  it('renders syncing while hydration is loading', () => {
+    // Arrange: Return active remote hydration with a resolved empty outbox.
+    vi.mocked(useSyncStatus).mockReturnValue({
+      ...baseStatus,
+      hydration: {
+        providers: { status: 'loading' },
+        charging_plans: { status: 'loading' },
+        sessions: { status: 'loading' }
+      },
+      isHydrating: true,
+      displayState: 'syncing'
+    });
 
     // Act: Render the compact indicator.
     render(<SyncStatusIndicator />);
 
     // Assert: Loading status is exposed with neutral text.
-    expect(screen.getByLabelText('Sync status loading')).toBeInTheDocument();
+    expect(screen.getByLabelText('Sync status syncing')).toBeInTheDocument();
     expect(screen.getByText('Syncing')).toBeInTheDocument();
   });
 
@@ -56,7 +73,8 @@ describe('SyncStatusIndicator', () => {
     vi.mocked(useSyncStatus).mockReturnValue({
       ...baseStatus,
       queueLength: 1,
-      hasPendingSync: true
+      hasPendingSync: true,
+      displayState: 'pending'
     });
 
     // Act: Render the compact indicator.
@@ -72,7 +90,8 @@ describe('SyncStatusIndicator', () => {
     vi.mocked(useSyncStatus).mockReturnValue({
       ...baseStatus,
       queueLength: 3,
-      hasPendingSync: true
+      hasPendingSync: true,
+      displayState: 'pending'
     });
 
     // Act: Render the compact indicator.
@@ -81,5 +100,26 @@ describe('SyncStatusIndicator', () => {
     // Assert: Plural pending status is exposed.
     expect(screen.getByLabelText('Sync status pending')).toBeInTheDocument();
     expect(screen.getByText('Pending Sync')).toBeInTheDocument();
+  });
+
+  it('renders a sync issue when session hydration fails', () => {
+    // Arrange: Return an isolated failed sessions hydration result.
+    vi.mocked(useSyncStatus).mockReturnValue({
+      ...baseStatus,
+      hydration: {
+        providers: { status: 'ready' },
+        charging_plans: { status: 'ready' },
+        sessions: { status: 'failed', failureKind: 'invalid_data' }
+      },
+      hasHydrationFailure: true,
+      displayState: 'sync-issue'
+    });
+
+    // Act: Render the compact indicator.
+    render(<SyncStatusIndicator />);
+
+    // Assert: The status does not imply that all remote data is synced.
+    expect(screen.getByLabelText('Sync status issue')).toBeInTheDocument();
+    expect(screen.getByText('Sync issue')).toBeInTheDocument();
   });
 });

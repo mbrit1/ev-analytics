@@ -1,5 +1,14 @@
 import { useLiveQuery } from 'dexie-react-hooks';
+import { useSyncExternalStore } from 'react';
 import { db } from '../../../infra/db';
+import {
+  getSyncRuntimeHydrationSnapshot,
+  subscribeSyncRuntimeHydration
+} from '../services/syncRuntime';
+import type { SyncRuntimeHydrationSnapshot } from '../model/types';
+
+/** The concise sync condition rendered by application-level status UI. */
+export type SyncDisplayState = 'sync-issue' | 'pending' | 'syncing' | 'synced';
 
 /**
  * Counts of pending sync mutations grouped by local table.
@@ -35,6 +44,14 @@ export interface SyncStatus {
   retryCount?: number;
   /** Next scheduled retry for the oldest actionable blocking outbox item. */
   nextRetryAt?: Date;
+  /** Per-table state of the latest authenticated remote hydration pass. */
+  hydration: SyncRuntimeHydrationSnapshot;
+  /** Whether any remote table failed during hydration. */
+  hasHydrationFailure: boolean;
+  /** Whether any remote table is awaiting or actively performing hydration. */
+  isHydrating: boolean;
+  /** Overall sync state after applying user-facing status precedence rules. */
+  displayState: SyncDisplayState;
   /** Whether the live outbox query has not resolved yet. */
   isLoading: boolean;
 }
@@ -51,6 +68,15 @@ const emptyPendingByTable: PendingSyncByTable = {
  */
 export function useSyncStatus(): SyncStatus {
   const outboxItems = useLiveQuery(() => db.sync_outbox.toArray(), []);
+  const hydration = useSyncExternalStore(
+    subscribeSyncRuntimeHydration,
+    getSyncRuntimeHydrationSnapshot,
+    getSyncRuntimeHydrationSnapshot
+  );
+  const hasHydrationFailure = Object.values(hydration).some((table) => table.status === 'failed');
+  const isHydrating = Object.values(hydration).some(
+    (table) => table.status === 'idle' || table.status === 'loading'
+  );
 
   if (outboxItems === undefined) {
     return {
@@ -61,6 +87,10 @@ export function useSyncStatus(): SyncStatus {
       blockingErrorMessage: undefined,
       retryCount: undefined,
       nextRetryAt: undefined,
+      hydration,
+      hasHydrationFailure,
+      isHydrating,
+      displayState: hasHydrationFailure ? 'sync-issue' : 'syncing',
       isLoading: true
     };
   }
@@ -96,16 +126,28 @@ export function useSyncStatus(): SyncStatus {
   }
 
   const queueLength = outboxItems.length;
+  const hasBlockingSyncError = blockingItem != null;
+  const displayState: SyncDisplayState = hasHydrationFailure || hasBlockingSyncError
+    ? 'sync-issue'
+    : queueLength > 0
+      ? 'pending'
+      : isHydrating
+        ? 'syncing'
+        : 'synced';
 
   return {
     queueLength,
     hasPendingSync: queueLength > 0,
     pendingByTable,
     oldestPendingAt,
-    hasBlockingSyncError: blockingItem != null,
+    hasBlockingSyncError,
     blockingErrorMessage: blockingItem?.last_error,
     retryCount: blockingItem?.retry_count,
     nextRetryAt: blockingItem?.next_attempt_at,
+    hydration,
+    hasHydrationFailure,
+    isHydrating,
+    displayState,
     isLoading: false
   };
 }

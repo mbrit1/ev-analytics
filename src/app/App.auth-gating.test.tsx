@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AuthError } from '@supabase/supabase-js';
 import App from './App';
 import { useAuth } from '../features/auth';
-import { useSyncStatus } from '../features/offline-sync';
+import { retryActiveSyncRuntime, useSyncStatus } from '../features/offline-sync';
 
 vi.mock('../features/auth', () => ({
   useAuth: vi.fn(),
@@ -17,7 +17,18 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
   ),
 }));
 vi.mock('../features/charging-sessions', () => ({
-  ChargingHistory: () => <div>Charging History</div>,
+  ChargingHistory: ({
+    hydrationState,
+    onRetryHydration,
+  }: {
+    hydrationState: { status: string };
+    onRetryHydration: () => void;
+  }) => (
+    <div>
+      Charging History: {hydrationState.status}
+      <button type="button" onClick={onRetryHydration}>Retry Session Hydration</button>
+    </div>
+  ),
   SessionForm: () => <div>Session Form</div>,
 }));
 vi.mock('../shared/ui', () => ({
@@ -67,9 +78,18 @@ vi.mock('../features/offline-sync', () => ({
     retryCount: undefined,
     nextRetryAt: undefined,
     oldestPendingAt: undefined,
+    hydration: {
+      providers: { status: 'ready' },
+      charging_plans: { status: 'ready' },
+      sessions: { status: 'ready' },
+    },
+    hasHydrationFailure: false,
+    isHydrating: false,
+    displayState: 'synced',
     isLoading: false,
   })),
   startSyncRuntime: vi.fn(() => vi.fn()),
+  retryActiveSyncRuntime: vi.fn(),
 }));
 
 /**
@@ -93,6 +113,14 @@ describe('App auth gating', () => {
       retryCount: undefined,
       nextRetryAt: undefined,
       oldestPendingAt: undefined,
+      hydration: {
+        providers: { status: 'ready' },
+        charging_plans: { status: 'ready' },
+        sessions: { status: 'ready' },
+      },
+      hasHydrationFailure: false,
+      isHydrating: false,
+      displayState: 'synced',
       isLoading: false,
     });
   });
@@ -160,6 +188,52 @@ describe('App auth gating', () => {
 
     // Assert: App delegates logout to auth context action.
     expect(mockSignOut).toHaveBeenCalledTimes(1);
+  });
+
+  it('wires failed session hydration and retry into charging history', async () => {
+    // Arrange: Authenticate with an isolated session hydration failure.
+    const user = userEvent.setup();
+    vi.mocked(useAuth).mockReturnValue({
+      user: {
+        id: 'user-1',
+        email: 'driver@example.com',
+        app_metadata: {},
+        user_metadata: {},
+        aud: 'authenticated',
+        created_at: new Date().toISOString(),
+      },
+      session: null,
+      loading: false,
+      signIn: vi.fn(),
+      signOut: mockSignOut,
+    });
+    vi.mocked(useSyncStatus).mockReturnValue({
+      queueLength: 0,
+      hasPendingSync: false,
+      pendingByTable: { providers: 0, charging_plans: 0, sessions: 0, provider_plan_selections: 0 },
+      hasBlockingSyncError: false,
+      blockingErrorMessage: undefined,
+      retryCount: undefined,
+      nextRetryAt: undefined,
+      oldestPendingAt: undefined,
+      hydration: {
+        providers: { status: 'ready' },
+        charging_plans: { status: 'ready' },
+        sessions: { status: 'failed', failureKind: 'invalid_data' },
+      },
+      hasHydrationFailure: true,
+      isHydrating: false,
+      displayState: 'sync-issue',
+      isLoading: false,
+    });
+
+    // Act: Render the sessions tab and use its retry action.
+    render(<App />);
+    expect(screen.getByText('Charging History: failed')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Retry Session Hydration' }));
+
+    // Assert: App delegates retry to the active authenticated sync runtime.
+    expect(retryActiveSyncRuntime).toHaveBeenCalledTimes(1);
   });
 
   it('keeps mobile dock clearance on the main scroll container', () => {
@@ -310,6 +384,14 @@ describe('App auth gating', () => {
       retryCount: 1,
       nextRetryAt: new Date('2026-05-30T10:15:00.000Z'),
       oldestPendingAt: new Date('2026-05-30T10:00:00.000Z'),
+      hydration: {
+        providers: { status: 'ready' },
+        charging_plans: { status: 'ready' },
+        sessions: { status: 'ready' },
+      },
+      hasHydrationFailure: false,
+      isHydrating: false,
+      displayState: 'sync-issue',
       isLoading: false,
     });
 
@@ -348,6 +430,14 @@ describe('App auth gating', () => {
       retryCount: 1,
       nextRetryAt: new Date('2026-05-30T10:15:00.000Z'),
       oldestPendingAt: new Date('2026-05-30T10:00:00.000Z'),
+      hydration: {
+        providers: { status: 'ready' },
+        charging_plans: { status: 'ready' },
+        sessions: { status: 'ready' },
+      },
+      hasHydrationFailure: false,
+      isHydrating: false,
+      displayState: 'pending',
       isLoading: false,
     });
 

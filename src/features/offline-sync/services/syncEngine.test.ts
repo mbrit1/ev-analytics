@@ -1519,12 +1519,17 @@ describe('syncEngine', () => {
     }) as unknown as ReturnType<typeof supabase.from>)
 
     // Act: Hydrate all remote tables.
-    await initialSync()
+    const result = await initialSync()
 
     // Assert: Only the invalid sessions table is rejected.
     expect(await db.providers.toArray()).toEqual([provider])
     expect(await db.charging_plans.toArray()).toEqual([plan])
     expect(await db.sessions.toArray()).toEqual([existingSession])
+    expect(result).toEqual({
+      providers: { status: 'ready' },
+      charging_plans: { status: 'ready' },
+      sessions: { status: 'failed', failureKind: 'invalid_data' },
+    })
   })
 
   it('should continue initialSync when one remote table fails', async () => {
@@ -1546,13 +1551,18 @@ describe('syncEngine', () => {
     }) as unknown as ReturnType<typeof supabase.from>)
 
     // Act: Hydrate local data from Supabase.
-    await initialSync()
+    const result = await initialSync()
 
     // Assert: A single table error does not block remaining local hydration.
     expect(await db.providers.count()).toBe(0)
     expect(await db.charging_plans.toArray()).toEqual(remoteChargingPlans)
     expect(await db.sessions.toArray()).toEqual(remoteSessions)
     expect(consoleErrorSpy).toHaveBeenCalledWith('Error pulling data for providers:', 'Provider pull failed')
+    expect(result).toEqual({
+      providers: { status: 'failed', failureKind: 'network' },
+      charging_plans: { status: 'ready' },
+      sessions: { status: 'ready' },
+    })
   })
 
   it('should keep pending outbox items during initialSync', async () => {

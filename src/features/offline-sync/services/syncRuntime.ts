@@ -1,7 +1,11 @@
 import { db } from '../../../infra/db';
+import type {
+  InitialSyncResult,
+  SyncRuntimeHydrationSnapshot,
+} from '../model/types';
 
 export interface SyncEngineModule {
-  initialSync: (options?: { signal?: AbortSignal }) => Promise<void>;
+  initialSync: (options?: { signal?: AbortSignal }) => Promise<InitialSyncResult>;
   processOutbox: (options?: { signal?: AbortSignal }) => Promise<void>;
 }
 
@@ -45,6 +49,57 @@ const defaultDeps: SyncRuntimeDeps = {
 };
 
 const activeRuntimeDisposers = new Set<DisposeSyncRuntime>();
+const activeRuntimeRetries = new Set<() => void>();
+const hydrationStateListeners = new Set<() => void>();
+
+function createUniformHydrationSnapshot(
+  status: 'idle' | 'loading' | 'failed'
+): SyncRuntimeHydrationSnapshot {
+  const tableState = status === 'failed'
+    ? { status, failureKind: 'unknown' as const }
+    : { status };
+
+  return {
+    providers: tableState,
+    charging_plans: tableState,
+    sessions: tableState,
+  };
+}
+
+let hydrationSnapshot = createUniformHydrationSnapshot('idle');
+
+function publishHydrationSnapshot(nextSnapshot: SyncRuntimeHydrationSnapshot): void {
+  hydrationSnapshot = nextSnapshot;
+  hydrationStateListeners.forEach((listener) => listener());
+}
+
+function publishInitialSyncResult(result: InitialSyncResult): void {
+  const toRuntimeState = (outcome: InitialSyncResult[keyof InitialSyncResult]) => {
+    return outcome.status === 'aborted' ? { status: 'idle' as const } : outcome;
+  };
+
+  publishHydrationSnapshot({
+    providers: toRuntimeState(result.providers),
+    charging_plans: toRuntimeState(result.charging_plans),
+    sessions: toRuntimeState(result.sessions),
+  });
+}
+
+/** Returns the stable hydration snapshot used by React external-store consumers. */
+export function getSyncRuntimeHydrationSnapshot(): SyncRuntimeHydrationSnapshot {
+  return hydrationSnapshot;
+}
+
+/** Subscribes to authenticated runtime hydration-state changes. */
+export function subscribeSyncRuntimeHydration(listener: () => void): () => void {
+  hydrationStateListeners.add(listener);
+  return () => hydrationStateListeners.delete(listener);
+}
+
+/** Requests a new hydration pass from every active authenticated runtime. */
+export function retryActiveSyncRuntime(): void {
+  activeRuntimeRetries.forEach((retry) => retry());
+}
 
 /**
  * Creates the default runtime dependencies used in production wiring.
@@ -93,6 +148,7 @@ export function startSyncRuntime(
         engineModule = await deps.loadSyncEngine();
       } catch (error) {
         deps.logger.error('Loading sync engine failed:', error);
+        publishHydrationSnapshot(createUniformHydrationSnapshot('failed'));
         return;
       }
     }
@@ -105,14 +161,17 @@ export function startSyncRuntime(
       rerunRequested = false;
 
       if (!hasHydrated) {
+        publishHydrationSnapshot(createUniformHydrationSnapshot('loading'));
         try {
-          await engineModule.initialSync({ signal: abortController.signal });
+          const result = await engineModule.initialSync({ signal: abortController.signal });
           if (isDisposed) {
             return;
           }
-          hasHydrated = true;
+          publishInitialSyncResult(result);
+          hasHydrated = Object.values(result).every((outcome) => outcome.status === 'ready');
         } catch (error) {
           deps.logger.error('Initial sync failed:', error);
+          publishHydrationSnapshot(createUniformHydrationSnapshot('failed'));
         }
       }
 
@@ -165,15 +224,20 @@ export function startSyncRuntime(
     abortController.abort();
     unsubscribeOnline();
     unsubscribeOutbox();
+    activeRuntimeRetries.delete(requestRun);
     const pendingRun = activeRunPromise;
     disposePromise = (async () => {
       await pendingRun;
       activeRuntimeDisposers.delete(dispose);
+      if (activeRuntimeDisposers.size === 0) {
+        publishHydrationSnapshot(createUniformHydrationSnapshot('idle'));
+      }
     })();
     return disposePromise;
   };
 
   activeRuntimeDisposers.add(dispose);
+  activeRuntimeRetries.add(requestRun);
   requestRun();
 
   return dispose;

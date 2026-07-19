@@ -205,9 +205,18 @@ vi.mock('../features/offline-sync', () => ({
     retryCount: undefined,
     nextRetryAt: undefined,
     oldestPendingAt: undefined,
+    hydration: {
+      providers: { status: 'ready' },
+      charging_plans: { status: 'ready' },
+      sessions: { status: 'ready' },
+    },
+    hasHydrationFailure: false,
+    isHydrating: false,
+    displayState: 'synced',
     isLoading: false,
   })),
   startSyncRuntime: vi.fn(() => vi.fn()),
+  retryActiveSyncRuntime: vi.fn(),
 }));
 
 /**
@@ -253,6 +262,14 @@ describe('App mobile action dock', () => {
       retryCount: undefined,
       nextRetryAt: undefined,
       oldestPendingAt: undefined,
+      hydration: {
+        providers: { status: 'ready' },
+        charging_plans: { status: 'ready' },
+        sessions: { status: 'ready' },
+      },
+      hasHydrationFailure: false,
+      isHydrating: false,
+      displayState: 'synced',
       isLoading: false,
     });
     vi.mocked(useAuth).mockReturnValue({
