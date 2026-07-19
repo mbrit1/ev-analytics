@@ -1,12 +1,21 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { db } from '../../../infra/db';
 import type { SyncPayload } from '../../../infra/db';
+import type { InitialSyncResult } from '../model/types';
 import {
   startSyncRuntime,
   createDefaultSyncRuntimeDeps,
+  getSyncRuntimeHydrationSnapshot,
+  retryActiveSyncRuntime,
   type SyncRuntimeDeps,
   type SyncEngineModule
 } from './syncRuntime';
+
+const readyHydrationResult: InitialSyncResult = {
+  providers: { status: 'ready' },
+  charging_plans: { status: 'ready' },
+  sessions: { status: 'ready' },
+};
 
 /**
  * Test suite for the sync runtime orchestrator.
@@ -70,6 +79,7 @@ describe('syncRuntime', () => {
     const { deps } = createDeps({
       initialSync: vi.fn(async () => {
         callOrder.push('initialSync');
+        return readyHydrationResult;
       }),
       processOutbox: vi.fn(async () => {
         callOrder.push('processOutbox');
@@ -86,11 +96,86 @@ describe('syncRuntime', () => {
     expect(callOrder).toEqual(['initialSync', 'processOutbox']);
   });
 
+  it('publishes isolated table hydration failures for UI consumers', async () => {
+    // Arrange: Return a failed session hydration alongside successful tariff data.
+    const { deps } = createDeps({
+      initialSync: vi.fn(async () => ({
+        ...readyHydrationResult,
+        sessions: { status: 'failed', failureKind: 'invalid_data' } as const,
+      })),
+      processOutbox: vi.fn(async () => undefined),
+    });
+
+    // Act: Run the authenticated startup hydration.
+    const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
+    await vi.waitFor(() => {
+      expect(getSyncRuntimeHydrationSnapshot().sessions).toEqual({
+        status: 'failed',
+        failureKind: 'invalid_data',
+      });
+    });
+
+    // Assert: Successful tables remain independently ready.
+    expect(getSyncRuntimeHydrationSnapshot().charging_plans).toEqual({ status: 'ready' });
+    await dispose();
+  });
+
+  it('retries failed hydration explicitly and clears the failure only after success', async () => {
+    // Arrange: Fail the first session hydration and succeed on retry.
+    const initialSync = vi
+      .fn<() => Promise<InitialSyncResult>>()
+      .mockResolvedValueOnce({
+        ...readyHydrationResult,
+        sessions: { status: 'failed', failureKind: 'network' },
+      })
+      .mockResolvedValueOnce(readyHydrationResult);
+    const { deps } = createDeps({
+      initialSync,
+      processOutbox: vi.fn(async () => undefined),
+    });
+    const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
+    await vi.waitFor(() => {
+      expect(getSyncRuntimeHydrationSnapshot().sessions.status).toBe('failed');
+    });
+
+    // Act: Request an explicit retry from the user-facing action.
+    retryActiveSyncRuntime();
+
+    // Assert: The retry reruns hydration and publishes the successful result.
+    await vi.waitFor(() => {
+      expect(initialSync).toHaveBeenCalledTimes(2);
+      expect(getSyncRuntimeHydrationSnapshot().sessions).toEqual({ status: 'ready' });
+    });
+    await dispose();
+  });
+
+  it('resets hydration state after the authenticated runtime is disposed', async () => {
+    // Arrange: Complete an authenticated hydration pass.
+    const { deps } = createDeps({
+      initialSync: vi.fn(async () => readyHydrationResult),
+      processOutbox: vi.fn(async () => undefined),
+    });
+    const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
+    await vi.waitFor(() => {
+      expect(getSyncRuntimeHydrationSnapshot().sessions).toEqual({ status: 'ready' });
+    });
+
+    // Act: Dispose the runtime when the authenticated session ends.
+    await dispose();
+
+    // Assert: A later user cannot observe the previous hydration outcome.
+    expect(getSyncRuntimeHydrationSnapshot()).toEqual({
+      providers: { status: 'idle' },
+      charging_plans: { status: 'idle' },
+      sessions: { status: 'idle' },
+    });
+  });
+
   it('triggers processOutbox on online event after initial run', async () => {
     // Arrange: Start with successful startup sync.
     const processOutbox = vi.fn(async () => undefined);
     const { deps } = createDeps({
-      initialSync: vi.fn(async () => undefined),
+      initialSync: vi.fn(async () => readyHydrationResult),
       processOutbox
     });
 
@@ -111,7 +196,7 @@ describe('syncRuntime', () => {
     // Arrange: Start with successful startup sync.
     const processOutbox = vi.fn(async () => undefined);
     const { deps } = createDeps({
-      initialSync: vi.fn(async () => undefined),
+      initialSync: vi.fn(async () => readyHydrationResult),
       processOutbox
     });
 
@@ -140,7 +225,7 @@ describe('syncRuntime', () => {
     const deps: SyncRuntimeDeps = {
       ...createDefaultSyncRuntimeDeps(),
       loadSyncEngine: vi.fn(async () => ({
-        initialSync: vi.fn(async () => undefined),
+        initialSync: vi.fn(async () => readyHydrationResult),
         processOutbox
       })),
       logger: { error: vi.fn() }
@@ -178,7 +263,7 @@ describe('syncRuntime', () => {
         })
     );
     const { deps } = createDeps({
-      initialSync: vi.fn(async () => undefined),
+      initialSync: vi.fn(async () => readyHydrationResult),
       processOutbox
     });
 
@@ -211,7 +296,7 @@ describe('syncRuntime', () => {
       });
     });
     const { deps } = createDeps({
-      initialSync: vi.fn(async () => undefined),
+      initialSync: vi.fn(async () => readyHydrationResult),
       processOutbox
     });
 
@@ -233,7 +318,7 @@ describe('syncRuntime', () => {
   it('does not run when unauthenticated', async () => {
     // Arrange: Provide no-op sync dependencies.
     const loadSyncEngine = vi.fn(async () => ({
-      initialSync: vi.fn(async () => undefined),
+      initialSync: vi.fn(async () => readyHydrationResult),
       processOutbox: vi.fn(async () => undefined)
     }));
     const deps: SyncRuntimeDeps = {
@@ -258,7 +343,7 @@ describe('syncRuntime', () => {
 
   it('loads syncEngine once on authenticated startup and executes engine functions', async () => {
     // Arrange: Provide a lazy loader returning mock engine functions.
-    const initialSync = vi.fn(async () => undefined);
+    const initialSync = vi.fn(async () => readyHydrationResult);
     const processOutbox = vi.fn(async () => undefined);
     const loadSyncEngine = vi.fn(async () => ({
       initialSync,
@@ -290,7 +375,7 @@ describe('syncRuntime', () => {
   it('does not execute engine functions when disposed before loader resolves', async () => {
     // Arrange: Keep sync engine loader pending until runtime is disposed.
     let resolveLoader: ((engine: SyncEngineModule) => void) | undefined;
-    const initialSync = vi.fn(async () => undefined);
+    const initialSync = vi.fn(async () => readyHydrationResult);
     const processOutbox = vi.fn(async () => undefined);
     const loadSyncEngine = vi.fn(
       () =>
@@ -320,11 +405,11 @@ describe('syncRuntime', () => {
 
   it('does not start outbox processing when disposed during initial hydration', async () => {
     // Arrange: Keep initial hydration pending after the engine has loaded.
-    let resolveInitialSync: (() => void) | undefined;
+    let resolveInitialSync: ((result: InitialSyncResult) => void) | undefined;
     let receivedSignal: AbortSignal | undefined;
     const initialSync = vi.fn((options?: { signal?: AbortSignal }) => {
       receivedSignal = options?.signal;
-      return new Promise<void>((resolve) => {
+      return new Promise<InitialSyncResult>((resolve) => {
         resolveInitialSync = resolve;
       });
     });
@@ -338,7 +423,7 @@ describe('syncRuntime', () => {
     });
     const disposalPromise = dispose();
     expect(receivedSignal?.aborted).toBe(true);
-    resolveInitialSync?.();
+    resolveInitialSync?.(readyHydrationResult);
     await disposalPromise;
 
     // Assert: Disposal after engine load prevents the subsequent outbox phase.
@@ -348,7 +433,7 @@ describe('syncRuntime', () => {
   it('logs loader failures and retries loading on later trigger', async () => {
     // Arrange: Fail first engine load and succeed on a later trigger.
     const logger = { error: vi.fn() };
-    const initialSync = vi.fn(async () => undefined);
+    const initialSync = vi.fn(async () => readyHydrationResult);
     const processOutbox = vi.fn(async () => undefined);
     const loadSyncEngine = vi
       .fn<() => Promise<SyncEngineModule>>()
@@ -405,9 +490,9 @@ describe('syncRuntime', () => {
   it('retries initialSync on a later trigger after an initial failure', async () => {
     // Arrange: Fail first hydration, then succeed on the next trigger.
     const initialSync = vi
-      .fn<() => Promise<void>>()
+      .fn<() => Promise<InitialSyncResult>>()
       .mockRejectedValueOnce(new Error('transient initial sync failure'))
-      .mockResolvedValueOnce(undefined);
+      .mockResolvedValueOnce(readyHydrationResult);
     const { deps } = createDeps({
       initialSync,
       processOutbox: vi.fn(async () => undefined)
@@ -435,7 +520,7 @@ describe('syncRuntime', () => {
       .mockResolvedValueOnce(undefined);
     const { deps } = createDeps(
       {
-        initialSync: vi.fn(async () => undefined),
+        initialSync: vi.fn(async () => readyHydrationResult),
         processOutbox
       },
       logger
@@ -458,7 +543,7 @@ describe('syncRuntime', () => {
   it('cleans up listeners on dispose', async () => {
     // Arrange: Start with successful startup sync.
     const { deps } = createDeps({
-      initialSync: vi.fn(async () => undefined),
+      initialSync: vi.fn(async () => readyHydrationResult),
       processOutbox: vi.fn(async () => undefined)
     });
 

@@ -10,7 +10,12 @@ import {
   updateSession,
   updateSessionWithPlanSelection,
 } from '../features/charging-sessions'
-import { startSyncRuntime, SyncStatusIndicator, useSyncStatus } from '../features/offline-sync'
+import {
+  retryActiveSyncRuntime,
+  startSyncRuntime,
+  SyncStatusIndicator,
+  useSyncStatus,
+} from '../features/offline-sync'
 import { type ChargingSession } from '../infra/db'
 import { MobileContextAction, Navigation } from '../shared/ui'
 import { type NavigationTab } from '../shared/ui/Navigation/types'
@@ -355,6 +360,8 @@ function App() {
                       onSelectSession={handleOpenEditSession}
                       restorationRequest={historyRestoreRequest ?? undefined}
                       onRestorationComplete={() => setHistoryRestoreRequest(null)}
+                      hydrationState={syncStatus.hydration.sessions}
+                      onRetryHydration={retryActiveSyncRuntime}
                     />
                   )}
                 </div>

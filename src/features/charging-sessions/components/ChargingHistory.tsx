@@ -2,9 +2,10 @@ import React from 'react';
 import { useSessions } from '../hooks/useSessions';
 import { groupSessionsByMonth } from '../model/types';
 import { formatCurrency, formatCentsToDecimal, formatKwh } from '../../../shared/lib';
-import { Calendar, Zap, Info } from 'lucide-react';
+import { Calendar, Zap, Info, CircleAlert } from 'lucide-react';
 import { Slab } from '../../../shared/ui';
 import { type ChargingSession } from '../../../infra/db';
+import { type HydrationTableState } from '../../offline-sync';
 
 interface SessionCardRestorationRequest {
   /** Unique key for one restoration attempt; defaults to the target session id. */
@@ -35,6 +36,10 @@ interface ChargingHistoryProps {
   restorationRequest?: ChargingHistoryRestorationRequest;
   /** Clears the parent request once the requested restoration has completed. */
   onRestorationComplete?: () => void;
+  /** Current remote hydration status for the session cache. */
+  hydrationState?: HydrationTableState;
+  /** Starts a new remote hydration attempt after a session-loading failure. */
+  onRetryHydration?: () => void;
 }
 
 function buildSessionEditLabel(session: ChargingSession): string {
@@ -59,6 +64,8 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
   onSelectSession,
   restorationRequest,
   onRestorationComplete,
+  hydrationState = { status: 'ready' },
+  onRetryHydration,
 }) => {
   const { sessions, isLoading } = useSessions();
   const sessionCardRefs = React.useRef(new Map<string, HTMLElement>());
@@ -151,7 +158,10 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
     onRestorationComplete?.();
   }, [explicitRestorationKey, implicitRestorationKey, isLoading, onRestorationComplete, restorationRequest, sessions]);
 
-  if (isLoading) {
+  if (
+    isLoading
+    || (sessions.length === 0 && (hydrationState.status === 'idle' || hydrationState.status === 'loading'))
+  ) {
     return (
       <div className="flex items-center justify-center p-12">
         <div className="animate-pulse flex flex-col items-center gap-4">
@@ -159,6 +169,27 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
           <div className="h-4 w-32 bg-slate-200 rounded"></div>
         </div>
       </div>
+    );
+  }
+
+  if (sessions.length === 0 && hydrationState.status === 'failed') {
+    return (
+      <Slab role="alert" className="p-12 text-center">
+        <CircleAlert className="mx-auto mb-4 h-12 w-12 text-red-500" />
+        <h2 className="mb-2 text-xl font-bold text-primary">Sessions couldn’t be loaded</h2>
+        <p className="mx-auto max-w-xl text-secondary">
+          Your charging history is currently unavailable. Your saved data has not been changed. Try again, or check back later if the problem continues.
+        </p>
+        {onRetryHydration != null && (
+          <button
+            type="button"
+            onClick={onRetryHydration}
+            className="mt-6 min-h-[44px] rounded-xl bg-accent px-5 py-2.5 font-semibold text-white transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+          >
+            Try again
+          </button>
+        )}
+      </Slab>
     );
   }
 
@@ -174,6 +205,30 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
 
   return (
     <div className="space-y-6">
+      {hydrationState.status === 'failed' && (
+        <Slab className="p-6">
+          <div className="flex items-start gap-3">
+            <CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
+            <div className="min-w-0 flex-1">
+              <div role="status" aria-live="polite">
+                <h2 className="text-base font-bold text-primary">Sessions couldn’t be refreshed</h2>
+                <p className="mt-1 text-sm text-secondary">
+                  Showing sessions saved on this device. Recent changes from another device may not be available.
+                </p>
+              </div>
+              {onRetryHydration != null && (
+                <button
+                  type="button"
+                  onClick={onRetryHydration}
+                  className="mt-3 min-h-[44px] rounded-xl border border-slab-border px-4 py-2 text-sm font-semibold text-primary transition-colors hover:bg-secondary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+                >
+                  Try again
+                </button>
+              )}
+            </div>
+          </div>
+        </Slab>
+      )}
       {monthGroups.map((group) => (
         <section key={group.monthKey} className="space-y-4">
           <header className="border-t border-slab-border/70 px-2 pt-4 first:border-t-0 first:pt-0">

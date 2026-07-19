@@ -7,6 +7,7 @@ import {
   type ProviderPlanSelection
 } from '../../../infra/db';
 import { supabase } from '../../../infra/supabase';
+import type { InitialSyncResult } from '../model/types';
 
 const BASE_RETRY_DELAY_MS = 60_000;
 const MAX_RETRY_DELAY_MS = 15 * 60_000;
@@ -554,12 +555,17 @@ async function syncItem(item: SyncOutbox): Promise<{ success: true } | ({ succes
  * without clearing any pending local writes that may still exist in the outbox.
  * Typically called on app startup or after login.
  */
-export async function initialSync(options: InitialSyncOptions = {}): Promise<void> {
+export async function initialSync(options: InitialSyncOptions = {}): Promise<InitialSyncResult> {
   const tables = ['providers', 'charging_plans', 'sessions'] as const;
+  const result: InitialSyncResult = {
+    providers: { status: 'aborted' },
+    charging_plans: { status: 'aborted' },
+    sessions: { status: 'aborted' },
+  };
 
   for (const tableName of tables) {
     if (options.signal?.aborted) {
-      return;
+      return result;
     }
 
     const table = db[tableName];
@@ -575,13 +581,14 @@ export async function initialSync(options: InitialSyncOptions = {}): Promise<voi
         };
 
       if (options.signal?.aborted) {
-        return;
+        return result;
       }
 
       if (error) {
         // Continue with the remaining tables so one failed pull does not block
         // all locally cached data from refreshing.
         console.error(`Error pulling data for ${tableName}:`, error.message);
+        result[tableName] = { status: 'failed', failureKind: 'network' };
         continue;
       }
 
@@ -600,8 +607,14 @@ export async function initialSync(options: InitialSyncOptions = {}): Promise<voi
           // independently hydrated domain tables.
           const message = err instanceof Error ? err.message : String(err);
           console.error(`Error hydrating data for ${tableName}:`, message);
+          result[tableName] = { status: 'failed', failureKind: 'invalid_data' };
+          continue;
         }
       }
+
+      result[tableName] = { status: 'ready' };
     }
   }
+
+  return result;
 }

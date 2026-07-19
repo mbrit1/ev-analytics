@@ -96,6 +96,91 @@ describe('ChargingHistory', () => {
     ).toBeInTheDocument();
   });
 
+  it.each(['idle', 'loading'] as const)('keeps the empty history on its %s skeleton while sessions hydrate', async (status) => {
+    // Arrange: render an empty local cache before or during remote session hydration.
+    render(<ChargingHistory hydrationState={{ status }} />);
+
+    // Act: wait for the local live query to settle.
+    await waitFor(() => {
+      expect(screen.queryByText('No Sessions Yet')).not.toBeInTheDocument();
+    });
+
+    // Assert: an unfinished hydration cannot be presented as a confirmed empty history.
+    expect(document.querySelector('.animate-pulse')).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows a retryable error instead of an empty history when session hydration fails', async () => {
+    // Arrange: render an empty local cache with a failed remote session hydration.
+    const onRetryHydration = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ChargingHistory
+        hydrationState={{ status: 'failed', failureKind: 'invalid_data' }}
+        onRetryHydration={onRetryHydration}
+      />
+    );
+
+    // Act: wait for the failure state and request another attempt.
+    const alert = await screen.findByRole('alert');
+    const retryButton = screen.getByRole('button', { name: 'Try again' });
+    await user.click(retryButton);
+
+    // Assert: the user receives actionable, non-technical feedback instead of the normal empty state.
+    expect(alert).toHaveTextContent('Sessions couldn’t be loaded');
+    expect(alert).toHaveTextContent(
+      'Your charging history is currently unavailable. Your saved data has not been changed. Try again, or check back later if the problem continues.'
+    );
+    expect(screen.queryByText('No Sessions Yet')).not.toBeInTheDocument();
+    expect(retryButton).toHaveClass('min-h-[44px]');
+    expect(onRetryHydration).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps cached sessions visible and warns when a refresh fails', async () => {
+    // Arrange: save a local session before simulating a failed remote refresh.
+    const onRetryHydration = vi.fn();
+    const user = userEvent.setup();
+    await act(async () => {
+      await saveSession(buildSession('session-cached-failure', '2026-05-30T10:00:00.000Z'));
+    });
+
+    render(
+      <ChargingHistory
+        hydrationState={{ status: 'failed', failureKind: 'network' }}
+        onRetryHydration={onRetryHydration}
+      />
+    );
+
+    // Act: wait for the local session and invoke the available retry action.
+    expect(await screen.findByText('Tesla')).toBeInTheDocument();
+    const warning = screen.getByRole('status');
+    const retryButton = screen.getByRole('button', { name: 'Try again' });
+    await user.click(retryButton);
+
+    // Assert: cached data remains usable while the stale-data warning is announced politely.
+    expect(warning).toHaveAttribute('aria-live', 'polite');
+    expect(warning).toHaveTextContent('Sessions couldn’t be refreshed');
+    expect(warning).toHaveTextContent(
+      'Showing sessions saved on this device. Recent changes from another device may not be available.'
+    );
+    expect(retryButton).toHaveClass('min-h-[44px]');
+    expect(onRetryHydration).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps cached sessions visible without a warning while another refresh is loading', async () => {
+    // Arrange: save one local session while a new remote hydration attempt is in progress.
+    await act(async () => {
+      await saveSession(buildSession('session-cached-loading', '2026-05-30T10:00:00.000Z'));
+    });
+
+    // Act: render the cached history in its loading state.
+    render(<ChargingHistory hydrationState={{ status: 'loading' }} />);
+
+    // Assert: a usable cache wins over the loading skeleton and no stale-data warning is needed.
+    expect(await screen.findByText('Tesla')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
   it('renders a saved session after saveSession commits', async () => {
     // Arrange: Render the empty history first.
     render(<ChargingHistory />);
