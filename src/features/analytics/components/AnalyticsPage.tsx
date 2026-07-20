@@ -74,6 +74,7 @@ export function AnalyticsPage({
       isLoading={overallPriceQuery.status === 'loading'}
       onAddSession={onAddSession}
       onReviewTariffs={onReviewTariffs}
+      layoutMode={layoutMode}
     />
   )
   const monthlyContent = (
