@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAnalyticsLayoutMode } from '../hooks/useAnalyticsLayoutMode'
@@ -106,6 +106,42 @@ describe('AnalyticsPage', () => {
     expect(screen.getByText('June 2026')).toBeInTheDocument()
     expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15'))
       .toBe(true)
+  })
+
+  it('passes the bottom-dock layout through to the Overall Price information sheet', async () => {
+    // Arrange: Render the mobile Analytics overview with its responsive layout mode.
+    vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
+    const user = userEvent.setup()
+    render(<AnalyticsPage onAddSession={vi.fn()} />)
+
+    // Act: Open the Overall Price calculation explanation.
+    await user.click(screen.getByRole('button', { name: 'How Overall Price is calculated' }))
+
+    // Assert: Page composition retains the bottom-sheet interaction contract.
+    expect(screen.getByRole('dialog', { name: 'How Overall Price is calculated' }))
+      .toHaveAttribute('aria-modal', 'true')
+  })
+
+  it('restores disclosure-trigger focus when an open sheet remounts at the breakpoint', async () => {
+    // Arrange: Open the mobile sheet before Analytics changes composition.
+    vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
+    const user = userEvent.setup()
+    const { rerender } = render(<AnalyticsPage onAddSession={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'How Overall Price is calculated' }))
+    expect(screen.getByRole('dialog', { name: 'How Overall Price is calculated' }))
+      .toBeInTheDocument()
+
+    // Act: Cross to the sidebar composition, which remounts the Overall Price slab.
+    vi.mocked(useAnalyticsLayoutMode).mockReturnValue('sidebar')
+    rerender(<AnalyticsPage onAddSession={vi.fn()} />)
+
+    // Assert: Modal cleanup completes before focus reaches the replacement trigger.
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'How Overall Price is calculated' }))
+        .toHaveFocus()
+    })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(document.body.style.overflow).toBe('')
   })
 
   it('restores the selected mobile tab when a sidebar-to-mobile transition removes focus', async () => {

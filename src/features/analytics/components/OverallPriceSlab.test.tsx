@@ -14,7 +14,10 @@ const readyResult: OverallChargingPriceResult = {
   overallPriceCtPerKwh: 6615 / 129.2,
 }
 
-function renderSlab(result: OverallChargingPriceResult) {
+function renderSlab(
+  result: OverallChargingPriceResult,
+  layoutMode: 'sidebar' | 'bottom-dock' = 'sidebar',
+) {
   const onAddSession = vi.fn()
   const onReviewTariffs = vi.fn()
   const user = userEvent.setup()
@@ -22,6 +25,7 @@ function renderSlab(result: OverallChargingPriceResult) {
   render(
     <OverallPriceSlab
       result={result}
+      layoutMode={layoutMode}
       onAddSession={onAddSession}
       onReviewTariffs={onReviewTariffs}
     />,
@@ -54,6 +58,22 @@ describe('OverallPriceSlab', () => {
     expect(screen.getByText('129,2', { exact: false })).toHaveClass('tabular-nums')
     expect(screen.getByText('Included spend')).toBeInTheDocument()
     expect(screen.getByText('66,15 €')).toHaveClass('tabular-nums')
+    const heading = screen.getByRole('heading', { name: 'Overall price' })
+    expect(heading).toHaveClass('whitespace-nowrap')
+    expect(heading.parentElement)
+      .toHaveClass('flex', 'items-center', 'gap-1')
+  })
+
+  it('passes the active bottom-dock layout through to the calculation disclosure', async () => {
+    // Arrange: Render the KPI in its compact Analytics composition.
+    const { user } = renderSlab(readyResult, 'bottom-dock')
+
+    // Act: Open the calculation explanation.
+    await user.click(screen.getByRole('button', { name: 'How Overall Price is calculated' }))
+
+    // Assert: The slab delegates its adaptive surface to the modal disclosure.
+    expect(screen.getByRole('dialog', { name: 'How Overall Price is calculated' }))
+      .toHaveAttribute('aria-modal', 'true')
   })
 
   it('uses a semantic loading placeholder without exposing a stale calculation', () => {
@@ -62,6 +82,7 @@ describe('OverallPriceSlab', () => {
       <OverallPriceSlab
         result={readyResult}
         isLoading
+        layoutMode="sidebar"
         onAddSession={vi.fn()}
         onReviewTariffs={vi.fn()}
       />,

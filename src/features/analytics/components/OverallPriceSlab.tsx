@@ -9,6 +9,7 @@ import type {
   OverallChargingPriceResult,
   TariffConflict,
 } from '../model/overallChargingPrice'
+import type { AnalyticsLayoutMode } from '../hooks/useAnalyticsLayoutMode'
 import { OverallPriceInfoDisclosure } from './OverallPriceInfoDisclosure'
 
 /** Props for the presentational lifetime Overall Price Floating Slab. */
@@ -21,6 +22,8 @@ export interface OverallPriceSlabProps {
   onAddSession: () => void
   /** Opens the established tariff-management flow for an overlap conflict. */
   onReviewTariffs: () => void
+  /** Existing Analytics composition mode for the calculation disclosure surface. */
+  layoutMode: AnalyticsLayoutMode
 }
 
 function formatConflictMonth(month: string): string {
@@ -43,16 +46,17 @@ export function OverallPriceSlab({
   isLoading = false,
   onAddSession,
   onReviewTariffs,
+  layoutMode,
 }: OverallPriceSlabProps) {
   const slabClasses = 'mx-auto w-full space-y-4 p-5 md:space-y-5 md:p-8 min-[900px]:!max-w-[760px] min-[900px]:space-y-7 min-[900px]:!rounded-[32px] min-[900px]:!p-12 min-[900px]:!px-13'
 
   return (
     <Slab padding="none" className={slabClasses} aria-busy={isLoading}>
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-xs font-bold uppercase tracking-wider text-secondary md:text-sm md:normal-case md:tracking-normal">
+      <div className="flex items-center gap-1">
+        <h2 className="whitespace-nowrap text-xs font-bold uppercase tracking-wider text-secondary md:text-sm md:normal-case md:tracking-normal">
           Overall price
         </h2>
-        <OverallPriceInfoDisclosure />
+        <OverallPriceInfoDisclosure layoutMode={layoutMode} />
       </div>
       {isLoading ? (
         <div role="status" className="h-12 w-40 animate-pulse rounded-xl bg-secondary/10 motion-reduce:animate-none">
