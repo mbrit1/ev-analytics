@@ -34,6 +34,22 @@ These instructions apply to the entire repository. Human contributors should sta
 - Do not push, open a pull request, or merge without explicit human authorization.
 - Follow the current design baseline in `docs/design/design-system-baseline.html` and the checklist in `docs/design/governance-checklist.md` for UI work.
 
+## Agent Responsibilities
+
+- `implement_luna` handles localized implementation, refactoring, unit tests, and mechanical changes.
+- `implement_terra` handles debugging, integrations, cross-module changes, and escalations from Luna.
+- Parent (Sol) is responsible for:
+  - Creating the implementation plan and making architecture decisions.
+  - Selecting the appropriate subagent.
+  - Ensuring subagents have no overlapping file ownership.
+  - Reviewing every completed diff.
+  - Running integration-level validation.
+  - Presenting the final result and making merge decisions.
+- Test-driven delegated changes proceed in checkpoints: failing test plus RED evidence, parent acknowledgement, then implementation plus GREEN evidence.
+- Before replacing or reassigning an interrupted agent, the parent inspects the shared worktree, explicitly revokes prior ownership, and establishes the replacement's starting diff.
+- UI integration validation includes live-browser visual review; component tests alone do not complete handoff.
+- Subagents do not merge or finalize work independently.
+
 ## Implementation Conventions
 
 - Use strict TypeScript and React function components. Prefer feature-local code before extracting shared abstractions.
