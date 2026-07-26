@@ -71,7 +71,7 @@ export function OverallPriceSlab({
         <div className="space-y-6 min-[900px]:space-y-8">
           <div className="space-y-3 min-[900px]:space-y-4">
             <p
-              className="analytics-metric-value inline-flex items-baseline gap-1 whitespace-nowrap text-[2.75rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[3.5rem] min-[900px]:!text-[clamp(4rem,5vw,5.25rem)] min-[900px]:font-extrabold min-[900px]:leading-[0.95] min-[900px]:tracking-[-0.055em]"
+              className="analytics-metric-value inline-flex items-baseline gap-1 min-[900px]:gap-2 whitespace-nowrap text-[2.75rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[3.5rem] min-[900px]:!text-[clamp(4rem,5vw,5.25rem)] min-[900px]:font-extrabold min-[900px]:leading-[0.95] min-[900px]:tracking-[-0.055em]"
             >
               <span aria-hidden="true" className="tabular-nums">{formatCtPerKwhAsEuroAmount(result.overallPriceCtPerKwh, 'de-DE')}</span>
               <span aria-hidden="true" className="text-[0.625em] font-bold leading-none">€/kWh</span>
