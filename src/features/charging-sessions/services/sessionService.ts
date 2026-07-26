@@ -25,6 +25,67 @@ export interface SessionPersistenceRequest {
   planSelectionChange?: SetActivePlanSelectionInput;
 }
 
+/**
+ * Identifies an ad-hoc session that overlaps a saved charging-plan tariff for
+ * the same billing provider and session date.
+ */
+export class AdHocTariffConflictError extends Error {
+  readonly field = 'billing_provider_name' as const;
+
+  constructor() {
+    super('A saved charging plan is active for this billing provider on the session date.');
+    this.name = 'AdHocTariffConflictError';
+  }
+}
+
+const normalizeBillingProviderName = (name: string): string => name.trim().toLowerCase();
+
+const hasUnchangedAdHocTariffIdentity = (
+  existing: ChargingSession,
+  candidate: ChargingSession
+): boolean => {
+  return existing.session_mode === 'ad_hoc'
+    && candidate.session_mode === 'ad_hoc'
+    && normalizeBillingProviderName(existing.provider_name_snapshot)
+      === normalizeBillingProviderName(candidate.provider_name_snapshot)
+    && existing.session_timestamp.getTime() === candidate.session_timestamp.getTime();
+};
+
+async function assertAdHocSessionHasNoActiveSavedTariff(session: ChargingSession): Promise<void> {
+  if (session.session_mode !== 'ad_hoc') {
+    return;
+  }
+
+  const normalizedBillingProviderName = normalizeBillingProviderName(session.provider_name_snapshot);
+  const matchingProviderIds = new Set((await db.providers
+    .filter((provider) => (
+      provider.user_id === session.user_id
+      && !provider.deleted_at
+      && normalizeBillingProviderName(provider.name) === normalizedBillingProviderName
+    ))
+    .toArray())
+    .map((provider) => provider.id));
+
+  if (matchingProviderIds.size === 0) {
+    return;
+  }
+
+  const sessionTimestamp = session.session_timestamp.getTime();
+  const activeSavedTariff = await db.charging_plans
+    .filter((plan) => (
+      plan.user_id === session.user_id
+      && matchingProviderIds.has(plan.provider_id)
+      && !plan.deleted_at
+      && new Date(plan.valid_from).getTime() <= sessionTimestamp
+      && (plan.valid_to == null || sessionTimestamp < new Date(plan.valid_to).getTime())
+    ))
+    .first();
+
+  if (activeSavedTariff) {
+    throw new AdHocTariffConflictError();
+  }
+}
+
 async function buildPlanSelectionMutationWithinSessionTransaction(
   input: SetActivePlanSelectionInput
 ): Promise<{
@@ -408,6 +469,7 @@ export function prepareSessionEdit(
 }
 
 async function persistSessionInsert(session: ChargingSession): Promise<void> {
+  await assertAdHocSessionHasNoActiveSavedTariff(session);
   await db.sessions.put(session);
   await db.sync_outbox.add(createSyncOutboxEntry('sessions', 'INSERT', session, new Date()));
 }
@@ -423,23 +485,18 @@ async function persistSessionUpdate(session: ChargingSession): Promise<void> {
   }
 
   const updatedAt = new Date();
-  const updatedSession: ChargingSession = session.session_mode === 'plan'
-    ? {
-      ...session,
-      id: existing.id,
-      user_id: existing.user_id,
-      created_at: existing.created_at,
-      deleted_at: existing.deleted_at,
-      updated_at: updatedAt,
-    }
-    : {
-      ...session,
-      id: existing.id,
-      user_id: existing.user_id,
-      created_at: existing.created_at,
-      deleted_at: existing.deleted_at,
-      updated_at: updatedAt,
-    };
+  const updatedSession: ChargingSession = {
+    ...session,
+    id: existing.id,
+    user_id: existing.user_id,
+    created_at: existing.created_at,
+    deleted_at: existing.deleted_at,
+    updated_at: updatedAt,
+  };
+
+  if (!hasUnchangedAdHocTariffIdentity(existing, updatedSession)) {
+    await assertAdHocSessionHasNoActiveSavedTariff(updatedSession);
+  }
 
   await db.sessions.put(updatedSession);
 
@@ -450,55 +507,63 @@ async function persistSessionRequest(
   request: SessionPersistenceRequest,
   mode: 'insert' | 'update'
 ): Promise<void> {
-  await db.transaction('rw', db.sessions, db.provider_plan_selections, db.sync_outbox, async () => {
-    let session = request.session;
-    let planSelectionMutation: Awaited<ReturnType<typeof buildPlanSelectionMutationWithinSessionTransaction>> | undefined;
+  await db.transaction(
+    'rw',
+    db.providers,
+    db.charging_plans,
+    db.sessions,
+    db.provider_plan_selections,
+    db.sync_outbox,
+    async () => {
+      let session = request.session;
+      let planSelectionMutation: Awaited<ReturnType<typeof buildPlanSelectionMutationWithinSessionTransaction>> | undefined;
 
-    if (request.planSelectionChange) {
-      if (session.session_mode !== 'plan') {
-        throw new Error('Plan selection changes require a plan session');
+      if (request.planSelectionChange) {
+        if (session.session_mode !== 'plan') {
+          throw new Error('Plan selection changes require a plan session');
+        }
+        planSelectionMutation = await buildPlanSelectionMutationWithinSessionTransaction(request.planSelectionChange);
+        session = {
+          ...session,
+          plan_selection_id: planSelectionMutation.nextSelection.id,
+        };
       }
-      planSelectionMutation = await buildPlanSelectionMutationWithinSessionTransaction(request.planSelectionChange);
-      session = {
-        ...session,
-        plan_selection_id: planSelectionMutation.nextSelection.id,
-      };
-    }
 
-    if (mode === 'insert') {
-      await persistSessionInsert(session);
-    } else {
-      await persistSessionUpdate(session);
-    }
-
-    if (!planSelectionMutation) {
-      return;
-    }
-
-    if (planSelectionMutation.currentUpdate) {
-      await db.provider_plan_selections.update(
-        planSelectionMutation.currentUpdate.id,
-        planSelectionMutation.currentUpdate
-      );
-      const updatedCurrent = await db.provider_plan_selections.get(planSelectionMutation.currentUpdate.id);
-      if (updatedCurrent) {
-        await db.sync_outbox.add(createSyncOutboxEntry(
-          'provider_plan_selections',
-          'UPDATE',
-          updatedCurrent,
-          planSelectionMutation.currentUpdate.updated_at,
-        ));
+      if (mode === 'insert') {
+        await persistSessionInsert(session);
+      } else {
+        await persistSessionUpdate(session);
       }
-    }
 
-    await db.provider_plan_selections.add(planSelectionMutation.nextSelection);
-    await db.sync_outbox.add(createSyncOutboxEntry(
-      'provider_plan_selections',
-      'INSERT',
-      planSelectionMutation.nextSelection,
-      planSelectionMutation.nextSelection.created_at,
-    ));
-  });
+      if (!planSelectionMutation) {
+        return;
+      }
+
+      if (planSelectionMutation.currentUpdate) {
+        await db.provider_plan_selections.update(
+          planSelectionMutation.currentUpdate.id,
+          planSelectionMutation.currentUpdate
+        );
+        const updatedCurrent = await db.provider_plan_selections.get(planSelectionMutation.currentUpdate.id);
+        if (updatedCurrent) {
+          await db.sync_outbox.add(createSyncOutboxEntry(
+            'provider_plan_selections',
+            'UPDATE',
+            updatedCurrent,
+            planSelectionMutation.currentUpdate.updated_at,
+          ));
+        }
+      }
+
+      await db.provider_plan_selections.add(planSelectionMutation.nextSelection);
+      await db.sync_outbox.add(createSyncOutboxEntry(
+        'provider_plan_selections',
+        'INSERT',
+        planSelectionMutation.nextSelection,
+        planSelectionMutation.nextSelection.created_at,
+      ));
+    }
+  );
 }
 
 /**
@@ -511,7 +576,7 @@ async function persistSessionRequest(
  * @param session - Fully prepared charging session to save and sync.
  */
 export async function saveSession(session: ChargingSession): Promise<void> {
-  await db.transaction('rw', db.sessions, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.sessions, db.sync_outbox, async () => {
     await persistSessionInsert(session);
   });
 }
@@ -534,7 +599,7 @@ export async function saveSessionWithPlanSelection(request: SessionPersistenceRe
  * @param session - Fully prepared charging session to update locally and sync.
  */
 export async function updateSession(session: ChargingSession): Promise<void> {
-  await db.transaction('rw', db.sessions, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.sessions, db.sync_outbox, async () => {
     await persistSessionUpdate(session);
   });
 }
