@@ -1468,8 +1468,8 @@ describe('planService', () => {
     expect(saved?.name).toBe('flex')
   })
 
-  it('should allow overlapping periods for different names under the same provider', async () => {
-    // Arrange: Save first plan version.
+  it('allows overlapping zero-base-fee tariffs with different names under the same provider', async () => {
+    // Arrange: Save the first zero-base-fee tariff.
     await saveChargingPlan({
       id: 'plan-overlap-a',
       user_id: 'user-1',
@@ -1484,7 +1484,7 @@ describe('planService', () => {
       updated_at: new Date()
     })
 
-    // Act: Save overlapping period with different name.
+    // Act: Save an overlapping zero-base-fee tariff with a different name.
     await saveChargingPlan({
       id: 'plan-overlap-b',
       user_id: 'user-1',
@@ -1499,9 +1499,36 @@ describe('planService', () => {
       updated_at: new Date()
     })
 
-    // Assert: Different logical tariffs may overlap.
+    // Assert: Reusable tariff definitions without a paid subscription may overlap.
     const saved = await db.charging_plans.get('plan-overlap-b')
     expect(saved?.name).toBe('Viellader')
+  })
+
+  it('rejects overlapping positive-base-fee tariffs with different names under the same provider', async () => {
+    // Arrange: Save one paid tariff for the provider.
+    await saveChargingPlan(buildPlan({
+      id: 'paid-plan-existing',
+      name: 'Mobility+',
+      valid_from: utc('2026-01-01'),
+      valid_to: null,
+      monthly_base_fee: 499,
+    }))
+    const overlappingPaidTariff = buildPlan({
+      id: 'paid-plan-overlap',
+      name: 'Viellader',
+      valid_from: utc('2026-01-15'),
+      valid_to: null,
+      monthly_base_fee: 999,
+    })
+
+    // Act: Attempt to save a second paid tariff during the same provider interval.
+    const save = saveChargingPlan(overlappingPaidTariff)
+
+    // Assert: Provider-level paid subscription overlap is rejected before persistence.
+    await expect(save).rejects.toThrow(
+      'Paid tariff validity overlaps with another active paid tariff for this provider',
+    )
+    expect(await db.charging_plans.get(overlappingPaidTariff.id)).toBeUndefined()
   })
 
   it('should allow reusing named tariff when conflicting record is soft-deleted', async () => {
