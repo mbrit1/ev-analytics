@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatCtPerKwh,
+  formatCtPerKwhAsEuroAmount,
   formatCurrency,
   formatKwh,
   formatMonthLabel,
@@ -33,6 +34,48 @@ describe('formatCtPerKwh', () => {
 
     // Assert: The locale separator and normal numeric rounding are applied.
     expect(formatted).toBe('51.3 ct/kWh');
+  });
+});
+
+/** Test suite for the presentation-only cents-to-euro amount formatter. */
+describe('formatCtPerKwhAsEuroAmount', () => {
+  it.each([
+    [0, '0,00'],
+    [39, '0,39'],
+    [49, '0,49'],
+    [57, '0,57'],
+    [62, '0,62'],
+  ])('formats %s ct/kWh as a German two-decimal euro amount', (rate, expected) => {
+    // Arrange: Use representative public-charging tariff values.
+
+    // Act: Convert the cents-per-kWh rate for German display.
+    const formatted = formatCtPerKwhAsEuroAmount(rate, 'de-DE');
+
+    // Assert: The amount has exactly two localized fractional digits.
+    expect(formatted).toBe(expected);
+  });
+
+  it('preserves decimal-point locale output', () => {
+    // Arrange: Use a representative decimal-point tariff value.
+
+    // Act: Convert the rate for US English display.
+    const formatted = formatCtPerKwhAsEuroAmount(49, 'en-US');
+
+    // Assert: Locale-specific decimal punctuation is retained.
+    expect(formatted).toBe('0.49');
+  });
+
+  it.each([
+    [38.499, '0,38'],
+    [38.5, '0,39'],
+  ])('applies normal euro rounding at %s ct/kWh', (rate, expected) => {
+    // Arrange: Place the rate immediately below and at the half-cent boundary.
+
+    // Act: Convert the rate to a two-decimal euro amount.
+    const formatted = formatCtPerKwhAsEuroAmount(rate, 'de-DE');
+
+    // Assert: Values round only at the half-boundary.
+    expect(formatted).toBe(expected);
   });
 });
 

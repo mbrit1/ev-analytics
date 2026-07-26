@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Info, X } from 'lucide-react'
+import { formatCtPerKwh } from '../../../shared/lib'
 import type { AnalyticsLayoutMode } from '../hooks/useAnalyticsLayoutMode'
 
 const EXPLANATION = 'Overall Price divides included spend by provider-billed energy across all recorded sessions. Fixed tariff fees are included only for months in which that tariff was used. The current month is calculated through today. Battery-added energy is not included.'
@@ -16,10 +17,12 @@ interface SidebarPosition {
 export interface OverallPriceInfoDisclosureProps {
   /** Existing Analytics composition mode selects a popover or bottom sheet. */
   layoutMode: AnalyticsLayoutMode
+  /** Ready calculation rate retained at disclosure precision. */
+  overallPriceCtPerKwh?: number
 }
 
 /** Explains the lifetime Overall Price calculation without leaving Analytics. */
-export function OverallPriceInfoDisclosure({ layoutMode }: OverallPriceInfoDisclosureProps) {
+export function OverallPriceInfoDisclosure({ layoutMode, overallPriceCtPerKwh }: OverallPriceInfoDisclosureProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [sidebarPosition, setSidebarPosition] = useState<SidebarPosition>({ left: 16, top: 16 })
   const disclosureId = useId()
@@ -215,6 +218,9 @@ export function OverallPriceInfoDisclosure({ layoutMode }: OverallPriceInfoDiscl
   }, [isOpen, layoutMode])
 
   const headingId = `${disclosureId}-heading`
+  const higherPrecisionPrice = overallPriceCtPerKwh === undefined
+    ? null
+    : <p className="mt-2">Higher-precision price: {formatCtPerKwh(overallPriceCtPerKwh, 'de-DE')}</p>
   const closeButton = (
     <button
       ref={closeRef}
@@ -242,6 +248,7 @@ export function OverallPriceInfoDisclosure({ layoutMode }: OverallPriceInfoDiscl
         </h3>
         {closeButton}
       </div>
+      {higherPrecisionPrice}
       <p className="mt-2">{EXPLANATION}</p>
     </section>
   ) : (
@@ -270,6 +277,7 @@ export function OverallPriceInfoDisclosure({ layoutMode }: OverallPriceInfoDiscl
           </h2>
           {closeButton}
         </div>
+        {higherPrecisionPrice}
         <p className="mt-3">{EXPLANATION}</p>
       </section>
     </div>
