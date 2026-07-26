@@ -175,6 +175,38 @@ function sortPlansByStartDate(plans: ChargingPlan[]): ChargingPlan[] {
   return [...plans].sort((left, right) => left.valid_from.getTime() - right.valid_from.getTime());
 }
 
+function assertNoPaidTariffOverlap(
+  candidateVersions: readonly ChargingPlan[],
+  existingProviderVersions: readonly ChargingPlan[],
+): void {
+  const candidateIds = new Set(candidateVersions.map((candidate) => candidate.id));
+  const retainedVersions = existingProviderVersions.filter((existing) => !candidateIds.has(existing.id));
+
+  for (const candidate of candidateVersions) {
+    if (candidate.deleted_at || candidate.monthly_base_fee <= 0) {
+      continue;
+    }
+
+    const conflicts = [...retainedVersions, ...candidateVersions].filter((existing) => (
+      existing.id !== candidate.id
+      && !existing.deleted_at
+      && existing.user_id === candidate.user_id
+      && existing.provider_id === candidate.provider_id
+      && existing.monthly_base_fee > 0
+      && periodsOverlap(
+        candidate.valid_from,
+        candidate.valid_to,
+        existing.valid_from,
+        existing.valid_to,
+      )
+    ));
+
+    if (conflicts.length > 0) {
+      throw new PaidTariffOverlapError(candidate, conflicts);
+    }
+  }
+}
+
 function buildLogicalTariffMissingError(providerId: string, name: string): Error {
   return new Error(`No active tariff baseline exists for ${providerId}::${normalizeTariffName(name)}`);
 }
@@ -224,6 +256,20 @@ async function loadLogicalVersionsFromTable(
     .toArray();
 
   return sortPlansByStartDate(matchingPlans.map(hydrateChargingPlanDates));
+}
+
+async function loadProviderVersionsFromTable(
+  plans: PlanTable,
+  userId: string,
+  providerId: string,
+): Promise<ChargingPlan[]> {
+  const matchingPlans = await plans
+    .where('provider_id')
+    .equals(providerId)
+    .filter((plan) => plan.user_id === userId && !plan.deleted_at)
+    .toArray();
+
+  return matchingPlans.map(hydrateChargingPlanDates);
 }
 
 function buildPlanFromIdentityAndPrices(
@@ -341,32 +387,12 @@ export async function saveChargingPlan(plan: ChargingPlan): Promise<void> {
       throw new Error('Tariff validity overlaps with an existing active version for this provider and name');
     }
 
-    const paidTariffConflicts = normalizedIncomingPlan.monthly_base_fee > 0
-      ? await db.charging_plans
-        .where('provider_id')
-        .equals(normalizedIncomingPlan.provider_id)
-        .filter((candidate) => {
-          const hydratedCandidate = hydrateChargingPlanDates(candidate);
-          return !hydratedCandidate.deleted_at
-            && hydratedCandidate.id !== normalizedIncomingPlan.id
-            && hydratedCandidate.user_id === normalizedIncomingPlan.user_id
-            && hydratedCandidate.monthly_base_fee > 0
-            && periodsOverlap(
-              normalizedIncomingPlan.valid_from,
-              normalizedIncomingPlan.valid_to,
-              hydratedCandidate.valid_from,
-              hydratedCandidate.valid_to,
-            );
-        })
-        .toArray()
-      : [];
-
-    if (paidTariffConflicts.length > 0) {
-      throw new PaidTariffOverlapError(
-        normalizedIncomingPlan,
-        paidTariffConflicts.map(hydrateChargingPlanDates),
-      );
-    }
+    const providerVersions = await loadProviderVersionsFromTable(
+      db.charging_plans,
+      normalizedIncomingPlan.user_id,
+      normalizedIncomingPlan.provider_id,
+    );
+    assertNoPaidTariffOverlap([normalizedIncomingPlan], providerVersions);
 
     const planToSave: ChargingPlan = {
       ...normalizedIncomingPlan,
@@ -490,6 +516,15 @@ export async function scheduleTemporaryPromotion(
     validatePlan(closedBaseline);
     validatePlan(promotion);
     validatePlan(restoration);
+    const providerVersions = await loadProviderVersionsFromTable(
+      db.charging_plans,
+      input.userId,
+      input.providerId,
+    );
+    assertNoPaidTariffOverlap(
+      [closedBaseline, promotion, restoration],
+      providerVersions,
+    );
 
     await putPlanAndQueue(db.charging_plans, db.sync_outbox, closedBaseline, 'UPDATE', now);
     await putPlanAndQueue(db.charging_plans, db.sync_outbox, promotion, 'INSERT', now);
@@ -565,6 +600,12 @@ export async function updateCurrentTariffVersion(
     });
 
     updatedVersions.forEach(validatePlan);
+    const providerVersions = await loadProviderVersionsFromTable(
+      db.charging_plans,
+      input.userId,
+      input.providerId,
+    );
+    assertNoPaidTariffOverlap(updatedVersions, providerVersions);
 
     for (const version of updatedVersions) {
       await putPlanAndQueue(db.charging_plans, db.sync_outbox, version, 'UPDATE', now);
@@ -648,6 +689,12 @@ export async function createSuccessorTariffVersion(
 
     validatePlan(closedBaseline);
     validatePlan(successor);
+    const providerVersions = await loadProviderVersionsFromTable(
+      db.charging_plans,
+      input.userId,
+      input.providerId,
+    );
+    assertNoPaidTariffOverlap([closedBaseline, successor], providerVersions);
 
     await putPlanAndQueue(db.charging_plans, db.sync_outbox, closedBaseline, 'UPDATE', now);
     await putPlanAndQueue(db.charging_plans, db.sync_outbox, successor, 'INSERT', now);
@@ -698,6 +745,12 @@ export async function updateLogicalTariffDetails(
     }));
 
     updatedVersions.forEach(validatePlan);
+    const providerVersions = await loadProviderVersionsFromTable(
+      db.charging_plans,
+      input.userId,
+      input.nextProviderId,
+    );
+    assertNoPaidTariffOverlap(updatedVersions, providerVersions);
 
     for (const version of updatedVersions) {
       await putPlanAndQueue(db.charging_plans, db.sync_outbox, version, 'UPDATE', now);
