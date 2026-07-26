@@ -363,16 +363,16 @@ const defaultMockSessions = [
     charging_plan_name_snapshot: null,
     charging_type: 'AC',
     kwh_billed: 12.4,
-    total_cost: 806,
+    total_cost: 583,
     session_mode: 'ad_hoc',
     pricing_context: 'ad_hoc',
     plan_selection_id: null,
-    price_snapshot: { label: 'Ad-Hoc', kWhPrice: 65, sessionFee: 0 },
+    price_snapshot: { label: 'Ad-Hoc', kWhPrice: 47, sessionFee: 0 },
     ad_hoc_pricing: {
       cpoName: null,
-      pricePerKwh: 65
+      pricePerKwh: 47
     },
-    applied_price_per_kwh: 65,
+    applied_price_per_kwh: 47,
     applied_session_fee: 0,
     created_at: buildSessionTimestamp(-5, 10, 35),
     updated_at: buildSessionTimestamp(-5, 10, 35)
