@@ -1027,6 +1027,140 @@ describe('planService', () => {
     expect(outbox.some((entry) => entry.table_name === 'provider_plan_selections' && entry.action === 'DELETE')).toBe(true)
   })
 
+  it('rejects changing a current tariff to a positive fee that overlaps another paid tariff', async () => {
+    // Arrange: Seed one editable zero-fee tariff and one overlapping paid tariff.
+    const editable = buildPlan({
+      id: 'editable-free-tariff',
+      name: 'Free tariff',
+      monthly_base_fee: 0,
+    })
+    await db.charging_plans.bulkAdd([
+      editable,
+      buildPlan({
+        id: 'existing-paid-tariff',
+        name: 'Paid tariff',
+        monthly_base_fee: 499,
+      }),
+    ])
+    const plansBefore = await db.charging_plans.toArray()
+
+    // Act: Add a positive fee to the editable tariff without changing its interval.
+    const update = updateCurrentTariffVersion({
+      userId: editable.user_id,
+      providerId: editable.provider_id,
+      name: editable.name,
+      currentVersionId: editable.id,
+      validFrom: editable.valid_from,
+      nextName: editable.name,
+      prices: buildPrices({ ac_price_per_kwh: 49, monthly_base_fee: 999 }),
+    })
+
+    // Assert: The conflicting update is rejected atomically.
+    await expect(update).rejects.toThrow(
+      'Paid tariff validity overlaps with another active paid tariff for this provider',
+    )
+    expect(await db.charging_plans.toArray()).toEqual(plansBefore)
+    expect(await db.sync_outbox.count()).toBe(0)
+  })
+
+  it('rejects a paid successor that overlaps another paid tariff for the provider', async () => {
+    // Arrange: Seed one open zero-fee baseline and another paid tariff.
+    const baseline = await seedOpenBaseline({
+      name: 'Free tariff',
+      monthly_base_fee: 0,
+    })
+    await db.charging_plans.add(buildPlan({
+      id: 'existing-paid-tariff',
+      name: 'Paid tariff',
+      monthly_base_fee: 499,
+    }))
+    const plansBefore = await db.charging_plans.toArray()
+
+    // Act: Schedule a paid successor within the other paid tariff's interval.
+    const createSuccessor = createSuccessorTariffVersion({
+      userId: baseline.user_id,
+      providerId: baseline.provider_id,
+      name: baseline.name,
+      nextName: baseline.name,
+      effectiveFrom: utc('2026-08-01'),
+      prices: buildPrices({ ac_price_per_kwh: 49, monthly_base_fee: 999 }),
+    })
+
+    // Assert: Neither the baseline nor outbox changes when the successor conflicts.
+    await expect(createSuccessor).rejects.toThrow(
+      'Paid tariff validity overlaps with another active paid tariff for this provider',
+    )
+    expect(await db.charging_plans.toArray()).toEqual(plansBefore)
+    expect(await db.sync_outbox.count()).toBe(0)
+  })
+
+  it('rejects a paid promotion that overlaps another paid tariff for the provider', async () => {
+    // Arrange: Seed one open zero-fee baseline and another paid tariff.
+    const baseline = await seedOpenBaseline({
+      name: 'Free tariff',
+      monthly_base_fee: 0,
+    })
+    await db.charging_plans.add(buildPlan({
+      id: 'existing-paid-tariff',
+      name: 'Paid tariff',
+      monthly_base_fee: 499,
+    }))
+    const plansBefore = await db.charging_plans.toArray()
+
+    // Act: Schedule a temporary positive monthly fee inside the other paid interval.
+    const schedulePromotion = scheduleTemporaryPromotion({
+      userId: baseline.user_id,
+      providerId: baseline.provider_id,
+      name: baseline.name,
+      promoStart: utc('2026-08-01'),
+      promoEndInclusive: utc('2026-08-31'),
+      prices: buildPrices({ ac_price_per_kwh: 39, monthly_base_fee: 999 }),
+    })
+
+    // Assert: The promotion sequence is rejected before any local writes.
+    await expect(schedulePromotion).rejects.toThrow(
+      'Paid tariff validity overlaps with another active paid tariff for this provider',
+    )
+    expect(await db.charging_plans.toArray()).toEqual(plansBefore)
+    expect(await db.sync_outbox.count()).toBe(0)
+  })
+
+  it('rejects moving a paid logical tariff onto another provider paid interval', async () => {
+    // Arrange: Seed paid tariffs under two providers with different names.
+    const moving = buildPlan({
+      id: 'moving-paid-tariff',
+      provider_id: 'provider-1',
+      name: 'Moving tariff',
+      monthly_base_fee: 499,
+    })
+    await db.charging_plans.bulkAdd([
+      moving,
+      buildPlan({
+        id: 'destination-paid-tariff',
+        provider_id: 'provider-2',
+        name: 'Destination tariff',
+        monthly_base_fee: 999,
+      }),
+    ])
+    const plansBefore = await db.charging_plans.toArray()
+
+    // Act: Move the first paid tariff onto the destination provider.
+    const move = updateLogicalTariffDetails({
+      userId: moving.user_id,
+      providerId: moving.provider_id,
+      name: moving.name,
+      nextProviderId: 'provider-2',
+      nextName: moving.name,
+    })
+
+    // Assert: Provider-level paid overlap blocks the move atomically.
+    await expect(move).rejects.toThrow(
+      'Paid tariff validity overlaps with another active paid tariff for this provider',
+    )
+    expect(await db.charging_plans.toArray()).toEqual(plansBefore)
+    expect(await db.sync_outbox.count()).toBe(0)
+  })
+
   it('should save a charging plan and create an outbox entry', async () => {
     // Arrange: Build a charging plan with cents-based pricing.
     const planData: ChargingPlan = {
@@ -1529,6 +1663,73 @@ describe('planService', () => {
       'Paid tariff validity overlaps with another active paid tariff for this provider',
     )
     expect(await db.charging_plans.get(overlappingPaidTariff.id)).toBeUndefined()
+  })
+
+  it('allows adjacent positive-base-fee tariffs at a half-open switch boundary', async () => {
+    // Arrange: Save a paid tariff that ends exactly when its replacement starts.
+    await saveChargingPlan(buildPlan({
+      id: 'paid-plan-ending',
+      name: 'Old paid tariff',
+      valid_from: utc('2026-01-01'),
+      valid_to: utc('2026-08-01'),
+      monthly_base_fee: 499,
+    }))
+    const replacement = buildPlan({
+      id: 'paid-plan-starting',
+      name: 'New paid tariff',
+      valid_from: utc('2026-08-01'),
+      valid_to: null,
+      monthly_base_fee: 999,
+    })
+
+    // Act: Save the replacement on the exclusive end boundary.
+    await saveChargingPlan(replacement)
+
+    // Assert: Both adjacent paid intervals remain available.
+    expect(await db.charging_plans.get(replacement.id)).toBeDefined()
+  })
+
+  it('ignores soft-deleted paid tariffs when checking provider overlap', async () => {
+    // Arrange: Seed historical paid data that has already been soft-deleted.
+    await db.charging_plans.add(buildPlan({
+      id: 'deleted-paid-plan',
+      name: 'Deleted paid tariff',
+      monthly_base_fee: 499,
+      deleted_at: utc('2026-07-01'),
+    }))
+    const replacement = buildPlan({
+      id: 'active-paid-plan',
+      name: 'Active paid tariff',
+      monthly_base_fee: 999,
+    })
+
+    // Act: Save an otherwise overlapping active paid tariff.
+    await saveChargingPlan(replacement)
+
+    // Assert: Deleted history does not reserve the provider interval.
+    expect(await db.charging_plans.get(replacement.id)).toBeDefined()
+  })
+
+  it('allows an existing paid tariff row to update without conflicting with itself', async () => {
+    // Arrange: Save one paid tariff.
+    const existing = buildPlan({
+      id: 'paid-plan-update',
+      name: 'Paid tariff',
+      monthly_base_fee: 499,
+    })
+    await saveChargingPlan(existing)
+    await db.sync_outbox.clear()
+
+    // Act: Update non-identity pricing on the same row and interval.
+    await saveChargingPlan({
+      ...existing,
+      ac_price_per_kwh: 55,
+      monthly_base_fee: 599,
+    })
+
+    // Assert: Self-exclusion permits the update and queues one mutation.
+    expect((await db.charging_plans.get(existing.id))?.monthly_base_fee).toBe(599)
+    expect(await db.sync_outbox.count()).toBe(1)
   })
 
   it('should allow reusing named tariff when conflicting record is soft-deleted', async () => {
