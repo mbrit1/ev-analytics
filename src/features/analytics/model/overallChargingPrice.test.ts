@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { ChargingPlan } from '../../charging-plans'
 import type { ChargingSession } from '../../charging-sessions'
+import { mockChargingPlans, mockSessions } from '../../../mocks/seed-data'
+import { formatCtPerKwh, formatCtPerKwhAsEuroAmount } from '../../../shared/lib'
 import { calculateOverallChargingPrice } from './overallChargingPrice'
 
 const utcDate = (value: string): Date => new Date(`${value}T00:00:00.000Z`)
@@ -63,6 +65,44 @@ function buildSession(overrides: SessionOverrides = {}): ChargingSession {
     pricing_context: 'ad_hoc',
     ad_hoc_pricing: adHocOverrides.ad_hoc_pricing ?? { pricePerKwh: null },
   }
+}
+
+function parseMockDate(value: Date | string | null | undefined): Date | undefined {
+  if (value == null) return undefined
+
+  return value instanceof Date ? value : new Date(value)
+}
+
+function formatLocalDateKey(value: Date): string {
+  const year = `${value.getFullYear()}`.padStart(4, '0')
+  const month = `${value.getMonth() + 1}`.padStart(2, '0')
+  const day = `${value.getDate()}`.padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function toSeedChargingPlanVersions(): ChargingPlan[] {
+  return mockChargingPlans.map((plan) => ({
+    ...plan,
+    valid_from: parseMockDate(plan.valid_from) ?? new Date(),
+    valid_to: parseMockDate(plan.valid_to) ?? null,
+    ac_price_per_kwh: plan.ac_price_per_kwh ?? undefined,
+    dc_price_per_kwh: plan.dc_price_per_kwh ?? undefined,
+    roaming_ac_price_per_kwh: plan.roaming_ac_price_per_kwh ?? undefined,
+    roaming_dc_price_per_kwh: plan.roaming_dc_price_per_kwh ?? undefined,
+    affiliation: plan.affiliation ?? undefined,
+    notes: plan.notes ?? undefined,
+    created_at: parseMockDate(plan.created_at) ?? new Date(),
+    updated_at: parseMockDate(plan.updated_at) ?? new Date(),
+  }))
+}
+
+function toSeedChargingSessions(): ChargingSession[] {
+  return mockSessions.map((session) => ({
+    ...session,
+    session_timestamp: parseMockDate(session.session_timestamp) ?? new Date(),
+    created_at: parseMockDate(session.created_at) ?? new Date(),
+    updated_at: parseMockDate(session.updated_at) ?? new Date(),
+  })) as ChargingSession[]
 }
 
 /**
@@ -717,5 +757,24 @@ describe('calculateOverallChargingPrice', () => {
 
     // Assert: Per-tariff rounding would incorrectly produce two cents.
     expect(result).toMatchObject({ status: 'ready', fixedCostCents: 1 })
+  })
+
+  it('calculates the ready seed dataset with the stable Overall Price presentation contract', () => {
+    // Arrange: Use the same local calendar key as the Analytics UI.
+    const currentLocalDate = formatLocalDateKey(new Date())
+
+    // Act: Calculate the lifetime price from the committed seed rows.
+    const result = calculateOverallChargingPrice({
+      sessions: toSeedChargingSessions(),
+      chargingPlanVersions: toSeedChargingPlanVersions(),
+      asOfLocalDate: currentLocalDate,
+    })
+
+    // Assert: The ready result includes fixed costs and preserves the headline hierarchy.
+    expect(result.status).toBe('ready')
+    if (result.status !== 'ready') return
+    expect(result.fixedCostCents).toBeGreaterThan(0)
+    expect(formatCtPerKwhAsEuroAmount(result.overallPriceCtPerKwh, 'de-DE')).toBe('0,57')
+    expect(formatCtPerKwh(result.overallPriceCtPerKwh, 'de-DE')).toMatch(/^57,[1-9] ct\/kWh$/)
   })
 })
