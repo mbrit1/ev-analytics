@@ -15,6 +15,7 @@ import {
 import { useAuth } from '../../auth';
 import { type ChargingPlan, type ChargingSession, type TariffPriceSnapshot } from '../../../infra/db';
 import {
+  AdHocTariffConflictError,
   prepareSession,
   prepareSessionEdit,
   type SessionPersistenceRequest,
@@ -621,6 +622,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
 
   const handleFormSubmit = async (values: SessionFormValues) => {
     clearErrors('root.submit');
+    clearErrors('billing_provider_name');
 
     try {
       // A session must belong to the active user; unauthenticated renders should
@@ -777,6 +779,14 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         : prepareSession(input);
       await onSubmit({ session });
     } catch (error) {
+      if (error instanceof AdHocTariffConflictError) {
+        setError('billing_provider_name', {
+          type: 'server',
+          message: 'A saved tariff applies on the selected date. Use Charging Plan pricing instead.',
+        }, { shouldFocus: true });
+        return;
+      }
+
       const message = error instanceof Error ? error.message : 'Unable to save session. Please try again.';
       setError('root.submit', {
         type: 'server',
