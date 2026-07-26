@@ -57,6 +57,12 @@ export interface UpdateLogicalTariffDetailsInput extends LogicalTariffIdentityIn
   notes?: string;
 }
 
+/** Describes a replacement for the sole currently overlapping paid tariff. */
+export interface SwitchActivePaidTariffInput {
+  candidate: ChargingPlan;
+  incumbentId: string;
+}
+
 /** Describes provider-level paid tariff intervals that cannot coexist. */
 export class PaidTariffOverlapError extends Error {
   public readonly candidate: ChargingPlan;
@@ -402,6 +408,84 @@ export async function saveChargingPlan(plan: ChargingPlan): Promise<void> {
     };
 
     await putPlanAndQueue(db.charging_plans, db.sync_outbox, planToSave, existing ? 'UPDATE' : 'INSERT', now);
+  });
+}
+
+export async function switchActivePaidTariff(
+  input: SwitchActivePaidTariffInput,
+): Promise<void> {
+  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
+    const candidate = hydrateChargingPlanDates(input.candidate);
+    validatePlan(candidate);
+
+    if (candidate.deleted_at || candidate.monthly_base_fee <= 0) {
+      throw new Error('Paid tariff switch requires a positive monthly base fee candidate');
+    }
+
+    if (await db.charging_plans.get(candidate.id)) {
+      throw new Error('Paid tariff switch candidate already exists');
+    }
+
+    const providerVersions = await loadProviderVersionsFromTable(
+      db.charging_plans,
+      candidate.user_id,
+      candidate.provider_id,
+    );
+    const overlappingPaidTariffs = providerVersions.filter((plan) => (
+      plan.monthly_base_fee > 0
+      && periodsOverlap(
+        candidate.valid_from,
+        candidate.valid_to,
+        plan.valid_from,
+        plan.valid_to,
+      )
+    ));
+    const incumbent = overlappingPaidTariffs.find((plan) => plan.id === input.incumbentId);
+
+    if (
+      overlappingPaidTariffs.length !== 1
+      || !incumbent
+      || incumbent.valid_from.getTime() >= candidate.valid_from.getTime()
+    ) {
+      throw new Error(
+        'Paid tariff switch requires one earlier active paid tariff; correct the existing tariff dates',
+      );
+    }
+
+    const now = new Date();
+    const closedIncumbent: ChargingPlan = {
+      ...incumbent,
+      valid_to: candidate.valid_from,
+      updated_at: now,
+    };
+    const candidateToInsert: ChargingPlan = {
+      ...candidate,
+      name: trimPlanName(candidate.name),
+      created_at: now,
+      updated_at: now,
+    };
+    const logicalTariffConflict = providerVersions
+      .map((plan) => plan.id === closedIncumbent.id ? closedIncumbent : plan)
+      .find((plan) => (
+        normalizeTariffName(plan.name) === normalizeTariffName(candidateToInsert.name)
+        && periodsOverlap(
+          candidateToInsert.valid_from,
+          candidateToInsert.valid_to,
+          plan.valid_from,
+          plan.valid_to,
+        )
+      ));
+
+    if (logicalTariffConflict) {
+      throw new Error('Tariff validity overlaps with an existing active version for this provider and name');
+    }
+
+    validatePlan(closedIncumbent);
+    validatePlan(candidateToInsert);
+    assertNoPaidTariffOverlap([closedIncumbent, candidateToInsert], providerVersions);
+
+    await putPlanAndQueue(db.charging_plans, db.sync_outbox, closedIncumbent, 'UPDATE', now);
+    await putPlanAndQueue(db.charging_plans, db.sync_outbox, candidateToInsert, 'INSERT', now);
   });
 }
 

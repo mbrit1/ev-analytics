@@ -9,6 +9,7 @@ import {
   saveChargingPlan,
   createSuccessorTariffVersion,
   scheduleTemporaryPromotion,
+  switchActivePaidTariff,
   updateCurrentTariffVersion,
   updateLogicalTariffDetails,
 } from './planService'
@@ -634,6 +635,110 @@ describe('planService', () => {
     expect(await db.sync_outbox.count()).toBe(0)
 
     addSpy.mockRestore()
+  })
+
+  it('switches one earlier paid tariff at the candidate start boundary', async () => {
+    // Arrange: Seed one open paid incumbent and prepare its paid replacement.
+    const incumbent = await seedOpenBaseline({
+      id: 'paid-incumbent',
+      name: 'Old paid tariff',
+      monthly_base_fee: 499,
+    })
+    const candidate = buildPlan({
+      id: 'paid-replacement',
+      name: 'New paid tariff',
+      valid_from: utc('2026-08-01'),
+      monthly_base_fee: 999,
+    })
+
+    // Act: Confirm the one unambiguous forward switch.
+    await switchActivePaidTariff({
+      candidate,
+      incumbentId: incumbent.id,
+    })
+
+    // Assert: The incumbent closes at the half-open boundary before the replacement is inserted.
+    const plans = sortedLogicalRows(await db.charging_plans.toArray())
+    expect(plans.map((plan) => [
+      plan.id,
+      plan.valid_from.toISOString(),
+      plan.valid_to?.toISOString() ?? null,
+    ])).toEqual([
+      ['paid-incumbent', '2026-01-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z'],
+      ['paid-replacement', '2026-08-01T00:00:00.000Z', null],
+    ])
+    const outbox = await db.sync_outbox.toArray()
+    expect(outbox.map((entry) => [entry.action, (entry.payload as ChargingPlan).id])).toEqual([
+      ['UPDATE', 'paid-incumbent'],
+      ['INSERT', 'paid-replacement'],
+    ])
+  })
+
+  it('rejects a paid switch when multiple existing paid tariffs overlap the candidate', async () => {
+    // Arrange: Seed inconsistent paid history with two incumbents.
+    await db.charging_plans.bulkAdd([
+      buildPlan({
+        id: 'paid-incumbent-a',
+        name: 'Paid incumbent A',
+        monthly_base_fee: 499,
+      }),
+      buildPlan({
+        id: 'paid-incumbent-b',
+        name: 'Paid incumbent B',
+        valid_from: utc('2026-02-01'),
+        monthly_base_fee: 799,
+      }),
+    ])
+    const plansBefore = await db.charging_plans.toArray()
+
+    // Act: Attempt to choose one incumbent while another conflict remains.
+    const switchTariff = switchActivePaidTariff({
+      candidate: buildPlan({
+        id: 'paid-replacement',
+        name: 'New paid tariff',
+        valid_from: utc('2026-08-01'),
+        monthly_base_fee: 999,
+      }),
+      incumbentId: 'paid-incumbent-a',
+    })
+
+    // Assert: Ambiguous history requires manual repair and remains unchanged.
+    await expect(switchTariff).rejects.toThrow(
+      'Paid tariff switch requires one earlier active paid tariff; correct the existing tariff dates',
+    )
+    expect(await db.charging_plans.toArray()).toEqual(plansBefore)
+    expect(await db.sync_outbox.count()).toBe(0)
+  })
+
+  it('rolls back both paid switch mutations when queueing fails', async () => {
+    // Arrange: Seed one incumbent and force its outbox update to fail.
+    const incumbent = await seedOpenBaseline({
+      id: 'paid-incumbent',
+      name: 'Old paid tariff',
+      monthly_base_fee: 499,
+    })
+    const plansBefore = await db.charging_plans.toArray()
+    const addSpy = vi.spyOn(db.sync_outbox, 'add').mockRejectedValueOnce(new Error('outbox failure'))
+
+    try {
+      // Act: Attempt the otherwise valid paid switch.
+      const switchTariff = switchActivePaidTariff({
+        candidate: buildPlan({
+          id: 'paid-replacement',
+          name: 'New paid tariff',
+          valid_from: utc('2026-08-01'),
+          monthly_base_fee: 999,
+        }),
+        incumbentId: incumbent.id,
+      })
+
+      // Assert: Neither tariff nor outbox changes survive the failed transaction.
+      await expect(switchTariff).rejects.toThrow('outbox failure')
+      expect(await db.charging_plans.toArray()).toEqual(plansBefore)
+      expect(await db.sync_outbox.count()).toBe(0)
+    } finally {
+      addSpy.mockRestore()
+    }
   })
 
   it('updates the current version in place when valid_from is unchanged', async () => {
