@@ -57,6 +57,22 @@ export interface UpdateLogicalTariffDetailsInput extends LogicalTariffIdentityIn
   notes?: string;
 }
 
+/** Describes provider-level paid tariff intervals that cannot coexist. */
+export class PaidTariffOverlapError extends Error {
+  public readonly candidate: ChargingPlan;
+  public readonly conflicts: readonly ChargingPlan[];
+
+  constructor(
+    candidate: ChargingPlan,
+    conflicts: readonly ChargingPlan[],
+  ) {
+    super('Paid tariff validity overlaps with another active paid tariff for this provider');
+    this.name = 'PaidTariffOverlapError';
+    this.candidate = candidate;
+    this.conflicts = conflicts;
+  }
+}
+
 type PlanTable = Table<ChargingPlan, string>;
 type OutboxTable = Table<SyncOutbox, number>;
 type SelectionTable = Table<ProviderPlanSelection, string>;
@@ -323,6 +339,33 @@ export async function saveChargingPlan(plan: ChargingPlan): Promise<void> {
 
     if (overlappingTariffVersion) {
       throw new Error('Tariff validity overlaps with an existing active version for this provider and name');
+    }
+
+    const paidTariffConflicts = normalizedIncomingPlan.monthly_base_fee > 0
+      ? await db.charging_plans
+        .where('provider_id')
+        .equals(normalizedIncomingPlan.provider_id)
+        .filter((candidate) => {
+          const hydratedCandidate = hydrateChargingPlanDates(candidate);
+          return !hydratedCandidate.deleted_at
+            && hydratedCandidate.id !== normalizedIncomingPlan.id
+            && hydratedCandidate.user_id === normalizedIncomingPlan.user_id
+            && hydratedCandidate.monthly_base_fee > 0
+            && periodsOverlap(
+              normalizedIncomingPlan.valid_from,
+              normalizedIncomingPlan.valid_to,
+              hydratedCandidate.valid_from,
+              hydratedCandidate.valid_to,
+            );
+        })
+        .toArray()
+      : [];
+
+    if (paidTariffConflicts.length > 0) {
+      throw new PaidTariffOverlapError(
+        normalizedIncomingPlan,
+        paidTariffConflicts.map(hydrateChargingPlanDates),
+      );
     }
 
     const planToSave: ChargingPlan = {
