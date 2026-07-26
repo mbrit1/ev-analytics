@@ -11,6 +11,7 @@ import {
   updateSession,
   updateSessionWithPlanSelection,
 } from './sessionService'
+import type { AdHocTariffConflictError } from './sessionService'
 import 'fake-indexeddb/auto'
 
 /**
@@ -26,9 +27,13 @@ describe('sessionService', () => {
     // Each test starts with a clean fake IndexedDB so outbox/session assertions
     // are isolated from earlier writes.
     db = new EVAnalyticsDB()
+    await db.providers.clear()
+    await db.charging_plans.clear()
     await db.sessions.clear()
     await db.provider_plan_selections.clear()
     await db.sync_outbox.clear()
+    await sharedDb.providers.clear()
+    await sharedDb.charging_plans.clear()
     await sharedDb.sessions.clear()
     await sharedDb.provider_plan_selections.clear()
     await sharedDb.sync_outbox.clear()
@@ -136,6 +141,71 @@ describe('sessionService', () => {
       ...overrides
     } as unknown as ChargingSession;
   }
+
+  function buildAdHocSessionFixture(
+    overrides: Partial<Extract<ChargingSession, { session_mode: 'ad_hoc' }>> = {}
+  ): ChargingSession {
+    return buildSessionFixture({
+      id: 'ad-hoc-session-fixture',
+      user_id: 'user-456',
+      session_timestamp: utc('2026-06-15'),
+      provider_id: null,
+      provider_name_snapshot: 'Independent provider',
+      tariff_plan_id: null,
+      plan_selection_id: null,
+      charging_plan_name_snapshot: 'Ad-Hoc',
+      session_mode: 'ad_hoc',
+      pricing_context: 'ad_hoc',
+      ad_hoc_pricing: { pricePerKwh: 55 },
+      applied_price_per_kwh: 55,
+      applied_ac_price_per_kwh: undefined,
+      applied_dc_price_per_kwh: undefined,
+      applied_monthly_base_fee: undefined,
+      applied_session_fee: 0,
+      total_cost: 550,
+      ...overrides,
+    });
+  }
+
+  async function seedActiveProviderTariff(
+    overrides: {
+      provider?: Partial<Provider>;
+      plan?: Partial<ChargingPlan>;
+    } = {}
+  ): Promise<void> {
+    const provider: Provider = {
+      id: 'provider-active-tariff',
+      user_id: 'user-456',
+      name: 'ChargePoint',
+      created_at: utc('2026-01-01'),
+      updated_at: utc('2026-01-01'),
+      ...overrides.provider,
+    };
+    const plan: ChargingPlan = {
+      ...mockChargingPlan,
+      id: 'plan-active-tariff',
+      user_id: provider.user_id,
+      provider_id: provider.id,
+      valid_from: utc('2026-06-10'),
+      valid_to: utc('2026-06-20'),
+      monthly_base_fee: 0,
+      created_at: utc('2026-01-01'),
+      updated_at: utc('2026-01-01'),
+      ...overrides.plan,
+    };
+
+    await sharedDb.providers.add(provider);
+    await sharedDb.charging_plans.add(plan);
+  }
+
+  const expectAdHocTariffConflict = (error: unknown): error is AdHocTariffConflictError => {
+    expect(error).toMatchObject({
+      name: 'AdHocTariffConflictError',
+      field: 'billing_provider_name',
+      message: 'A saved charging plan is active for this billing provider on the session date.',
+    });
+    return true;
+  };
 
   it('requires tariff_plan_id/provider/plan when session_mode is plan', () => {
     // Arrange: Use an AC charging session with decimal kWh input.
@@ -908,6 +978,251 @@ describe('sessionService', () => {
     expect(edited.ad_hoc_pricing?.otherFees).toEqual([{ label: 'Other fees', amount: 250 }]);
     expect(edited.price_snapshot?.blockingFee).toBe(250);
     expect(edited.total_cost).toBe(2649);
+  });
+
+  it('rejects an ad-hoc insert when its normalized billing provider has an active zero-fee saved tariff', async () => {
+    // Arrange: the saved tariff applies at the session timestamp despite having no monthly fee.
+    await seedActiveProviderTariff();
+    const conflictingSession = buildAdHocSessionFixture({
+      id: 'ad-hoc-insert-conflict',
+      provider_name_snapshot: '  chargepoint  ',
+      session_timestamp: utc('2026-06-10'),
+    });
+
+    // Act/Assert: normalized provider identity must select the field-addressable tariff conflict.
+    await expect(saveSession(conflictingSession)).rejects.toSatisfy(expectAdHocTariffConflict);
+
+    // Assert: the rejected mutation leaves neither a local session nor a sync request.
+    expect(await sharedDb.sessions.get(conflictingSession.id)).toBeUndefined();
+    expect(await sharedDb.sync_outbox.count()).toBe(0);
+  });
+
+  it('rejects an ad-hoc insert when a matching saved tariff has serialized validity dates', async () => {
+    // Arrange: Dexie can contain the ISO-string validity dates returned by the mock runtime.
+    await seedActiveProviderTariff({
+      plan: {
+        valid_from: '2026-06-10T00:00:00.000Z' as unknown as Date,
+        valid_to: '2026-06-20T00:00:00.000Z' as unknown as Date,
+      },
+    });
+    const conflictingSession = buildAdHocSessionFixture({
+      id: 'ad-hoc-insert-serialized-tariff-conflict',
+      provider_name_snapshot: 'ChargePoint',
+      session_timestamp: utc('2026-06-15'),
+    });
+
+    // Act/Assert: serialized validity data must preserve the field-addressable tariff conflict.
+    await expect(saveSession(conflictingSession)).rejects.toSatisfy(expectAdHocTariffConflict);
+  });
+
+  it('allows ad-hoc inserts without a same-user tariff applicable in the half-open validity interval', async () => {
+    // Arrange: seed an active zero-fee tariff plus identities that must not create conflicts.
+    await seedActiveProviderTariff();
+    await sharedDb.providers.bulkAdd([
+      {
+        id: 'provider-without-plan',
+        user_id: 'user-456',
+        name: 'No tariff',
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+      },
+      {
+        id: 'deleted-provider',
+        user_id: 'user-456',
+        name: 'Retired provider',
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+        deleted_at: utc('2026-06-01'),
+      },
+      {
+        id: 'foreign-provider',
+        user_id: 'user-999',
+        name: 'Foreign provider',
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+      },
+      {
+        id: 'provider-with-soft-deleted-plan',
+        user_id: 'user-456',
+        name: 'Former tariff',
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+      },
+    ]);
+    await sharedDb.charging_plans.bulkAdd([
+      {
+        ...mockChargingPlan,
+        id: 'deleted-provider-plan',
+        user_id: 'user-456',
+        provider_id: 'deleted-provider',
+        valid_from: utc('2026-06-10'),
+        valid_to: utc('2026-06-20'),
+        monthly_base_fee: 0,
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+      },
+      {
+        ...mockChargingPlan,
+        id: 'foreign-provider-plan',
+        user_id: 'user-999',
+        provider_id: 'foreign-provider',
+        valid_from: utc('2026-06-10'),
+        valid_to: utc('2026-06-20'),
+        monthly_base_fee: 0,
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+      },
+      {
+        ...mockChargingPlan,
+        id: 'soft-deleted-plan',
+        user_id: 'user-456',
+        provider_id: 'provider-with-soft-deleted-plan',
+        valid_from: utc('2026-06-10'),
+        valid_to: utc('2026-06-20'),
+        monthly_base_fee: 0,
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+        deleted_at: utc('2026-06-01'),
+      },
+    ]);
+    const allowedSessions = [
+      buildAdHocSessionFixture({ id: 'ad-hoc-no-provider-match', provider_name_snapshot: 'Unlisted provider' }),
+      buildAdHocSessionFixture({ id: 'ad-hoc-provider-without-plan', provider_name_snapshot: ' no TARIFF ' }),
+      buildAdHocSessionFixture({ id: 'ad-hoc-deleted-provider', provider_name_snapshot: 'retired provider' }),
+      buildAdHocSessionFixture({ id: 'ad-hoc-foreign-provider', provider_name_snapshot: 'FOREIGN PROVIDER' }),
+      buildAdHocSessionFixture({ id: 'ad-hoc-soft-deleted-plan', provider_name_snapshot: 'former tariff' }),
+      buildAdHocSessionFixture({ id: 'ad-hoc-before-tariff', provider_name_snapshot: 'ChargePoint', session_timestamp: utc('2026-06-09') }),
+      buildAdHocSessionFixture({ id: 'ad-hoc-at-exclusive-end', provider_name_snapshot: 'ChargePoint', session_timestamp: utc('2026-06-20') }),
+      buildAdHocSessionFixture({ id: 'ad-hoc-after-tariff', provider_name_snapshot: 'ChargePoint', session_timestamp: utc('2026-06-21') }),
+    ];
+
+    // Act: persist every non-conflicting identity and temporal case.
+    for (const session of allowedSessions) {
+      await saveSession(session);
+    }
+
+    // Assert: no saved-provider match or applicable half-open interval blocks ad-hoc persistence.
+    expect(await sharedDb.sessions.count()).toBe(allowedSessions.length);
+    expect(await sharedDb.sessions.toCollection().primaryKeys()).toEqual(
+      expect.arrayContaining(allowedSessions.map((session) => session.id))
+    );
+    expect(await sharedDb.sync_outbox.count()).toBe(allowedSessions.length);
+  });
+
+  it('allows a legacy conflicting ad-hoc session to update when its normalized provider and timestamp are unchanged', async () => {
+    // Arrange: simulate a pre-invariant conflicting session already persisted locally.
+    await seedActiveProviderTariff();
+    const legacySession = buildAdHocSessionFixture({
+      id: 'ad-hoc-legacy-unchanged',
+      provider_name_snapshot: ' ChargePoint ',
+      session_timestamp: utc('2026-06-15'),
+      notes: 'Original note',
+    });
+    await sharedDb.sessions.add(legacySession);
+
+    // Act: edit content without changing the normalized billing identity or exact timestamp.
+    await updateSession({
+      ...legacySession,
+      provider_name_snapshot: 'chargepoint',
+      notes: 'Corrected receipt note',
+    });
+
+    // Assert: legacy rows remain editable and queue one normal update.
+    expect(await sharedDb.sessions.get(legacySession.id)).toEqual(expect.objectContaining({
+      provider_name_snapshot: 'chargepoint',
+      notes: 'Corrected receipt note',
+    }));
+    expect(await sharedDb.sync_outbox.toArray()).toEqual([
+      expect.objectContaining({ table_name: 'sessions', action: 'UPDATE' }),
+    ]);
+  });
+
+  it('rejects an ad-hoc update that changes its billing-provider identity into an active saved tariff', async () => {
+    // Arrange: seed a non-conflicting ad-hoc session at an otherwise covered timestamp.
+    await seedActiveProviderTariff();
+    const existingSession = buildAdHocSessionFixture({
+      id: 'ad-hoc-update-identity-conflict',
+      provider_name_snapshot: 'Independent provider',
+      session_timestamp: utc('2026-06-15'),
+      notes: 'Original note',
+    });
+    await sharedDb.sessions.add(existingSession);
+
+    // Act/Assert: changing only the normalized billing identity enters the tariff conflict.
+    await expect(updateSession({
+      ...existingSession,
+      provider_name_snapshot: ' chargepoint ',
+      notes: 'Attempted provider correction',
+    })).rejects.toSatisfy(expectAdHocTariffConflict);
+
+    // Assert: the stored session and outbox remain unchanged after the rejected update.
+    expect(await sharedDb.sessions.get(existingSession.id)).toEqual(existingSession);
+    expect(await sharedDb.sync_outbox.count()).toBe(0);
+  });
+
+  it('rejects an ad-hoc update that moves its timestamp into an active saved tariff interval', async () => {
+    // Arrange: seed a matching provider session before the tariff starts.
+    await seedActiveProviderTariff();
+    const existingSession = buildAdHocSessionFixture({
+      id: 'ad-hoc-update-timestamp-conflict',
+      provider_name_snapshot: 'ChargePoint',
+      session_timestamp: utc('2026-06-09'),
+      notes: 'Original note',
+    });
+    await sharedDb.sessions.add(existingSession);
+
+    // Act/Assert: moving into the half-open interval must be rejected.
+    await expect(updateSession({
+      ...existingSession,
+      session_timestamp: utc('2026-06-15'),
+      notes: 'Attempted date correction',
+    })).rejects.toSatisfy(expectAdHocTariffConflict);
+
+    // Assert: the stored session and outbox remain unchanged after the rejected update.
+    expect(await sharedDb.sessions.get(existingSession.id)).toEqual(existingSession);
+    expect(await sharedDb.sync_outbox.count()).toBe(0);
+  });
+
+  it('applies the ad-hoc tariff conflict invariant through saveSessionWithPlanSelection', async () => {
+    // Arrange: wrapper callers can omit a plan selection for ad-hoc persistence.
+    await seedActiveProviderTariff();
+    const session = buildAdHocSessionFixture({
+      id: 'ad-hoc-wrapper-insert-conflict',
+      provider_name_snapshot: 'CHARGEPOINT',
+      session_timestamp: utc('2026-06-15'),
+    });
+
+    // Act/Assert: the wrapper must not bypass the shared persistence rule.
+    await expect(saveSessionWithPlanSelection({ session })).rejects.toSatisfy(expectAdHocTariffConflict);
+
+    // Assert: no cross-table or outbox mutations survive the rejected wrapper call.
+    expect(await sharedDb.sessions.get(session.id)).toBeUndefined();
+    expect(await sharedDb.provider_plan_selections.count()).toBe(0);
+    expect(await sharedDb.sync_outbox.count()).toBe(0);
+  });
+
+  it('applies the ad-hoc tariff conflict invariant through updateSessionWithPlanSelection', async () => {
+    // Arrange: seed an out-of-range matching-provider session for an edit through the wrapper.
+    await seedActiveProviderTariff();
+    const existingSession = buildAdHocSessionFixture({
+      id: 'ad-hoc-wrapper-update-conflict',
+      provider_name_snapshot: 'ChargePoint',
+      session_timestamp: utc('2026-06-09'),
+    });
+    await sharedDb.sessions.add(existingSession);
+
+    // Act/Assert: wrapper updates must reject a timestamp moved into the active interval.
+    await expect(updateSessionWithPlanSelection({
+      session: {
+        ...existingSession,
+        session_timestamp: utc('2026-06-15'),
+      },
+    })).rejects.toSatisfy(expectAdHocTariffConflict);
+
+    // Assert: no session, selection, or outbox mutation survives the rejection.
+    expect(await sharedDb.sessions.get(existingSession.id)).toEqual(existingSession);
+    expect(await sharedDb.provider_plan_selections.count()).toBe(0);
+    expect(await sharedDb.sync_outbox.count()).toBe(0);
   });
 
   it('should atomically save a session and create an outbox entry', async () => {
