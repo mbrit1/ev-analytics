@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { ChargingPlan } from '../../charging-plans'
 import type { ChargingSession } from '../../charging-sessions'
-import { mockChargingPlans, mockSessions } from '../../../mocks/seed-data'
 import { formatCtPerKwh, formatCtPerKwhAsEuroAmount } from '../../../shared/lib'
 import { calculateOverallChargingPrice } from './overallChargingPrice'
+
+let mockChargingPlans: typeof import('../../../mocks/seed-data').mockChargingPlans
+let mockSessions: typeof import('../../../mocks/seed-data').mockSessions
 
 const utcDate = (value: string): Date => new Date(`${value}T00:00:00.000Z`)
 
@@ -114,6 +116,20 @@ function toSeedChargingSessions(): ChargingSession[] {
  */
 describe('calculateOverallChargingPrice', () => {
   const originalTimeZone = process.env.TZ
+
+  beforeAll(async () => {
+    // Arrange: Freeze the dynamic seed clock before importing its module-level dates.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-27T12:00:00.000Z'))
+    vi.resetModules()
+    const seedData = await import('../../../mocks/seed-data')
+    mockChargingPlans = seedData.mockChargingPlans
+    mockSessions = seedData.mockSessions
+  })
+
+  afterAll(() => {
+    vi.useRealTimers()
+  })
 
   afterEach(() => {
     if (originalTimeZone === undefined) delete process.env.TZ
