@@ -10,7 +10,7 @@ import {
   useProviders,
 } from '../../charging-plans';
 import { type ChargingPlan, type ChargingSession, type Provider } from '../../../infra/db';
-import type { SessionPersistenceRequest } from '../services/sessionService';
+import { AdHocTariffConflictError, type SessionPersistenceRequest } from '../services/sessionService';
 
 // Mock dependent hooks so form tests can exercise validation and submission UI
 // without requiring tariff/provider IndexedDB state.
@@ -1068,6 +1068,51 @@ describe('SessionForm', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Local update failed');
     expect(screen.getByRole('heading', { name: 'Edit Session' })).toBeInTheDocument();
     expect(mockOnCancel).not.toHaveBeenCalled();
+  });
+
+  it('maps an ad-hoc tariff conflict to actionable billing-provider guidance', async () => {
+    // Arrange: reject a valid ad-hoc submission because a saved tariff applies on its date.
+    mockOnSubmit.mockRejectedValueOnce(new AdHocTariffConflictError());
+    render(
+      <SessionForm
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        initialValues={buildSessionFixture({
+          id: 'session-ad-hoc-conflict',
+          provider_id: null,
+          provider_name_snapshot: 'ChargePoint',
+          session_mode: 'ad_hoc',
+          tariff_plan_id: null,
+          plan_selection_id: null,
+          pricing_context: 'ad_hoc',
+          charging_plan_name_snapshot: null,
+          ad_hoc_pricing: {
+            cpoName: 'FastNet',
+            pricePerKwh: 59,
+            pricePerSession: null,
+            receiptUrl: null,
+            notes: null,
+          },
+          price_snapshot: { label: 'Ad-Hoc', kWhPrice: 59 },
+          applied_price_per_kwh: 59,
+          applied_session_fee: 0,
+        })}
+      />
+    );
+
+    // Act: submit the otherwise valid ad-hoc session.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: the conflict is actionable at the billing-provider field, without a generic root error.
+    const billingProvider = screen.getByLabelText(/^billing provider/i);
+    const guidance = await screen.findByText(/saved tariff applies on the selected date/i);
+    const guidanceId = guidance.getAttribute('id');
+    expect(guidanceId).toBeTruthy();
+    expect(guidance).toHaveTextContent(/use charging plan pricing/i);
+    expect(billingProvider).toHaveAttribute('aria-invalid', 'true');
+    expect(billingProvider).toHaveAttribute('aria-describedby', expect.stringContaining(guidanceId ?? ''));
+    expect(billingProvider).toHaveFocus();
+    expect(screen.queryByText(/saved charging plan is active/i)).not.toBeInTheDocument();
   });
 
   it('opens in ad-hoc mode and clears stale tariff_plan_id from legacy initial values', async () => {
