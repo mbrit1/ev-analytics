@@ -35,6 +35,14 @@ export function formatCtPerKwh(ctPerKwh: number, locale: string): string {
   return `${formattedRate} ct/kWh`;
 }
 
+/** Formats a cents-per-kWh rate as a localized euro amount with two decimals. */
+export function formatCtPerKwhAsEuroAmount(ctPerKwh: number, locale: string): string {
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(ctPerKwh / 100);
+}
+
 /** Formats a local calendar month for the English-language application UI. */
 export function formatMonthLabel(year: number, month: number): string {
   return new Intl.DateTimeFormat('en-GB', {

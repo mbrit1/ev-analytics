@@ -47,9 +47,23 @@ describe('OverallPriceInfoDisclosure', () => {
     expect(screen.getByText(
       'Overall Price divides included spend by provider-billed energy across all recorded sessions. Fixed tariff fees are included only for months in which that tariff was used. The current month is calculated through today. Battery-added energy is not included.',
     )).toBeInTheDocument()
+    expect(screen.queryByText(/Higher-precision price:/)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Close Overall Price information' }))
       .toHaveClass('min-h-[44px]', 'min-w-[44px]', 'motion-reduce:transition-none')
     expect(trigger).toHaveClass('min-h-[44px]', 'min-w-[44px]', 'motion-reduce:transition-none')
+  })
+
+  it.each(['sidebar', 'bottom-dock'] as const)('shows the supplied higher-precision rate in the %s layout', async (layoutMode) => {
+    // Arrange: Supply the ready calculation rate to the adaptive disclosure.
+    const user = userEvent.setup()
+    render(<OverallPriceInfoDisclosure layoutMode={layoutMode} overallPriceCtPerKwh={6615 / 129.2} />)
+    const trigger = screen.getByRole('button', { name: 'How Overall Price is calculated' })
+
+    // Act: Open the layout-specific disclosure surface.
+    await user.click(trigger)
+
+    // Assert: Both surfaces expose the established one-decimal cents value.
+    expect(screen.getByText('Higher-precision price: 51,2 ct/kWh')).toBeInTheDocument()
   })
 
   it('flips above and clamps the sidebar popover within the viewport after resize', async () => {
@@ -143,6 +157,7 @@ describe('OverallPriceInfoDisclosure', () => {
     expect(document.body.style.overflow).toBe('hidden')
     expect(container).toHaveAttribute('inert')
     expect(close).toHaveClass('min-h-[44px]', 'min-w-[44px]', 'motion-reduce:transition-none')
+    expect(screen.queryByText(/Higher-precision price:/)).not.toBeInTheDocument()
   })
 
   it('restores focus only after removing modal background isolation', async () => {

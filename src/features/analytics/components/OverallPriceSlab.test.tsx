@@ -47,12 +47,15 @@ describe('OverallPriceSlab', () => {
 
     // Assert: Primary and supporting metrics remain distinct and fully labelled.
     expect(screen.getByRole('heading', { name: 'Overall price', level: 2 })).toBeInTheDocument()
-    const rate = screen.getByText('51,2 ct/kWh')
-    expect(rate).toHaveClass('tabular-nums', 'whitespace-nowrap', 'leading-none')
-    expect(rate).toHaveAttribute(
-      'aria-label',
-      'Overall price: 51,2 cents per kilowatt-hour',
-    )
+    const amount = screen.getByText('0,51')
+    expect(amount).toHaveClass('tabular-nums')
+    expect(amount).toHaveAttribute('aria-hidden', 'true')
+    const unit = screen.getByText('€/kWh')
+    expect(unit).toHaveAttribute('aria-hidden', 'true')
+    expect(unit.parentElement).toBe(amount.parentElement)
+    expect(screen.getByText(
+      'Overall price: 0,51 euros per kilowatt-hour',
+    )).toHaveClass('sr-only')
     expect(screen.getByText('Effective price including applicable fixed costs')).toBeInTheDocument()
     expect(screen.getByText('Billed energy')).toBeInTheDocument()
     expect(screen.getByText('129,2', { exact: false })).toHaveClass('tabular-nums')
@@ -76,8 +79,9 @@ describe('OverallPriceSlab', () => {
       .toHaveAttribute('aria-modal', 'true')
   })
 
-  it('uses a semantic loading placeholder without exposing a stale calculation', () => {
+  it('uses a semantic loading placeholder without exposing a stale calculation', async () => {
     // Arrange / Act: Refresh while a previous ready calculation remains available.
+    const user = userEvent.setup()
     const { container } = render(
       <OverallPriceSlab
         result={readyResult}
@@ -93,7 +97,26 @@ describe('OverallPriceSlab', () => {
     expect(screen.getByText('Loading Overall Price')).toHaveClass('sr-only')
     expect(container.firstChild).toHaveAttribute('aria-busy', 'true')
     expect(screen.queryByText('51,2 ct/kWh')).not.toBeInTheDocument()
+    expect(screen.queryByText('0,51')).not.toBeInTheDocument()
     expect(screen.queryByText('66,15 €')).not.toBeInTheDocument()
+
+    // Act: Open the disclosure while the refreshed result is still loading.
+    await user.click(screen.getByRole('button', { name: 'How Overall Price is calculated' }))
+
+    // Assert: No stale higher-precision value is supplied during loading.
+    expect(screen.queryByText(/Higher-precision price:/)).not.toBeInTheDocument()
+  })
+
+  it('passes the ready cents rate to the calculation disclosure', async () => {
+    // Arrange: Render a trustworthy ready calculation.
+    const user = userEvent.setup()
+    renderSlab(readyResult)
+
+    // Act: Open the calculation disclosure.
+    await user.click(screen.getByRole('button', { name: 'How Overall Price is calculated' }))
+
+    // Assert: The disclosure receives the raw rate and presents its precision.
+    expect(screen.getByText('Higher-precision price: 51,2 ct/kWh')).toBeInTheDocument()
   })
 
   it('renders the empty state and invokes the supplied add-session action', async () => {

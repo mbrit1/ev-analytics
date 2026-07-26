@@ -1,6 +1,6 @@
 import { Slab } from '../../../shared/ui'
 import {
-  formatCtPerKwh,
+  formatCtPerKwhAsEuroAmount,
   formatCurrency,
   formatKwh,
   formatMonthLabel,
@@ -56,7 +56,12 @@ export function OverallPriceSlab({
         <h2 className="whitespace-nowrap text-xs font-bold uppercase tracking-wider text-secondary md:text-sm md:normal-case md:tracking-normal">
           Overall price
         </h2>
-        <OverallPriceInfoDisclosure layoutMode={layoutMode} />
+        <OverallPriceInfoDisclosure
+          layoutMode={layoutMode}
+          overallPriceCtPerKwh={!isLoading && result.status === 'ready'
+            ? result.overallPriceCtPerKwh
+            : undefined}
+        />
       </div>
       {isLoading ? (
         <div role="status" className="h-12 w-40 animate-pulse rounded-xl bg-secondary/10 motion-reduce:animate-none">
@@ -66,10 +71,13 @@ export function OverallPriceSlab({
         <div className="space-y-6 min-[900px]:space-y-8">
           <div className="space-y-3 min-[900px]:space-y-4">
             <p
-              className="analytics-metric-value whitespace-nowrap text-[2.75rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[3.5rem] min-[900px]:text-[clamp(4rem,5vw,5.25rem)] min-[900px]:font-extrabold min-[900px]:leading-[0.95] min-[900px]:tracking-[-0.055em]"
-              aria-label={`Overall price: ${formatCtPerKwh(result.overallPriceCtPerKwh, 'de-DE').replace('ct/kWh', 'cents per kilowatt-hour')}`}
+              className="analytics-metric-value inline-flex items-baseline gap-1 whitespace-nowrap text-[2.75rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[3.5rem] min-[900px]:!text-[clamp(4rem,5vw,5.25rem)] min-[900px]:font-extrabold min-[900px]:leading-[0.95] min-[900px]:tracking-[-0.055em]"
             >
-              {formatCtPerKwh(result.overallPriceCtPerKwh, 'de-DE')}
+              <span aria-hidden="true" className="tabular-nums">{formatCtPerKwhAsEuroAmount(result.overallPriceCtPerKwh, 'de-DE')}</span>
+              <span aria-hidden="true" className="text-[0.625em] font-bold leading-none">€/kWh</span>
+              <span className="sr-only">
+                Overall price: {formatCtPerKwhAsEuroAmount(result.overallPriceCtPerKwh, 'de-DE')} euros per kilowatt-hour
+              </span>
             </p>
             <p className="text-sm leading-5 text-secondary md:text-base md:leading-6">
               Effective price including applicable fixed costs
