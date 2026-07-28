@@ -7,6 +7,8 @@ import {
   getChargingPlanVersions,
   saveChargingPlan,
   scheduleTemporaryPromotion,
+  switchActivePaidTariff as switchActivePaidTariffService,
+  type SwitchActivePaidTariffInput,
   type LogicalTariffIdentityInput,
   type CreateSuccessorTariffVersionInput,
   type ScheduleTemporaryPromotionInput,
@@ -27,6 +29,7 @@ export interface UseChargingPlansResult {
   createSuccessorVersion: (input: CreateSuccessorTariffVersionInput) => Promise<void>;
   schedulePromotion: (input: ScheduleTemporaryPromotionInput) => Promise<void>;
   deleteLogicalTariff: (input: LogicalTariffIdentityInput) => Promise<void>;
+  switchActivePaidTariff: (input: SwitchActivePaidTariffInput) => Promise<void>;
 }
 
 /**
@@ -68,6 +71,10 @@ export function useChargingPlans(): UseChargingPlansResult {
     await deleteLogicalTariffService(input);
   };
 
+  const switchActivePaidTariff = async (input: SwitchActivePaidTariffInput) => {
+    await switchActivePaidTariffService(input);
+  };
+
   return {
     planVersions: versions ?? [],
     logicalTariffs,
@@ -77,5 +84,6 @@ export function useChargingPlans(): UseChargingPlansResult {
     createSuccessorVersion,
     schedulePromotion,
     deleteLogicalTariff,
+    switchActivePaidTariff,
   };
 }

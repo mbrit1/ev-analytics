@@ -6,6 +6,8 @@ interface PaidTariffSwitchDialogProps {
   providerName: string;
   incumbentName: string;
   candidateStart: Date;
+  restoreFocusElement?: HTMLElement | null;
+  resolveRestoreFocusElement?: () => HTMLElement | null;
   isPending: boolean;
   error?: string | null;
   onCancel: () => void;
@@ -17,6 +19,8 @@ export function PaidTariffSwitchDialog({
   providerName,
   incumbentName,
   candidateStart,
+  restoreFocusElement,
+  resolveRestoreFocusElement,
   isPending,
   error,
   onCancel,
@@ -33,9 +37,11 @@ export function PaidTariffSwitchDialog({
   }, [isPending, onCancel]);
 
   useEffect(() => {
-    const previouslyFocused = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
+    const previouslyFocused = restoreFocusElement ?? (
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null
+    );
     cancelRef.current?.focus();
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !isPendingRef.current) {
@@ -58,9 +64,13 @@ export function PaidTariffSwitchDialog({
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      if (previouslyFocused?.isConnected) previouslyFocused.focus();
+      const resolvedFocusTarget = resolveRestoreFocusElement?.();
+      const restoreFocusTarget = resolvedFocusTarget?.isConnected
+        ? resolvedFocusTarget
+        : previouslyFocused;
+      if (restoreFocusTarget?.isConnected) restoreFocusTarget.focus();
     };
-  }, []);
+  }, [resolveRestoreFocusElement, restoreFocusElement]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="presentation">
