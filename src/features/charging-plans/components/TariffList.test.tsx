@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TariffList } from './TariffList';
@@ -8,8 +8,11 @@ import { useProviders } from '../hooks/useProviders';
 import { useAuth } from '../../auth';
 import type { ChargingPlan } from '../../../infra/db';
 import type { LogicalTariff } from '../model/logicalTariffs';
+import { PaidTariffOverlapError } from '../services/planService';
 
 let mockedTariffEditIntent: 'update_current' | 'create_successor' = 'update_current';
+let mockedCreatePlanOverrides: Partial<ChargingPlan> = {};
+let replaceSubmitDuringAsyncOpen = false;
 
 vi.mock('../hooks/useChargingPlans');
 vi.mock('../hooks/useProviders');
@@ -23,8 +26,12 @@ vi.mock('./TariffFormLoader', () => ({
       onSubmit?: (submission: unknown) => Promise<void>;
     };
     const [error, setError] = useState<string | null>(null);
+    const [submitVersion, setSubmitVersion] = useState(0);
 
     const handleSubmit = async () => {
+      if (replaceSubmitDuringAsyncOpen) {
+        setSubmitVersion((version) => version + 1);
+      }
       try {
         if (resolved.mode === 'edit') {
           await resolved.onSubmit?.({
@@ -56,15 +63,17 @@ vi.mock('./TariffFormLoader', () => ({
             originalValidFrom: resolved.initialValues?.valid_from ?? utc('2026-01-01'),
           });
         } else {
-          await resolved.onSubmit?.({
+          const submission = {
             intent: 'create',
             plan: buildPlan({
               id: 'created-plan',
               user_id: '',
               provider_id: 'p1',
               name: 'Created Tariff',
+              ...mockedCreatePlanOverrides,
             }),
-          });
+          } as const;
+          await resolved.onSubmit?.(submission);
         }
       } catch (submissionError) {
         setError(submissionError instanceof Error ? submissionError.message : 'Failed');
@@ -77,7 +86,7 @@ vi.mock('./TariffFormLoader', () => ({
         {resolved.mode ? `:${resolved.mode}` : ''}
         {resolved.initialValues?.name ? `:${resolved.initialValues.name}` : ''}
         {error && <div role="alert">{error}</div>}
-        <button type="button" onClick={handleSubmit}>Submit</button>
+        <button key={submitVersion} type="submit" onClick={handleSubmit}>Submit</button>
         <button type="button" onClick={resolved.onCancel}>Cancel</button>
       </div>
     );
@@ -162,10 +171,13 @@ const buildLogicalTariff = (overrides: Partial<LogicalTariff> = {}): LogicalTari
 };
 
 type ChargingPlansHookValue = ReturnType<typeof useChargingPlans>;
+type TestChargingPlansHookValue = ChargingPlansHookValue & {
+  switchActivePaidTariff?: (input: { candidate: ChargingPlan; incumbentId: string }) => Promise<void>;
+};
 
 const buildHookValue = (
-  overrides: Partial<ChargingPlansHookValue> = {},
-): ChargingPlansHookValue => {
+  overrides: Partial<TestChargingPlansHookValue> = {},
+): TestChargingPlansHookValue => {
   const logicalTariff = buildLogicalTariff();
 
   return {
@@ -177,6 +189,7 @@ const buildHookValue = (
     createSuccessorVersion: overrides.createSuccessorVersion ?? vi.fn(),
     schedulePromotion: overrides.schedulePromotion ?? vi.fn(),
     deleteLogicalTariff: overrides.deleteLogicalTariff ?? vi.fn(),
+    switchActivePaidTariff: overrides.switchActivePaidTariff ?? vi.fn(),
   };
 };
 
@@ -226,6 +239,8 @@ describe('TariffList', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockedTariffEditIntent = 'update_current';
+    mockedCreatePlanOverrides = {};
+    replaceSubmitDuringAsyncOpen = false;
     vi.stubGlobal('scrollTo', vi.fn());
     vi.mocked(useProviders).mockReturnValue({
       providers: [
@@ -539,5 +554,195 @@ describe('TariffList', () => {
     // Assert: The blank-state trap is replaced by a visible fallback and cancel path.
     expect(screen.getByText(/tariff is no longer available/i)).toBeInTheDocument();
     expect(onCloseForm).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a confirmation when create overlaps exactly one earlier paid tariff', async () => {
+    // Arrange: Reject the create write with one earlier paid incumbent.
+    const candidate = buildPlan({
+      id: 'created-plan',
+      user_id: 'user-1',
+      provider_id: 'p1',
+      name: 'Created Tariff',
+      valid_from: utc('2026-08-15'),
+      monthly_base_fee: 499,
+      ac_price_per_kwh: 35,
+    });
+    const incumbent = buildPlan({
+      id: 'incumbent-plan',
+      user_id: 'user-1',
+      provider_id: 'p1',
+      name: 'Current Tariff',
+      valid_from: utc('2026-01-01'),
+      valid_to: null,
+      monthly_base_fee: 299,
+      ac_price_per_kwh: 29,
+    });
+    const addChargingPlan = vi.fn().mockRejectedValue(new PaidTariffOverlapError(candidate, [incumbent]));
+    const onSaveComplete = vi.fn();
+    mockedCreatePlanOverrides = candidate;
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ addChargingPlan }));
+    renderTariffList({ tariffFormState: { mode: 'create' }, onSaveComplete });
+
+    // Act: Submit the candidate form.
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Submit' })).catch(() => undefined);
+
+    // Assert: The candidate remains pending in an accessible confirmation and save completion is deferred.
+    const dialog = await screen.findByRole('dialog');
+    expect(dialog).toHaveTextContent(/Ionity/i);
+    expect(dialog).toHaveTextContent(/Current Tariff/i);
+    expect(dialog).toHaveTextContent(/2026-08-15|15 Aug 2026|15\.08\.2026/i);
+    expect(onSaveComplete).not.toHaveBeenCalled();
+  });
+
+  it('restores focus to the replacement create submit control after asynchronously opening and cancelling confirmation', async () => {
+    // Arrange: Reject the create write with one earlier paid incumbent.
+    const candidate = buildPlan({
+      id: 'created-plan',
+      user_id: 'user-1',
+      provider_id: 'p1',
+      name: 'Created Tariff',
+      valid_from: utc('2026-08-15'),
+      monthly_base_fee: 499,
+      ac_price_per_kwh: 35,
+    });
+    const incumbent = buildPlan({
+      id: 'incumbent-plan',
+      user_id: 'user-1',
+      provider_id: 'p1',
+      name: 'Current Tariff',
+      valid_from: utc('2026-01-01'),
+      valid_to: null,
+      monthly_base_fee: 299,
+      ac_price_per_kwh: 29,
+    });
+    mockedCreatePlanOverrides = candidate;
+    replaceSubmitDuringAsyncOpen = true;
+    const overlapError = new PaidTariffOverlapError(candidate, [incumbent]);
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      addChargingPlan: vi.fn<() => Promise<void>>(() => new Promise<void>((_, reject) => {
+        setTimeout(() => reject(overlapError), 0);
+      })),
+    }));
+    renderTariffList({ tariffFormState: { mode: 'create' } });
+    const user = userEvent.setup();
+
+    // Act: Submit, let the pending form replace its submit element, then cancel via Escape.
+    const initialSubmit = screen.getByRole('button', { name: 'Submit' });
+    await user.click(initialSubmit);
+    await screen.findByRole('dialog');
+    const replacementSubmit = screen.getByRole('button', { name: 'Submit' });
+    expect(initialSubmit).not.toBeInTheDocument();
+    expect(replacementSubmit).not.toBe(initialSubmit);
+    await user.keyboard('{Escape}');
+
+    // Assert: Cancelling restores focus to the connected replacement submit control.
+    expect(replacementSubmit).toHaveFocus();
+  });
+
+  it('cancels the paid-tariff confirmation without writing or closing the create form', async () => {
+    // Arrange: Prepare a single-incumbent overlap and keep the create form mounted.
+    const candidate = buildPlan({
+      id: 'created-plan', user_id: 'user-1', provider_id: 'p1', name: 'Created Tariff',
+      valid_from: utc('2026-08-15'), monthly_base_fee: 499, ac_price_per_kwh: 35,
+    });
+    const incumbent = buildPlan({
+      id: 'incumbent-plan', user_id: 'user-1', provider_id: 'p1', name: 'Current Tariff',
+      valid_from: utc('2026-01-01'), monthly_base_fee: 299, ac_price_per_kwh: 29,
+    });
+    const addChargingPlan = vi.fn().mockRejectedValue(new PaidTariffOverlapError(candidate, [incumbent]));
+    mockedCreatePlanOverrides = candidate;
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ addChargingPlan }));
+    renderTariffList({ tariffFormState: { mode: 'create' } });
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Submit' })).catch(() => undefined);
+
+    // Act: Cancel only the confirmation.
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.setup().click(within(dialog).getByRole('button', { name: /cancel/i }));
+
+    // Assert: The form remains available and no additional write occurs.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByText(/tariff form:create/i)).toBeInTheDocument();
+    expect(addChargingPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it('confirms a paid-tariff switch through the hook before completing the save', async () => {
+    // Arrange: Reject create, then resolve the explicit switch operation.
+    const candidate = buildPlan({
+      id: 'created-plan', user_id: 'user-1', provider_id: 'p1', name: 'Created Tariff',
+      valid_from: utc('2026-08-15'), monthly_base_fee: 499, ac_price_per_kwh: 35,
+    });
+    const incumbent = buildPlan({
+      id: 'incumbent-plan', user_id: 'user-1', provider_id: 'p1', name: 'Current Tariff',
+      valid_from: utc('2026-01-01'), monthly_base_fee: 299, ac_price_per_kwh: 29,
+    });
+    const addChargingPlan = vi.fn().mockRejectedValue(new PaidTariffOverlapError(candidate, [incumbent]));
+    const switchActivePaidTariff = vi.fn().mockResolvedValue(undefined);
+    const onSaveComplete = vi.fn();
+    mockedCreatePlanOverrides = candidate;
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ addChargingPlan, switchActivePaidTariff }));
+    renderTariffList({ tariffFormState: { mode: 'create' }, onSaveComplete });
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Submit' })).catch(() => undefined);
+
+    // Act: Confirm the replacement.
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.setup().click(within(dialog).getByRole('button', { name: /confirm/i }));
+
+    // Assert: The new hook operation receives candidate and incumbent id, then completion fires.
+    await waitFor(() => {
+      expect(switchActivePaidTariff).toHaveBeenCalledWith({ candidate, incumbentId: incumbent.id });
+      expect(onSaveComplete).toHaveBeenCalledWith('p1::created tariff');
+    });
+  });
+
+  it('keeps confirmation visible when the paid-tariff switch fails', async () => {
+    // Arrange: Make the explicit switch operation fail after confirmation.
+    const candidate = buildPlan({
+      id: 'created-plan', user_id: 'user-1', provider_id: 'p1', name: 'Created Tariff',
+      valid_from: utc('2026-08-15'), monthly_base_fee: 499, ac_price_per_kwh: 35,
+    });
+    const incumbent = buildPlan({
+      id: 'incumbent-plan', user_id: 'user-1', provider_id: 'p1', name: 'Current Tariff',
+      valid_from: utc('2026-01-01'), monthly_base_fee: 299, ac_price_per_kwh: 29,
+    });
+    const switchActivePaidTariff = vi.fn().mockRejectedValue(new Error('switch failed'));
+    mockedCreatePlanOverrides = candidate;
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      addChargingPlan: vi.fn().mockRejectedValue(new PaidTariffOverlapError(candidate, [incumbent])),
+      switchActivePaidTariff,
+    }));
+    renderTariffList({ tariffFormState: { mode: 'create' } });
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Submit' })).catch(() => undefined);
+
+    // Act: Confirm the switch, which rejects.
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.setup().click(within(dialog).getByRole('button', { name: /confirm/i })).catch(() => undefined);
+
+    // Assert: Failure is recoverable and confirmation remains open.
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/switch failed|could not switch/i);
+  });
+
+  it('does not offer confirmation for ambiguous paid-tariff conflicts', async () => {
+    // Arrange: Reject with multiple overlapping paid incumbents.
+    const candidate = buildPlan({
+      id: 'created-plan', user_id: 'user-1', provider_id: 'p1', name: 'Created Tariff',
+      valid_from: utc('2026-08-15'), monthly_base_fee: 499, ac_price_per_kwh: 35,
+    });
+    const conflicts = [
+      buildPlan({ id: 'incumbent-a', user_id: 'user-1', provider_id: 'p1', name: 'Current A', monthly_base_fee: 299 }),
+      buildPlan({ id: 'incumbent-b', user_id: 'user-1', provider_id: 'p1', name: 'Current B', monthly_base_fee: 399 }),
+    ];
+    mockedCreatePlanOverrides = candidate;
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      addChargingPlan: vi.fn().mockRejectedValue(new PaidTariffOverlapError(candidate, conflicts)),
+    }));
+    renderTariffList({ tariffFormState: { mode: 'create' } });
+
+    // Act: Submit the candidate.
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Submit' })).catch(() => undefined);
+
+    // Assert: No unsafe switch affordance is shown; manual repair guidance is surfaced in the form.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent(/manual|correct.*tariff|existing tariff dates/i);
   });
 });

@@ -185,6 +185,7 @@ describe('SessionForm', () => {
       createSuccessorVersion: vi.fn(),
       schedulePromotion: vi.fn(),
       deleteLogicalTariff: vi.fn(),
+      switchActivePaidTariff: vi.fn(),
       ...overrides,
     };
   }

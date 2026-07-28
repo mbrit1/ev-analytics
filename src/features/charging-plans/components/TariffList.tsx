@@ -12,6 +12,8 @@ import type { TariffFormSubmit } from './TariffForm';
 import { TariffFormLoader } from './TariffFormLoader';
 import { TariffVersionActionMenu } from './TariffVersionActionMenu';
 import { TemporaryPromotionForm } from './TemporaryPromotionForm';
+import { PaidTariffSwitchDialog } from './PaidTariffSwitchDialog';
+import { PaidTariffOverlapError } from '../services/planService';
 
 type TariffFormState =
   | { mode: 'closed' }
@@ -26,6 +28,14 @@ type TariffSurface =
   | { kind: 'none' }
   | { kind: 'promotion'; key: string }
   | { kind: 'delete'; key: string };
+
+interface PendingPaidTariffSwitch {
+  candidate: ChargingPlan;
+  incumbent: ChargingPlan;
+  providerName: string;
+  restoreFocusElement: HTMLElement | null;
+  resolveRestoreFocusElement: () => HTMLElement | null;
+}
 
 /**
  * Tariffs screen backed by the charging-plan domain.
@@ -145,12 +155,17 @@ export function TariffList({
     createSuccessorVersion,
     schedulePromotion,
     deleteLogicalTariff,
+    switchActivePaidTariff,
   } = useChargingPlans();
   const { providers } = useProviders();
   const { user } = useAuth();
   const [surface, setSurface] = useState<TariffSurface>({ kind: 'none' });
   const [isDeletePending, setIsDeletePending] = useState(false);
+  const [pendingPaidTariffSwitch, setPendingPaidTariffSwitch] = useState<PendingPaidTariffSwitch | null>(null);
+  const [paidTariffSwitchPending, setPaidTariffSwitchPending] = useState(false);
+  const [paidTariffSwitchError, setPaidTariffSwitchError] = useState<string | null>(null);
   const editButtonElementsRef = useRef<Record<string, HTMLButtonElement | null>>({});
+  const createTariffFormRef = useRef<HTMLDivElement>(null);
 
   const providerNameById = useMemo(
     () => new Map(providers.map((provider) => [provider.id, provider.name])),
@@ -200,14 +215,59 @@ export function TariffList({
   }, [logicalTariffs, onRestorationComplete, restorationRequest]);
 
   const handleCreateSubmit = async (submission: TariffFormSubmit) => {
-    await addChargingPlan({
-      ...submission.plan,
-      user_id: user?.id ?? submission.plan.user_id,
-    });
-    onSaveComplete(getLogicalTariffKey({
-      provider_id: submission.plan.provider_id,
-      name: submission.plan.name,
-    }));
+    const candidate = { ...submission.plan, user_id: user?.id ?? submission.plan.user_id };
+    const restoreFocusElement = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    const resolveRestoreFocusElement = () => (
+      createTariffFormRef.current?.querySelector<HTMLButtonElement>('button[type="submit"]') ?? null
+    );
+    try {
+      await addChargingPlan(candidate);
+      onSaveComplete(getLogicalTariffKey({ provider_id: candidate.provider_id, name: candidate.name }));
+    } catch (error) {
+      if (!(error instanceof PaidTariffOverlapError)) throw error;
+      const incumbent = error.conflicts.length === 1 ? error.conflicts[0] : null;
+      const canSwitch = candidate.monthly_base_fee > 0
+        && incumbent != null
+        && incumbent.monthly_base_fee > 0
+        && incumbent.valid_from.getTime() < candidate.valid_from.getTime();
+      if (!canSwitch) {
+        throw new Error(
+          'This paid tariff overlaps ambiguously with existing tariffs. Correct the existing tariff dates manually.',
+          { cause: error },
+        );
+      }
+      setPaidTariffSwitchError(null);
+      setPendingPaidTariffSwitch({
+        candidate,
+        incumbent,
+        providerName: providerNameById.get(candidate.provider_id) ?? candidate.provider_id,
+        restoreFocusElement,
+        resolveRestoreFocusElement,
+      });
+    }
+  };
+
+  const confirmPaidTariffSwitch = async () => {
+    if (!pendingPaidTariffSwitch) return;
+    setPaidTariffSwitchPending(true);
+    setPaidTariffSwitchError(null);
+    try {
+      await switchActivePaidTariff({
+        candidate: pendingPaidTariffSwitch.candidate,
+        incumbentId: pendingPaidTariffSwitch.incumbent.id,
+      });
+      onSaveComplete(getLogicalTariffKey({
+        provider_id: pendingPaidTariffSwitch.candidate.provider_id,
+        name: pendingPaidTariffSwitch.candidate.name,
+      }));
+      setPendingPaidTariffSwitch(null);
+    } catch (error) {
+      setPaidTariffSwitchError(error instanceof Error ? error.message : 'Could not switch paid tariff.');
+    } finally {
+      setPaidTariffSwitchPending(false);
+    }
   };
 
   const handleEditSubmit = async (submission: TariffFormSubmit) => {
@@ -280,10 +340,31 @@ export function TariffList({
       )}
 
       {isCreateOpen && (
-        <TariffFormLoader
-          mode="create"
-          onSubmit={handleCreateSubmit}
-          onCancel={onCloseForm}
+        <div ref={createTariffFormRef}>
+          <TariffFormLoader
+            mode="create"
+            onSubmit={handleCreateSubmit}
+            onCancel={onCloseForm}
+          />
+        </div>
+      )}
+
+      {pendingPaidTariffSwitch && (
+        <PaidTariffSwitchDialog
+          providerName={pendingPaidTariffSwitch.providerName}
+          incumbentName={pendingPaidTariffSwitch.incumbent.name}
+          candidateStart={pendingPaidTariffSwitch.candidate.valid_from}
+          restoreFocusElement={pendingPaidTariffSwitch.restoreFocusElement}
+          resolveRestoreFocusElement={pendingPaidTariffSwitch.resolveRestoreFocusElement}
+          isPending={paidTariffSwitchPending}
+          error={paidTariffSwitchError}
+          onCancel={() => {
+            if (!paidTariffSwitchPending) {
+              setPendingPaidTariffSwitch(null);
+              setPaidTariffSwitchError(null);
+            }
+          }}
+          onConfirm={confirmPaidTariffSwitch}
         />
       )}
 
