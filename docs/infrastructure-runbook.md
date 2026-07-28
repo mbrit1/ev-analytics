@@ -79,6 +79,118 @@ node scripts/verify-rls-live.mjs
 
 The verifier uses `SUPABASE_URL`, one publishable/anon key (`SUPABASE_KEY`, `SUPABASE_ANON_KEY`, or `VITE_SUPABASE_PUBLISHABLE_KEY`), plus `RLS_USER1_EMAIL`, `RLS_USER1_PASSWORD`, `RLS_USER2_EMAIL`, and `RLS_USER2_PASSWORD`. It checks owner CRUD, anonymous and cross-user denial, spoofed ownership, and ownership-scoped foreign keys for all domain tables. It cannot prove the policies deployed to a different project; run it separately against each disposable deployment under review.
 
+## Production Active-Tariff Preflight (Read Only)
+
+This section is an audit procedure, not a migration. Do not claim production is
+clean without running these read-only queries in the intended project and
+reviewing their result. Never run `scripts/verify-rls-live.mjs` against
+production: it creates and removes test data.
+
+Before a separately approved paid-tariff constraint rollout, run both audits
+with a suitably authorized read-only connection. No automatic repair is
+approved. Any data repair requires separate approval, after which both audits
+must be rerun before a separately approved constraint rollout. The checked-in
+`supabase/schema.sql` remains a clean baseline, not an incremental migration
+for an existing project.
+
+### 1. Overlapping active positive-fee charging plans
+
+This query uses the generated half-open `valid_period` and an ordered pair of
+UUIDs so every conflicting pair appears once, deterministically.
+
+```sql
+SELECT
+  earlier.user_id,
+  earlier.provider_id,
+  earlier.id AS earlier_plan_id,
+  earlier.name AS earlier_plan_name,
+  earlier.monthly_base_fee AS earlier_monthly_base_fee,
+  earlier.valid_period AS earlier_valid_period,
+  later.id AS later_plan_id,
+  later.name AS later_plan_name,
+  later.monthly_base_fee AS later_monthly_base_fee,
+  later.valid_period AS later_valid_period
+FROM public.charging_plans AS earlier
+JOIN public.charging_plans AS later
+  ON later.user_id = earlier.user_id
+  AND later.provider_id = earlier.provider_id
+  AND earlier.id < later.id
+  AND later.valid_period && earlier.valid_period
+WHERE earlier.deleted_at IS NULL
+  AND later.deleted_at IS NULL
+  AND earlier.monthly_base_fee > 0
+  AND later.monthly_base_fee > 0
+ORDER BY earlier.user_id, earlier.provider_id, earlier.id, later.id;
+```
+
+### 2. Ad-hoc sessions that exactly match an applicable saved tariff (heuristic)
+
+This heuristic identifies active ad-hoc sessions whose billing-provider
+snapshot, after trimming and case-folding, exactly matches a non-deleted
+same-user provider with any non-deleted plan containing the session's UTC date.
+It is an audit lead, not proof that a historical ad-hoc receipt was incorrect.
+
+```sql
+SELECT
+  session.id AS session_id,
+  session.user_id,
+  session.session_timestamp,
+  (session.session_timestamp AT TIME ZONE 'UTC')::date AS session_utc_date,
+  session.provider_name_snapshot,
+  provider.id AS matched_provider_id,
+  provider.name AS matched_provider_name
+FROM public.charging_sessions AS session
+JOIN public.providers AS provider
+  ON provider.user_id = session.user_id
+  AND provider.deleted_at IS NULL
+  AND lower(trim(provider.name)) = lower(trim(session.provider_name_snapshot))
+WHERE session.deleted_at IS NULL
+  AND session.session_mode = 'ad_hoc'
+  AND EXISTS (
+    SELECT 1
+    FROM public.charging_plans AS plan
+    WHERE plan.user_id = session.user_id
+      AND plan.provider_id = provider.id
+      AND plan.deleted_at IS NULL
+      AND plan.valid_period @> (session.session_timestamp AT TIME ZONE 'UTC')::date
+  )
+ORDER BY session.user_id, session.session_timestamp, session.id;
+```
+
+### Inspect deployed constraints
+
+Inspect the deployed `charging_plans` constraints before planning a rollout:
+
+```sql
+SELECT
+  constraint_name,
+  pg_get_constraintdef(constraint_oid) AS definition
+FROM (
+  SELECT conname AS constraint_name, oid AS constraint_oid
+  FROM pg_constraint
+  WHERE conrelid = 'public.charging_plans'::regclass
+  ORDER BY conname
+) AS constraints;
+```
+
+### Reviewed constraint example — DO NOT RUN without approval
+
+The following is a reviewed target shape for a separately approved migration
+after the audits are clean and the existing constraint names have been
+inspected. It changes production schema and can fail or lock while validating
+existing data; do not run it without explicit approval and a migration plan.
+
+```sql
+ALTER TABLE public.charging_plans
+  ADD CONSTRAINT charging_plans_no_overlapping_paid_provider_versions
+  EXCLUDE USING gist (
+    user_id WITH =,
+    provider_id WITH =,
+    valid_period WITH &&
+  )
+  WHERE (deleted_at IS NULL AND monthly_base_fee > 0);
+```
+
 ## Deploy to Cloudflare
 
 The application is deployed with Wrangler using the configuration in `wrangler.jsonc`. The `npm run deploy` command builds the Vite application before running `wrangler deploy`.
