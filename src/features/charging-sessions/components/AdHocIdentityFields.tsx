@@ -32,6 +32,7 @@ export function AdHocIdentityFields({
           aria-required="true"
           aria-describedby="ad-hoc-billing-provider-help"
           className="min-h-[44px]"
+          labelClassName="lg:min-h-7"
           {...billingProviderRegistration}
           error={billingProviderError}
         />
@@ -48,6 +49,7 @@ export function AdHocIdentityFields({
           align="left"
           aria-describedby="ad-hoc-cpo-help"
           className="min-h-[44px]"
+          labelClassName="lg:min-h-7"
           {...cpoRegistration}
         />
         <p id="ad-hoc-cpo-help" className="mt-1.5 text-sm text-secondary">
