@@ -67,7 +67,14 @@ CREATE TABLE IF NOT EXISTS public.charging_plans (
       lower(name) WITH =,
       valid_period WITH &&
     )
-    WHERE (deleted_at IS NULL)
+    WHERE (deleted_at IS NULL),
+  CONSTRAINT charging_plans_no_overlapping_paid_provider_versions
+    EXCLUDE USING gist (
+      user_id WITH =,
+      provider_id WITH =,
+      valid_period WITH &&
+    )
+    WHERE (deleted_at IS NULL AND monthly_base_fee > 0)
 );
 
 ALTER TABLE public.charging_plans ENABLE ROW LEVEL SECURITY;
