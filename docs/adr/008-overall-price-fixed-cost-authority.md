@@ -59,10 +59,11 @@ Use a split authority for the Overall Price calculation:
    reconstruction, or fee calculation.
 7. The calculation runs from local Dexie-backed data and introduces no new
    backend endpoint or schema for this feature.
-8. If referenced tariff history is missing, or different qualifying paid
-   tariffs under one provider have conflicting active intervals, the KPI is
-   unavailable. The calculation must not silently omit a fee or infer a switch
-   boundary from session activity.
+8. If referenced tariff history is missing, or qualifying paid history is
+   inconsistent with the one-paid-tariff invariant, the KPI is unavailable.
+   The calculation must not silently omit a fee or infer a switch boundary
+   from session activity. [ADR 009](./009-provider-active-tariff-invariants.md)
+   defines that invariant and its repair path.
 
 `docs/architecture.md` is the canonical current-state description of the
 implemented Analytics data flow; this ADR retains the fixed-cost authority
@@ -104,10 +105,10 @@ the user to correct their dates.
 ### Add a dedicated subscription ledger or backend calculation
 
 Rejected for the current feature because it would require a new schema,
-offline-sync contract, migration, and user-facing repair path. A durable
-subscription identity may become appropriate if the product later supports
-multiple concurrent paid tariffs under one provider; that decision is tracked
-in [GitHub issue #150](https://github.com/mbrit1/ev-analytics/issues/150).
+offline-sync contract, migration, and user-facing repair path. Charging-plan
+versions remain the MVP subscription timeline; ADR 009 now constrains paid
+provider history so that timeline is unambiguous without creating a parallel
+ledger.
 
 ## Consequences
 
@@ -122,8 +123,9 @@ in [GitHub issue #150](https://github.com/mbrit1/ev-analytics/issues/150).
 - The MVP depends on provider ID plus normalized tariff name as logical tariff
   identity. A future durable subscription identity would require a new ADR and
   migration strategy.
-- Supporting multiple concurrent paid tariffs under one provider may require
-  this decision to be superseded after the product and data-model decision in
-  GitHub issue #150.
-- `docs/architecture.md` must be updated when this behavior is implemented so
-  current-state documentation reflects the resulting Analytics data flow.
+- [ADR 009](./009-provider-active-tariff-invariants.md) complements this split
+  authority: it enforces one overlapping active paid tariff per user and
+  provider, while this ADR still assigns sessions and charging-plan history
+  their separate calculation roles.
+- [Current architecture](../architecture.md) records the implemented Analytics
+  data flow; this ADR preserves the fixed-cost authority rationale.

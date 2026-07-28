@@ -86,7 +86,16 @@ The current reconciliation model is deliberately simple: remote hydration uses p
 
 Outbox processing considers ready entries oldest-first. Retryable failures retain the entry and record retry count, last attempt, next eligible attempt, and the last error. Backoff starts at one minute and caps at fifteen minutes. A future runtime trigger—not a dedicated timer—starts the next eligible pass.
 
-Database constraint failures are non-retryable. Charging-plan overlap conflicts remain queued for user resolution but are treated as item-local so later ready work can continue. Other blocking failures stop the current pass to avoid replaying dependent writes out of order.
+Database constraint failures are non-retryable. Sync distinguishes a same-name
+version conflict ("Tariff validity overlaps with an existing active version for
+this provider and name") from a provider-level paid conflict ("Paid tariff
+validity overlaps with another active paid tariff for this provider"). Both
+known remote charging-plan overlap conflicts remain queued for manual
+resolution and are item-local, so later ready work can continue. A conflicting
+ad-hoc save is rejected locally before it writes either a session or an outbox
+row; its billing-provider field receives the separate, field-specific guidance.
+Other blocking failures stop the current pass to avoid replaying dependent
+writes out of order.
 
 ### Sign-out isolation
 
@@ -99,7 +108,7 @@ The canonical local model and Dexie versions live in [`src/infra/db/db.ts`](../s
 | Concept | Local Dexie | Remote Supabase | Important behavior |
 | --- | --- | --- | --- |
 | Provider | `providers` | `providers` | User-owned, unique active name, soft-deleted |
-| Charging plan version | `charging_plans` | `charging_plans` | Date-bounded pricing version; remote schema prevents overlapping active versions for the same user/provider/name |
+| Charging plan version | `charging_plans` | `charging_plans` | Half-open date-bounded pricing version; non-deleted same-name versions cannot overlap, and at most one non-deleted positive monthly-fee version can be active at a time per user/provider |
 | Provider plan selection | `provider_plan_selections` | `provider_plan_selections` | Validity history with a price snapshot; replayed by the outbox but not initially hydrated |
 | Charging session | `sessions` | `charging_sessions` | Plan session linked to a saved provider and plan, or unlinked ad-hoc session with billing-provider, optional CPO, and price snapshots |
 | Pending mutation | `sync_outbox` | None | Local-only durable replay queue with action, payload, timestamps, retry metadata, and error state |
@@ -107,6 +116,27 @@ The canonical local model and Dexie versions live in [`src/infra/db/db.ts`](../s
 Shared UUIDs identify the same domain rows locally and remotely. Supabase RLS restricts every remote domain table to `auth.uid() = user_id`, as recorded in [ADR 004](./adr/004-supabase-auth-and-rls.md).
 
 Charging sessions use a mode-discriminated identity contract. Plan sessions require a saved `provider_id` and `tariff_plan_id` and cannot carry ad-hoc pricing. Ad-hoc sessions require `provider_id`, `tariff_plan_id`, and `plan_selection_id` to be null; their nonblank `provider_name_snapshot` is the billing provider, while `ad_hoc_pricing.cpoName` is optional charging-station-operator context. Saving an ad-hoc session does not create a provider, charging plan, or plan-selection row. The mode/linkage invariant is represented by the local discriminated union, validated during remote hydration, and enforced by Supabase constraints.
+
+Charging-plan validity is `[valid_from, valid_to)`; a null `valid_to` is open
+ended. Non-deleted plans with `monthly_base_fee > 0` have a provider-level
+one-paid-tariff invariant, while zero-fee definitions may overlap. The local
+charging-plan service validates the invariant within its mutation transaction,
+and the remote exclusion constraint validates it again on replay. If a new paid tariff
+overlaps exactly one earlier paid tariff, an explicit forward switch closes the
+incumbent at the candidate start, queues the incumbent `UPDATE`, then queues
+the candidate `INSERT` in the same local transaction. Ambiguous overlaps need
+manual date repair; the application does not infer a restoration of a prior
+paid tariff.
+
+New or materially changed ad-hoc sessions are rejected when their billing
+provider exactly matches an active saved tariff for their UTC session date:
+trimmed, case-insensitive `provider_name_snapshot` equals a non-deleted
+same-user provider name and that provider has any non-deleted applicable plan.
+The match deliberately does not use `provider_id`, CPO text, or fuzzy matching.
+An existing ad-hoc session is grandfathered only when an edit keeps its
+normalized billing-provider text and timestamp unchanged; a change to either
+field rechecks the rule. UI guidance is attached to the billing-provider field,
+not the optional CPO field.
 
 Money values, including session totals and per-kWh prices, are integer cents. Energy values are decimal kWh. Timestamps are stored as UTC-capable instants; charging-plan validity uses date values. Optional measurements remain absent when unknown rather than being converted to zero. Session pricing snapshots preserve historical display and calculation inputs even when plans later change or are deleted; see [ADR 006](./adr/006-tariff-snapshots.md).
 
@@ -143,8 +173,10 @@ month selector, remains available offline, and follows the split authority in
   stop at the current local day, and round once after all lifetime fee
   contributions are accumulated.
 - The final rate divides included spend by total provider-billed energy.
-  Missing referenced history or conflicting qualifying paid tariffs returns an
-  unavailable KPI instead of a partial price.
+  Missing referenced history or inconsistent qualifying paid history returns an
+  unavailable KPI instead of a partial price. Overlapping zero-fee definitions
+  and paid history unrelated to a qualifying tariff do not independently make
+  the KPI unavailable.
 
 Local mock-mode browser checks can set `VITE_ENABLE_MOCKS=true` and
 `VITE_MOCK_ANALYTICS_SCENARIO` to `ready`, `empty`, `missing-history`, or
@@ -159,6 +191,7 @@ omitted by a later fixture.
 - Outbox synchronization: [ADR 005](./adr/005-outbox-sync-strategy.md)
 - Session pricing snapshots: [ADR 006](./adr/006-tariff-snapshots.md)
 - Overall Price fixed-cost authority: [ADR 008](./adr/008-overall-price-fixed-cost-authority.md)
+- Provider active-tariff invariants: [ADR 009](./adr/009-provider-active-tariff-invariants.md)
 - Cloudflare hosting: [ADR 007](./adr/007-cloudflare-workers-static-assets.md)
 - Environment provisioning and deployment: [infrastructure runbook](./infrastructure-runbook.md)
 
