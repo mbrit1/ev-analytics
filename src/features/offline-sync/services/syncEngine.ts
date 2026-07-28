@@ -158,11 +158,16 @@ function isNonRetryableConstraintViolation(error: unknown): error is { code: str
     && typeof maybeError.message === 'string';
 }
 
-function isChargingPlanOverlapConflict(error: { code?: string; message?: string } | null): boolean {
-  if (!error) return false;
-  return error.code === '23P01'
-    && typeof error.message === 'string'
-    && error.message.includes('charging_plans_no_overlapping_active_versions');
+function getChargingPlanOverlapConflictMessage(error: { code?: string; message?: string } | null): string | undefined {
+  if (!error) return undefined;
+  if (error.code !== '23P01' || typeof error.message !== 'string') return undefined;
+  if (error.message.includes('charging_plans_no_overlapping_active_versions')) {
+    return 'Tariff validity overlaps with an existing active version for this provider and name';
+  }
+  if (error.message.includes('charging_plans_no_overlapping_paid_provider_versions')) {
+    return 'Paid tariff validity overlaps with another active paid tariff for this provider';
+  }
+  return undefined;
 }
 
 function toRemoteChargingSessionPayload(session: ChargingSession): RemoteChargingSessionPayload {
@@ -529,12 +534,14 @@ async function syncItem(item: SyncOutbox): Promise<{ success: true } | ({ succes
 
     if (error) {
       if (isNonRetryableConstraintViolation(error)) {
-        const overlapConflict = item.table_name === 'charging_plans' && isChargingPlanOverlapConflict(error);
-        const message = overlapConflict
-          ? 'Tariff validity overlaps with an existing active version for this provider and name'
+        const overlapConflictMessage = item.table_name === 'charging_plans'
+          ? getChargingPlanOverlapConflictMessage(error)
+          : undefined;
+        const message = overlapConflictMessage
+          ? overlapConflictMessage
           : `Validation failed for ${item.table_name}: ${error.message}`;
         console.error(`Non-retryable sync validation error for table ${item.table_name}:`, error.message);
-        return { success: false, errorMessage: message, nonRetryable: true, isOverlapConflict: overlapConflict };
+        return { success: false, errorMessage: message, nonRetryable: true, isOverlapConflict: overlapConflictMessage !== undefined };
       }
       console.error(`Sync error for table ${item.table_name}:`, error.message);
       return { success: false, errorMessage: error.message };

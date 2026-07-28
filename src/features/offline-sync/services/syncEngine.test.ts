@@ -959,6 +959,36 @@ describe('syncEngine', () => {
     )
   })
 
+  it('should treat provider-level paid-tariff exclusion violations as non-retryable overlap conflicts', async () => {
+    // Arrange: Return the provider-level paid-tariff exclusion violation from Supabase.
+    const now = new Date('2026-05-21T12:00:00.000Z')
+    const mockUpsert = vi.fn(() => Promise.resolve({
+      error: { code: '23P01', message: 'conflicting key value violates exclusion constraint "charging_plans_no_overlapping_paid_provider_versions"' }
+    }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
+
+    await db.sync_outbox.add({
+      table_name: 'charging_plans',
+      action: 'INSERT',
+      payload: buildChargingPlan({ id: 'paid-provider-overlap-conflict' }),
+      timestamp: new Date('2026-05-21T11:00:00.000Z')
+    })
+
+    // Act: Process the provider-level overlap failure.
+    await processOutbox({ now: () => now })
+
+    // Assert: The item stays queued without a retry schedule and names the actionable domain conflict.
+    const [outboxItem] = await db.sync_outbox.toArray()
+    expect(outboxItem.retry_count).toBe(1)
+    expect(outboxItem.last_attempt_at).toEqual(now)
+    expect(outboxItem.next_attempt_at).toBeUndefined()
+    expect(outboxItem.last_error).toBe('Paid tariff validity overlaps with another active paid tariff for this provider')
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      'Non-retryable sync validation error for table charging_plans:',
+      'conflicting key value violates exclusion constraint "charging_plans_no_overlapping_paid_provider_versions"'
+    )
+  })
+
   it('should continue processing later ready items after non-retryable charging-plan overlap failure', async () => {
     // Arrange: first item fails with non-retryable charging-plan overlap, second item is syncable.
     const now = new Date('2026-05-21T12:00:00.000Z')
@@ -1000,6 +1030,49 @@ describe('syncEngine', () => {
     expect(outboxItems[0].last_attempt_at).toEqual(now)
     expect(outboxItems[0].next_attempt_at).toBeUndefined()
     expect(outboxItems[0].last_error).toBe('Tariff validity overlaps with an existing active version for this provider and name')
+  })
+
+  it('should continue processing later ready items after provider-level paid-tariff overlap failure', async () => {
+    // Arrange: The first item has a provider-level paid-tariff conflict and the later item is ready.
+    const now = new Date('2026-05-21T12:00:00.000Z')
+    const chargingPlanUpsert = vi.fn(() => Promise.resolve({
+      error: { code: '23P01', message: 'conflicting key value violates exclusion constraint "charging_plans_no_overlapping_paid_provider_versions"' }
+    }))
+    const chargingSessionUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => {
+      if (tableName === 'charging_plans') return { upsert: chargingPlanUpsert } as unknown as ReturnType<typeof supabase.from>
+      if (tableName === 'charging_sessions') return { upsert: chargingSessionUpsert } as unknown as ReturnType<typeof supabase.from>
+      return { upsert: vi.fn(() => Promise.resolve({ error: null })) } as unknown as ReturnType<typeof supabase.from>
+    })
+
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'charging_plans',
+        action: 'INSERT',
+        payload: buildChargingPlan({ id: 'blocked-paid-provider-overlap-plan' }),
+        timestamp: new Date('2026-05-21T11:00:00.000Z')
+      },
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: buildChargingSession({ id: 'ready-after-paid-provider-overlap' }),
+        timestamp: new Date('2026-05-21T11:01:00.000Z')
+      }
+    ])
+
+    // Act: Process the outbox after the item-local provider-level overlap conflict.
+    await processOutbox({ now: () => now })
+
+    // Assert: The blocked plan remains queued while the later ready item is uploaded.
+    expect(chargingPlanUpsert).toHaveBeenCalledTimes(1)
+    expect(chargingSessionUpsert).toHaveBeenCalledTimes(1)
+    const outboxItems = await db.sync_outbox.orderBy('timestamp').toArray()
+    expect(outboxItems).toHaveLength(1)
+    expect(outboxItems[0].table_name).toBe('charging_plans')
+    expect(outboxItems[0].retry_count).toBe(1)
+    expect(outboxItems[0].last_attempt_at).toEqual(now)
+    expect(outboxItems[0].next_attempt_at).toBeUndefined()
+    expect(outboxItems[0].last_error).toBe('Paid tariff validity overlaps with another active paid tariff for this provider')
   })
 
   it('replays the June Lidl promo and SWM successor rows in deterministic timestamp order', async () => {
