@@ -101,7 +101,28 @@ function assertNonNegativeNullable(value: number | undefined, fieldName: string)
   assertNonNegative(value, fieldName);
 }
 
+function assertValidPlanInterval(plan: ChargingPlan): void {
+  const validFrom = plan.valid_from.getTime();
+  if (Number.isNaN(validFrom)) {
+    throw new Error('valid_from must be a valid date');
+  }
+
+  if (plan.valid_to == null) {
+    return;
+  }
+
+  const validTo = plan.valid_to.getTime();
+  if (Number.isNaN(validTo)) {
+    throw new Error('valid_to must be a valid date');
+  }
+
+  if (validTo < validFrom) {
+    throw new Error('valid_to must be on or after valid_from');
+  }
+}
+
 function validatePlan(plan: ChargingPlan): void {
+  assertValidPlanInterval(plan);
   assertNonNegativeNullable(plan.ac_price_per_kwh, 'ac_price_per_kwh');
   assertNonNegativeNullable(plan.dc_price_per_kwh, 'dc_price_per_kwh');
   assertNonNegativeNullable(plan.roaming_ac_price_per_kwh, 'roaming_ac_price_per_kwh');
@@ -132,10 +153,12 @@ async function putPlanAndQueue(
   action: 'INSERT' | 'UPDATE' | 'DELETE',
   now: Date,
   options?: {
-    validate?: boolean;
-  }
+    validatePlan?: boolean;
+  },
 ): Promise<void> {
-  if (options?.validate !== false) {
+  if (options?.validatePlan === false) {
+    assertValidPlanInterval(plan);
+  } else {
     validatePlan(plan);
   }
   await plans.put(plan);
@@ -907,7 +930,7 @@ export async function deleteLogicalTariff(input: LogicalTariffIdentityInput): Pr
     }
 
     for (const version of deletedVersions) {
-      await putPlanAndQueue(db.charging_plans, db.sync_outbox, version, 'DELETE', now, { validate: false });
+      await putPlanAndQueue(db.charging_plans, db.sync_outbox, version, 'DELETE', now, { validatePlan: false });
     }
   });
 }

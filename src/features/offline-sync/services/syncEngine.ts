@@ -88,8 +88,46 @@ interface SyncFailure {
   isOverlapConflict?: boolean;
 }
 
+const LOGICAL_TARIFF_OVERLAP_ERROR_MESSAGE =
+  'Tariff validity overlaps with an existing active version for this provider and name';
+const PAID_PROVIDER_TARIFF_OVERLAP_ERROR_MESSAGE =
+  'Paid tariff validity overlaps with another active paid tariff for this provider';
+const CHARGING_PLAN_OVERLAP_ERROR_MESSAGES = new Set([
+  LOGICAL_TARIFF_OVERLAP_ERROR_MESSAGE,
+  PAID_PROVIDER_TARIFF_OVERLAP_ERROR_MESSAGE,
+]);
+
 function shouldContinueAfterFailure(item: SyncOutbox, result: { success: false } & SyncFailure): boolean {
   return item.table_name === 'charging_plans' && result.nonRetryable === true && result.isOverlapConflict === true;
+}
+
+function isBlockedChargingPlanOverlap(item: SyncOutbox): boolean {
+  return item.table_name === 'charging_plans'
+    && (item.retry_count ?? 0) > 0
+    && item.last_attempt_at !== undefined
+    && item.next_attempt_at === undefined
+    && item.last_error !== undefined
+    && CHARGING_PLAN_OVERLAP_ERROR_MESSAGES.has(item.last_error);
+}
+
+function isEarlierOutboxItem(candidate: SyncOutbox, item: SyncOutbox): boolean {
+  if (candidate.timestamp.getTime() !== item.timestamp.getTime()) {
+    return candidate.timestamp.getTime() < item.timestamp.getTime();
+  }
+
+  return (candidate.id ?? Number.POSITIVE_INFINITY) < (item.id ?? Number.NEGATIVE_INFINITY);
+}
+
+async function removeSupersededBlockedEntries(item: SyncOutbox): Promise<void> {
+  const blockedEntries = (await db.sync_outbox.toArray()).filter((candidate) => (
+    candidate.id !== item.id
+    && candidate.table_name === item.table_name
+    && candidate.payload.id === item.payload.id
+    && isEarlierOutboxItem(candidate, item)
+    && isBlockedChargingPlanOverlap(candidate)
+  ));
+
+  await db.sync_outbox.bulkDelete(blockedEntries.flatMap((candidate) => candidate.id ?? []));
 }
 
 type RemoteProviderPayload = Pick<
@@ -162,10 +200,10 @@ function getChargingPlanOverlapConflictMessage(error: { code?: string; message?:
   if (!error) return undefined;
   if (error.code !== '23P01' || typeof error.message !== 'string') return undefined;
   if (error.message.includes('charging_plans_no_overlapping_active_versions')) {
-    return 'Tariff validity overlaps with an existing active version for this provider and name';
+    return LOGICAL_TARIFF_OVERLAP_ERROR_MESSAGE;
   }
   if (error.message.includes('charging_plans_no_overlapping_paid_provider_versions')) {
-    return 'Paid tariff validity overlaps with another active paid tariff for this provider';
+    return PAID_PROVIDER_TARIFF_OVERLAP_ERROR_MESSAGE;
   }
   return undefined;
 }
@@ -436,6 +474,12 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
       return;
     }
 
+    if (isBlockedChargingPlanOverlap(item)) {
+      // A user-visible overlap conflict is terminal for this exact payload.
+      // A later same-row repair can still upload and remove this stale entry.
+      continue;
+    }
+
     const currentTime = now();
     if (item.next_attempt_at && item.next_attempt_at > currentTime) {
       // Skip delayed items but continue scanning so later ready items do not
@@ -450,6 +494,7 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
 
     if (result.success) {
       await db.sync_outbox.delete(item.id!);
+      await removeSupersededBlockedEntries(item);
     } else {
       const retryCount = (item.retry_count ?? 0) + 1;
       if (result.nonRetryable) {

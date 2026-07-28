@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
+import { useEffect, useRef, useState } from 'react';
 import { Slab } from '../../../shared/ui';
 import { formatUtcDate } from '../model/logicalTariffs';
 
@@ -30,6 +31,7 @@ export function PaidTariffSwitchDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCancelRef = useRef(onCancel);
   const isPendingRef = useRef(isPending);
+  const [portalElement] = useState(() => document.createElement('div'));
 
   useEffect(() => {
     onCancelRef.current = onCancel;
@@ -37,6 +39,23 @@ export function PaidTariffSwitchDialog({
   }, [isPending, onCancel]);
 
   useEffect(() => {
+    portalElement.setAttribute('data-paid-tariff-switch-dialog', 'true');
+    document.body.appendChild(portalElement);
+    const bodyOverflow = document.body.style.overflow;
+    const priorSiblings = Array.from(document.body.children)
+      .filter((child): child is HTMLElement => child !== portalElement)
+      .map((element) => ({
+        element,
+        inert: element.inert,
+        hadInertAttribute: element.hasAttribute('inert'),
+        inertAttribute: element.getAttribute('inert'),
+      }));
+    priorSiblings.forEach(({ element }) => {
+      element.inert = true;
+      element.setAttribute('inert', '');
+    });
+    document.body.style.overflow = 'hidden';
+
     const previouslyFocused = restoreFocusElement ?? (
       document.activeElement instanceof HTMLElement
         ? document.activeElement
@@ -50,7 +69,11 @@ export function PaidTariffSwitchDialog({
       }
       if (event.key !== 'Tab' || !dialogRef.current) return;
       const actions = Array.from(dialogRef.current.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
-      if (actions.length === 0) return;
+      if (actions.length === 0) {
+        event.preventDefault();
+        dialogRef.current.focus();
+        return;
+      }
       const first = actions[0];
       const last = actions[actions.length - 1];
       if (event.shiftKey && document.activeElement === first) {
@@ -68,19 +91,38 @@ export function PaidTariffSwitchDialog({
       const restoreFocusTarget = resolvedFocusTarget?.isConnected
         ? resolvedFocusTarget
         : previouslyFocused;
+      document.body.style.overflow = bodyOverflow;
+      priorSiblings.forEach(({ element, inert, hadInertAttribute, inertAttribute }) => {
+        element.inert = inert;
+        if (hadInertAttribute) {
+          element.setAttribute('inert', inertAttribute ?? '');
+        } else {
+          element.removeAttribute('inert');
+        }
+      });
+      portalElement.remove();
       if (restoreFocusTarget?.isConnected) restoreFocusTarget.focus();
     };
-  }, [resolveRestoreFocusElement, restoreFocusElement]);
+  }, [portalElement, resolveRestoreFocusElement, restoreFocusElement]);
 
-  return (
+  useEffect(() => {
+    const activeElement = document.activeElement;
+    const activeElementDisabled = activeElement instanceof HTMLButtonElement && activeElement.disabled;
+    if (isPending && (!dialogRef.current?.contains(activeElement) || activeElementDisabled)) {
+      dialogRef.current?.focus();
+    }
+  }, [isPending]);
+
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="presentation">
       <div
         ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="paid-tariff-switch-heading"
         aria-describedby="paid-tariff-switch-description"
-        className="w-full max-w-lg"
+        className="w-full max-w-lg max-h-[calc(100vh-2rem)] overflow-y-auto"
       >
         <Slab className="w-full space-y-4 p-6">
           <div className="space-y-2">
@@ -114,6 +156,7 @@ export function PaidTariffSwitchDialog({
           </div>
         </Slab>
       </div>
-    </div>
+    </div>,
+    portalElement,
   );
 }

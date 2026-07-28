@@ -959,6 +959,69 @@ describe('syncEngine', () => {
     )
   })
 
+  it('does not replay blocked charging-plan overlap entries on later outbox passes', async () => {
+    // Arrange: Queue one overlap conflict that Supabase rejects as non-retryable.
+    const firstAttempt = new Date('2026-05-21T12:00:00.000Z')
+    const secondAttempt = new Date('2026-05-21T12:01:00.000Z')
+    const chargingPlanUpsert = vi.fn(() => Promise.resolve({
+      error: { code: '23P01', message: 'conflicting key value violates exclusion constraint "charging_plans_no_overlapping_active_versions"' },
+    }))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: chargingPlanUpsert } as unknown as ReturnType<typeof supabase.from>)
+    await db.sync_outbox.add({
+      table_name: 'charging_plans',
+      action: 'INSERT',
+      payload: buildChargingPlan({ id: 'blocked-overlap-plan' }),
+      timestamp: new Date('2026-05-21T11:00:00.000Z'),
+    })
+
+    // Act: Process the original conflict, then run a later outbox pass without a repair.
+    await processOutbox({ now: () => firstAttempt })
+    await processOutbox({ now: () => secondAttempt })
+
+    // Assert: The blocked row remains diagnostic state and is not retried indefinitely.
+    expect(chargingPlanUpsert).toHaveBeenCalledTimes(1)
+    const [outboxItem] = await db.sync_outbox.toArray()
+    expect(outboxItem.retry_count).toBe(1)
+    expect(outboxItem.last_attempt_at).toEqual(firstAttempt)
+    expect(outboxItem.next_attempt_at).toBeUndefined()
+  })
+
+  it('clears an older blocked charging-plan entry after a newer same-row repair succeeds', async () => {
+    // Arrange: Make the first version overlap remotely and accept its newer repair.
+    const firstAttempt = new Date('2026-05-21T12:00:00.000Z')
+    const repairAttempt = new Date('2026-05-21T12:02:00.000Z')
+    const chargingPlanUpsert = vi.fn((plan: ChargingPlan) => Promise.resolve(
+      plan.ac_price_per_kwh === 49
+        ? { error: { code: '23P01', message: 'conflicting key value violates exclusion constraint "charging_plans_no_overlapping_active_versions"' } }
+        : { error: null },
+    ))
+    vi.mocked(supabase.from).mockReturnValue({ upsert: chargingPlanUpsert } as unknown as ReturnType<typeof supabase.from>)
+    await db.sync_outbox.add({
+      table_name: 'charging_plans',
+      action: 'INSERT',
+      payload: buildChargingPlan({ id: 'repairable-overlap-plan', ac_price_per_kwh: 49 }),
+      timestamp: new Date('2026-05-21T11:00:00.000Z'),
+    })
+    await processOutbox({ now: () => firstAttempt })
+    await db.sync_outbox.add({
+      table_name: 'charging_plans',
+      action: 'UPDATE',
+      payload: buildChargingPlan({ id: 'repairable-overlap-plan', ac_price_per_kwh: 55 }),
+      timestamp: new Date('2026-05-21T11:01:00.000Z'),
+    })
+
+    // Act: Process the repair in a later pass.
+    await processOutbox({ now: () => repairAttempt })
+
+    // Assert: The repair uploads once and supersedes the older blocked payload without replaying it.
+    expect(chargingPlanUpsert).toHaveBeenCalledTimes(2)
+    expect(chargingPlanUpsert.mock.calls.map(([plan]) => [plan.id, plan.ac_price_per_kwh])).toEqual([
+      ['repairable-overlap-plan', 49],
+      ['repairable-overlap-plan', 55],
+    ])
+    expect(await db.sync_outbox.count()).toBe(0)
+  })
+
   it('should treat provider-level paid-tariff exclusion violations as non-retryable overlap conflicts', async () => {
     // Arrange: Return the provider-level paid-tariff exclusion violation from Supabase.
     const now = new Date('2026-05-21T12:00:00.000Z')

@@ -782,7 +782,9 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       if (error instanceof AdHocTariffConflictError) {
         setError('billing_provider_name', {
           type: 'server',
-          message: 'A saved tariff applies on the selected date. Use Charging Plan pricing instead.',
+          message: isEditMode
+            ? 'A saved tariff applies on the selected date. Keep the original billing provider and date, or cancel and create a Charging Plan session.'
+            : 'A saved tariff applies on the selected date. Use Charging Plan pricing instead.',
         }, { shouldFocus: true });
         return;
       }
