@@ -674,6 +674,33 @@ describe('planService', () => {
     ])
   })
 
+  it('rejects an invalid paid replacement interval before changing the incumbent or outbox', async () => {
+    // Arrange: Seed one paid incumbent and preserve the state before the invalid switch attempt.
+    const incumbent = await seedOpenBaseline({
+      id: 'paid-incumbent',
+      name: 'Old paid tariff',
+      monthly_base_fee: 499,
+    })
+    const plansBefore = await db.charging_plans.toArray()
+
+    // Act: Attempt to replace it with a tariff whose end precedes its start.
+    const switchTariff = switchActivePaidTariff({
+      candidate: buildPlan({
+        id: 'invalid-paid-replacement',
+        name: 'New paid tariff',
+        valid_from: utc('2026-08-01'),
+        valid_to: utc('2026-07-01'),
+        monthly_base_fee: 999,
+      }),
+      incumbentId: incumbent.id,
+    })
+
+    // Assert: Validation rejects before the incumbent closure or either queued mutation persists.
+    await expect(switchTariff).rejects.toThrow('valid_to must be on or after valid_from')
+    expect(await db.charging_plans.toArray()).toEqual(plansBefore)
+    expect(await db.sync_outbox.count()).toBe(0)
+  })
+
   it('rejects a paid switch when multiple existing paid tariffs overlap the candidate', async () => {
     // Arrange: Seed inconsistent paid history with two incumbents.
     await db.charging_plans.bulkAdd([

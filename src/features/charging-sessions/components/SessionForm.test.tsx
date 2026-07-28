@@ -1108,7 +1108,8 @@ describe('SessionForm', () => {
     const guidance = await screen.findByText(/saved tariff applies on the selected date/i);
     const guidanceId = guidance.getAttribute('id');
     expect(guidanceId).toBeTruthy();
-    expect(guidance).toHaveTextContent(/use charging plan pricing/i);
+    expect(guidance).toHaveTextContent(/keep the original billing provider and date/i);
+    expect(guidance).toHaveTextContent(/cancel and create a charging plan session/i);
     expect(billingProvider).toHaveAttribute('aria-invalid', 'true');
     expect(billingProvider).toHaveAttribute('aria-describedby', expect.stringContaining(guidanceId ?? ''));
     expect(billingProvider).toHaveFocus();
