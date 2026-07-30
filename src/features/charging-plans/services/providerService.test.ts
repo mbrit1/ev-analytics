@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { db, type Provider } from '../../../infra/db';
-import { getProviders, saveProvider } from './providerService';
+import {
+  DuplicateProviderNameError,
+  getProviders,
+  saveProvider
+} from './providerService';
 import 'fake-indexeddb/auto';
 
 /**
@@ -100,10 +104,11 @@ describe('providerService', () => {
     };
 
     // Act: Attempt to save the case-insensitive duplicate.
-    const saveResult = saveProvider(duplicateProvider);
+    const error = await saveProvider(duplicateProvider).catch((cause: unknown) => cause);
 
     // Assert: A typed error exposes the existing provider for recovery.
-    await expect(saveResult).rejects.toMatchObject({
+    expect(error).toBeInstanceOf(DuplicateProviderNameError);
+    expect(error).toMatchObject({
       name: 'DuplicateProviderNameError',
       message: 'Provider name already exists (active, case-insensitive)',
       provider: existingProvider
