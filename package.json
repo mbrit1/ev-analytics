@@ -25,7 +25,7 @@
     "lucide-react": "^1.27.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.7",
-    "react-hook-form": "^7.81.0",
+    "react-hook-form": "^7.83.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
