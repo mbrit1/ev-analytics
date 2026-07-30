@@ -1,5 +1,24 @@
 import { createSyncOutboxEntry, db, type Provider } from '../../../infra/db';
 
+const DUPLICATE_PROVIDER_NAME_MESSAGE = 'Provider name already exists (active, case-insensitive)';
+
+/**
+ * Error raised when an active provider already uses the requested name.
+ *
+ * The matching provider allows callers to offer a direct recovery path without
+ * repeating the local lookup or parsing the human-readable message.
+ */
+export class DuplicateProviderNameError extends Error {
+  /** Existing active provider whose normalized name conflicts. */
+  readonly provider: Provider;
+
+  constructor(provider: Provider) {
+    super(DUPLICATE_PROVIDER_NAME_MESSAGE);
+    this.name = 'DuplicateProviderNameError';
+    this.provider = provider;
+  }
+}
+
 /**
  * Saves a charging provider locally and queues the change for remote sync.
  *
@@ -9,10 +28,15 @@ import { createSyncOutboxEntry, db, type Provider } from '../../../infra/db';
  * @param provider - Provider record to insert or update.
  */
 export async function saveProvider(provider: Provider): Promise<void> {
+  const providerName = (provider.name ?? '').trim();
+  if (!providerName) {
+    throw new Error('Provider name is required');
+  }
+
   await db.transaction('rw', db.providers, db.sync_outbox, async () => {
     const existing = await db.providers.get(provider.id);
     const now = new Date();
-    const normalizedProviderName = (provider.name ?? '').trim().toLowerCase();
+    const normalizedProviderName = providerName.toLowerCase();
 
     const conflictingProvider = await db.providers
       .where('user_id')
@@ -25,13 +49,13 @@ export async function saveProvider(provider: Provider): Promise<void> {
       .first();
 
     if (conflictingProvider) {
-      throw new Error('Provider name already exists (active, case-insensitive)');
+      throw new DuplicateProviderNameError(conflictingProvider);
     }
-    
+
     // Updates retain the original creation timestamp while refreshing updated_at.
     const providerToSave: Provider = {
       ...provider,
-      name: (provider.name ?? '').trim(),
+      name: providerName,
       created_at: existing?.created_at || now,
       updated_at: now
     };
