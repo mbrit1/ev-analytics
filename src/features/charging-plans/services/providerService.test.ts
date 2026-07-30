@@ -99,8 +99,34 @@ describe('providerService', () => {
       updated_at: new Date()
     };
 
-    // Act/Assert: Case-insensitive duplicate is blocked.
-    await expect(saveProvider(duplicateProvider)).rejects.toThrow('Provider name already exists (active, case-insensitive)');
+    // Act: Attempt to save the case-insensitive duplicate.
+    const saveResult = saveProvider(duplicateProvider);
+
+    // Assert: A typed error exposes the existing provider for recovery.
+    await expect(saveResult).rejects.toMatchObject({
+      name: 'DuplicateProviderNameError',
+      message: 'Provider name already exists (active, case-insensitive)',
+      provider: existingProvider
+    });
+  });
+
+  it('should reject a provider name that is empty after trimming', async () => {
+    // Arrange: Build a provider whose name contains only whitespace.
+    const provider: Provider = {
+      id: 'provider-empty-name',
+      user_id: 'user-1',
+      name: '   ',
+      created_at: new Date(),
+      updated_at: new Date()
+    };
+
+    // Act: Attempt to save the invalid provider.
+    const saveResult = saveProvider(provider);
+
+    // Assert: Validation fails before either local record is written.
+    await expect(saveResult).rejects.toThrow('Provider name is required');
+    expect(await db.providers.count()).toBe(0);
+    expect(await db.sync_outbox.count()).toBe(0);
   });
 
   it('should allow provider name reuse when only soft-deleted matches exist', async () => {
