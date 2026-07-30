@@ -77,22 +77,35 @@ export default defineConfig(({ mode }) => {
     rollupOptions: {
       output: {
         manualChunks(id) {
-          if (!id.includes('node_modules')) return
+          const normalizedId = id.replaceAll('\\', '/')
 
-          if (id.includes('react') || id.includes('scheduler')) {
-            return 'vendor-react'
-          }
-          if (id.includes('@supabase')) {
+          if (!normalizedId.includes('/node_modules/')) return
+
+          if (normalizedId.includes('/node_modules/@supabase/')) {
             return 'vendor-supabase'
           }
-          if (id.includes('dexie')) {
+          if (
+            normalizedId.includes('/node_modules/dexie/')
+            || normalizedId.includes('/node_modules/dexie-react-hooks/')
+          ) {
             return 'vendor-dexie'
           }
-          if (id.includes('lucide-react')) {
+          if (normalizedId.includes('/node_modules/lucide-react/')) {
             return 'vendor-ui'
           }
-          if (id.includes('zod') || id.includes('react-hook-form') || id.includes('@hookform')) {
+          if (
+            normalizedId.includes('/node_modules/zod/')
+            || normalizedId.includes('/node_modules/react-hook-form/')
+            || normalizedId.includes('/node_modules/@hookform/')
+          ) {
             return 'vendor-forms'
+          }
+          if (
+            normalizedId.includes('/node_modules/react/')
+            || normalizedId.includes('/node_modules/react-dom/')
+            || normalizedId.includes('/node_modules/scheduler/')
+          ) {
+            return 'vendor-react'
           }
 
           return 'vendor-misc'
