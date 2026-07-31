@@ -86,8 +86,11 @@ interface SyncFailure {
   errorMessage: string;
   nonRetryable?: boolean;
   isOverlapConflict?: boolean;
+  isProviderNameConflict?: boolean;
 }
 
+const PROVIDER_NAME_CONFLICT_ERROR_MESSAGE =
+  'Provider name already exists remotely (active, case-insensitive)';
 const LOGICAL_TARIFF_OVERLAP_ERROR_MESSAGE =
   'Tariff validity overlaps with an existing active version for this provider and name';
 const PAID_PROVIDER_TARIFF_OVERLAP_ERROR_MESSAGE =
@@ -98,7 +101,19 @@ const CHARGING_PLAN_OVERLAP_ERROR_MESSAGES = new Set([
 ]);
 
 function shouldContinueAfterFailure(item: SyncOutbox, result: { success: false } & SyncFailure): boolean {
-  return item.table_name === 'charging_plans' && result.nonRetryable === true && result.isOverlapConflict === true;
+  return result.nonRetryable === true && (
+    (item.table_name === 'charging_plans' && result.isOverlapConflict === true)
+    || (item.table_name === 'providers' && result.isProviderNameConflict === true)
+  );
+}
+
+function isBlockedProviderNameConflict(item: SyncOutbox): boolean {
+  return item.table_name === 'providers'
+    && item.action === 'INSERT'
+    && (item.retry_count ?? 0) > 0
+    && item.last_attempt_at !== undefined
+    && item.next_attempt_at === undefined
+    && item.last_error === PROVIDER_NAME_CONFLICT_ERROR_MESSAGE;
 }
 
 function isBlockedChargingPlanOverlap(item: SyncOutbox): boolean {
@@ -206,6 +221,12 @@ function getChargingPlanOverlapConflictMessage(error: { code?: string; message?:
     return PAID_PROVIDER_TARIFF_OVERLAP_ERROR_MESSAGE;
   }
   return undefined;
+}
+
+function isProviderNameConflict(error: { code?: string; message?: string } | null): boolean {
+  return error?.code === '23505'
+    && typeof error.message === 'string'
+    && error.message.includes('providers_user_name_active_unique');
 }
 
 function toRemoteChargingSessionPayload(session: ChargingSession): RemoteChargingSessionPayload {
@@ -465,6 +486,11 @@ function getInitialSyncSelectColumns(tableName: 'providers' | 'charging_plans' |
 export async function processOutbox(options: ProcessOutboxOptions = {}): Promise<void> {
   const now = options.now ?? (() => new Date());
   const items = await db.sync_outbox.orderBy('timestamp').toArray();
+  const pendingProviderInsertIds = new Set(
+    items
+      .filter((item) => item.table_name === 'providers' && item.action === 'INSERT')
+      .map((item) => item.payload.id)
+  );
   if (options.signal?.aborted) {
     return;
   }
@@ -472,6 +498,12 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
   for (const item of items) {
     if (options.signal?.aborted) {
       return;
+    }
+
+    if (isBlockedProviderNameConflict(item)) {
+      // Keep the terminal provider conflict for diagnosis. Its id remains in
+      // the pending set so only charging plans that depend on it stay blocked.
+      continue;
     }
 
     if (isBlockedChargingPlanOverlap(item)) {
@@ -487,6 +519,16 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
       continue;
     }
 
+    if (
+      item.table_name === 'charging_plans'
+      && item.action === 'INSERT'
+      && pendingProviderInsertIds.has((item.payload as ChargingPlan).provider_id)
+    ) {
+      // The provider must reach Supabase before its first tariff. Leave the
+      // dependent tariff untouched until that provider insert succeeds.
+      continue;
+    }
+
     const result = await syncItem(item);
     if (options.signal?.aborted) {
       return;
@@ -495,6 +537,9 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
     if (result.success) {
       await db.sync_outbox.delete(item.id!);
       await removeSupersededBlockedEntries(item);
+      if (item.table_name === 'providers' && item.action === 'INSERT') {
+        pendingProviderInsertIds.delete(item.payload.id);
+      }
     } else {
       const retryCount = (item.retry_count ?? 0) + 1;
       if (result.nonRetryable) {
@@ -514,9 +559,8 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
       }
 
       if (shouldContinueAfterFailure(item, result)) {
-        // charging_plans overlap conflicts are non-retryable and item-local:
-        // keep the failed row for user resolution, but allow later ready rows
-        // to sync instead of permanently blocking the queue.
+        // These conflicts are terminal and item-local. Keep the failed row for
+        // user resolution while allowing unrelated ready rows to sync.
         continue;
       }
 
@@ -578,6 +622,16 @@ async function syncItem(item: SyncOutbox): Promise<{ success: true } | ({ succes
     }
 
     if (error) {
+      if (item.table_name === 'providers' && isProviderNameConflict(error)) {
+        console.error('Non-retryable provider-name conflict:', error.message);
+        return {
+          success: false,
+          errorMessage: PROVIDER_NAME_CONFLICT_ERROR_MESSAGE,
+          nonRetryable: true,
+          isProviderNameConflict: true
+        };
+      }
+
       if (isNonRetryableConstraintViolation(error)) {
         const overlapConflictMessage = item.table_name === 'charging_plans'
           ? getChargingPlanOverlapConflictMessage(error)

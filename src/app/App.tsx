@@ -307,6 +307,24 @@ function App() {
                   {logoutError}
                 </div>
               )}
+              {!syncStatus.isLoading && syncStatus.hasBlockingSyncError && (
+                <div role="alert" className="mb-4 p-3 text-sm text-red-500 bg-red-500/10 rounded-lg">
+                  <p className="font-semibold">
+                    {syncStatus.blockingErrorKind === 'terminal' ? 'Sync paused' : 'Sync issue'}
+                  </p>
+                  <p>{syncStatus.blockingErrorMessage || 'A sync error occurred.'}</p>
+                  {syncStatus.blockingErrorKind === 'terminal' ? (
+                    <p>Data is saved locally. Resolve this conflict before sync can continue.</p>
+                  ) : (
+                    <>
+                      <p>Data is saved locally and will retry automatically.</p>
+                      {blockingSyncRetryText && (
+                        <p>Next retry after {blockingSyncRetryText}.</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
               {activeTab === 'analytics' ? (
                 <AnalyticsPage
                   onAddSession={handleAddSessionFromAnalytics}
@@ -333,16 +351,6 @@ function App() {
                 </Suspense>
               ) : (
                 <div className="space-y-6">
-                  {!syncStatus.isLoading && syncStatus.hasBlockingSyncError && (
-                    <div role="alert" className="mb-4 p-3 text-sm text-red-500 bg-red-500/10 rounded-lg">
-                      <p className="font-semibold">Sync issue</p>
-                      <p>{syncStatus.blockingErrorMessage || 'A sync error occurred.'}</p>
-                      <p>Data is saved locally and will retry automatically.</p>
-                      {blockingSyncRetryText && (
-                        <p>Next retry after {blockingSyncRetryText}.</p>
-                      )}
-                    </div>
-                  )}
                   <div className="flex items-center justify-between">
                     <h1 className="text-2xl font-bold tracking-tight text-primary">Charging History</h1>
                     {!isSessionFormOpen && (

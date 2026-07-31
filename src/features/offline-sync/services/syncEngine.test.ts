@@ -856,16 +856,16 @@ describe('syncEngine', () => {
       table_name: 'providers',
       retry_count: 1,
       last_attempt_at: now,
-      next_attempt_at: undefined,
       last_error: 'Provider name already exists remotely (active, case-insensitive)'
     })
+    expect(remaining[0].next_attempt_at).toBeUndefined()
     expect(remaining[1]).toMatchObject({
-      table_name: 'charging_plans',
-      retry_count: undefined,
-      last_attempt_at: undefined,
-      next_attempt_at: undefined,
-      last_error: undefined
+      table_name: 'charging_plans'
     })
+    expect(remaining[1].retry_count).toBeUndefined()
+    expect(remaining[1].last_attempt_at).toBeUndefined()
+    expect(remaining[1].next_attempt_at).toBeUndefined()
+    expect(remaining[1].last_error).toBeUndefined()
   })
 
   it('should not retry a known terminal provider-name conflict on later passes', async () => {
