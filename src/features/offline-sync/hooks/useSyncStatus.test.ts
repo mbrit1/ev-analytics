@@ -114,6 +114,7 @@ describe('useSyncStatus', () => {
       pendingByTable: { providers: 0, charging_plans: 0, sessions: 0, provider_plan_selections: 0 },
       oldestPendingAt: undefined,
       hasBlockingSyncError: false,
+      blockingErrorKind: undefined,
       blockingErrorMessage: undefined,
       retryCount: undefined,
       nextRetryAt: undefined,

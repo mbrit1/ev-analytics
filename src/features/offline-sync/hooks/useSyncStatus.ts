@@ -10,6 +10,9 @@ import type { SyncRuntimeHydrationSnapshot } from '../model/types';
 /** The concise sync condition rendered by application-level status UI. */
 export type SyncDisplayState = 'sync-issue' | 'pending' | 'syncing' | 'synced';
 
+/** Whether a blocking sync failure will retry or requires user resolution. */
+export type SyncBlockingErrorKind = 'retryable' | 'terminal';
+
 /**
  * Counts of pending sync mutations grouped by local table.
  */
@@ -38,6 +41,8 @@ export interface SyncStatus {
   oldestPendingAt?: Date;
   /** Whether the outbox has a currently actionable item with a recorded sync error. */
   hasBlockingSyncError: boolean;
+  /** Whether the blocking error will retry automatically or is terminal. */
+  blockingErrorKind?: SyncBlockingErrorKind;
   /** Human-readable last error for the oldest actionable blocking outbox item. */
   blockingErrorMessage?: string;
   /** Retry count for the oldest actionable blocking outbox item. */
@@ -84,6 +89,7 @@ export function useSyncStatus(): SyncStatus {
       hasPendingSync: false,
       pendingByTable: emptyPendingByTable,
       hasBlockingSyncError: false,
+      blockingErrorKind: undefined,
       blockingErrorMessage: undefined,
       retryCount: undefined,
       nextRetryAt: undefined,
@@ -104,6 +110,7 @@ export function useSyncStatus(): SyncStatus {
       last_error?: string;
       retry_count?: number;
       next_attempt_at?: Date;
+      blockingErrorKind: SyncBlockingErrorKind;
     }
     | undefined;
 
@@ -116,12 +123,20 @@ export function useSyncStatus(): SyncStatus {
 
     const isActionableNow = item.next_attempt_at == null || item.next_attempt_at <= now;
     const hasExceededRetryThreshold = (item.retry_count ?? 0) >= 2;
-    if (!isActionableNow || !item.last_error || !hasExceededRetryThreshold) {
+    const isTerminal = item.last_error != null && item.next_attempt_at == null;
+    const isRetryableBlocking = item.last_error != null
+      && item.next_attempt_at != null
+      && isActionableNow
+      && hasExceededRetryThreshold;
+    if (!isTerminal && !isRetryableBlocking) {
       continue;
     }
 
     if (blockingItem === undefined || item.timestamp < blockingItem.timestamp) {
-      blockingItem = item;
+      blockingItem = {
+        ...item,
+        blockingErrorKind: isTerminal ? 'terminal' : 'retryable'
+      };
     }
   }
 
@@ -141,6 +156,7 @@ export function useSyncStatus(): SyncStatus {
     pendingByTable,
     oldestPendingAt,
     hasBlockingSyncError,
+    blockingErrorKind: blockingItem?.blockingErrorKind,
     blockingErrorMessage: blockingItem?.last_error,
     retryCount: blockingItem?.retry_count,
     nextRetryAt: blockingItem?.next_attempt_at,
