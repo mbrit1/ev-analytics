@@ -248,8 +248,38 @@ describe('useSyncStatus', () => {
     // Assert
     expect(result.current.hasBlockingSyncError).toBe(true);
     expect(result.current.blockingErrorMessage).toBe('Oldest actionable sync error');
+    expect(result.current.blockingErrorKind).toBe('retryable');
     expect(result.current.retryCount).toBe(2);
     expect(result.current.nextRetryAt).toEqual(new Date('2026-05-21T08:01:00.000Z'));
+  });
+
+  it('surfaces a first-attempt terminal provider conflict immediately', async () => {
+    // Arrange: Queue one terminal provider conflict without a scheduled retry.
+    await db.sync_outbox.add({
+      table_name: 'providers',
+      action: 'INSERT',
+      payload: buildProvider({ id: 'provider-terminal-conflict' }),
+      timestamp: new Date('2026-05-21T08:00:00.000Z'),
+      retry_count: 1,
+      last_attempt_at: new Date('2026-05-21T08:01:00.000Z'),
+      last_error: 'Provider name already exists remotely (active, case-insensitive)'
+    });
+
+    // Act: Render the hook after the terminal failure is recorded.
+    const { result } = renderHook(() => useSyncStatus());
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    // Assert: Terminal state is blocking immediately and has no retry promise.
+    expect(result.current.hasBlockingSyncError).toBe(true);
+    expect(result.current.blockingErrorKind).toBe('terminal');
+    expect(result.current.blockingErrorMessage).toBe(
+      'Provider name already exists remotely (active, case-insensitive)'
+    );
+    expect(result.current.retryCount).toBe(1);
+    expect(result.current.nextRetryAt).toBeUndefined();
+    expect(result.current.displayState).toBe('sync-issue');
   });
 
   it('does not surface blocking error for first-failure rows', async () => {
