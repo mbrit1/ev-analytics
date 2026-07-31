@@ -380,6 +380,7 @@ describe('App auth gating', () => {
       hasPendingSync: true,
       pendingByTable: { providers: 0, charging_plans: 0, sessions: 1, provider_plan_selections: 0 },
       hasBlockingSyncError: true,
+      blockingErrorKind: 'retryable',
       blockingErrorMessage: 'Unsupported sync table: provider_plan_selections',
       retryCount: 1,
       nextRetryAt: new Date('2026-05-30T10:15:00.000Z'),
@@ -403,6 +404,62 @@ describe('App auth gating', () => {
     expect(alert).toHaveTextContent('Sync issue');
     expect(alert).toHaveTextContent('Unsupported sync table: provider_plan_selections');
     expect(alert).toHaveTextContent('Data is saved locally and will retry automatically.');
+    expect(alert).not.toHaveTextContent('Sync paused');
+  });
+
+  it('shows a terminal provider conflict as paused from the tariffs tab', async () => {
+    // Arrange: Authenticated user with a terminal provider-name conflict.
+    const user = userEvent.setup();
+    vi.mocked(useAuth).mockReturnValue({
+      user: {
+        id: 'user-1',
+        email: 'driver@example.com',
+        app_metadata: {},
+        user_metadata: {},
+        aud: 'authenticated',
+        created_at: new Date().toISOString(),
+      },
+      session: null,
+      loading: false,
+      signIn: vi.fn(),
+      signOut: mockSignOut,
+    });
+    vi.mocked(useSyncStatus).mockReturnValue({
+      queueLength: 2,
+      hasPendingSync: true,
+      pendingByTable: { providers: 1, charging_plans: 1, sessions: 0, provider_plan_selections: 0 },
+      hasBlockingSyncError: true,
+      blockingErrorKind: 'terminal',
+      blockingErrorMessage: 'Provider name already exists remotely (active, case-insensitive)',
+      retryCount: 1,
+      nextRetryAt: undefined,
+      oldestPendingAt: new Date('2026-05-30T10:00:00.000Z'),
+      hydration: {
+        providers: { status: 'ready' },
+        charging_plans: { status: 'ready' },
+        sessions: { status: 'ready' },
+      },
+      hasHydrationFailure: false,
+      isHydrating: false,
+      displayState: 'sync-issue',
+      isLoading: false,
+    });
+
+    // Act: Navigate to the tariffs tab where the provider workflow lives.
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Tariffs Tab' }));
+
+    // Assert: Terminal copy remains visible and makes no automatic-retry claim.
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Sync paused');
+    expect(alert).toHaveTextContent(
+      'Provider name already exists remotely (active, case-insensitive)'
+    );
+    expect(alert).toHaveTextContent(
+      'Data is saved locally. Resolve this conflict before sync can continue.'
+    );
+    expect(alert).not.toHaveTextContent('will retry automatically');
+    expect(alert).not.toHaveTextContent('Next retry after');
   });
 
   it('does not show sync issue alert for first-failure sync state', () => {

@@ -179,6 +179,10 @@ describe('syncEngine', () => {
     await db.provider_plan_selections.clear()
     await db.sessions.clear()
     vi.clearAllMocks()
+    vi.mocked(supabase.from).mockReset()
+    vi.mocked(supabase.from).mockImplementation(() => ({
+      upsert: vi.fn(() => Promise.resolve({ error: null }))
+    }) as unknown as ReturnType<typeof supabase.from>)
   })
 
   afterEach(() => {
@@ -697,6 +701,215 @@ describe('syncEngine', () => {
     const remaining = await db.sync_outbox.toArray()
     expect(remaining).toHaveLength(1)
     expect(remaining[0].payload.id).toBe('delayed-first')
+  })
+
+  it('should leave a ready tariff untouched while its provider insert is retry-delayed', async () => {
+    // Arrange: Queue a delayed provider insert before its ready dependent tariff.
+    const providerUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    const chargingPlanUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => {
+      if (tableName === 'providers') {
+        return { upsert: providerUpsert } as unknown as ReturnType<typeof supabase.from>
+      }
+      return { upsert: chargingPlanUpsert } as unknown as ReturnType<typeof supabase.from>
+    })
+
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'providers',
+        action: 'INSERT',
+        payload: buildProvider({ id: 'provider-delayed' }),
+        timestamp: new Date('2026-05-21T11:00:00.000Z'),
+        retry_count: 1,
+        last_attempt_at: new Date('2026-05-21T11:55:00.000Z'),
+        next_attempt_at: new Date('2026-05-21T12:05:00.000Z'),
+        last_error: 'Provider network error'
+      },
+      {
+        table_name: 'charging_plans',
+        action: 'INSERT',
+        payload: buildChargingPlan({
+          id: 'plan-waiting-for-provider',
+          provider_id: 'provider-delayed'
+        }),
+        timestamp: new Date('2026-05-21T11:01:00.000Z'),
+        retry_count: 0
+      }
+    ])
+
+    // Act: Process while the provider retry window is still closed.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+
+    // Assert: Neither row is attempted and the tariff receives no failure metadata.
+    expect(providerUpsert).not.toHaveBeenCalled()
+    expect(chargingPlanUpsert).not.toHaveBeenCalled()
+    const remaining = await db.sync_outbox.orderBy('timestamp').toArray()
+    expect(remaining).toHaveLength(2)
+    expect(remaining[1]).toMatchObject({
+      table_name: 'charging_plans',
+      retry_count: 0
+    })
+    expect(remaining[1].last_attempt_at).toBeUndefined()
+    expect(remaining[1].next_attempt_at).toBeUndefined()
+    expect(remaining[1].last_error).toBeUndefined()
+  })
+
+  it('should upload a tariff after its provider succeeds earlier in the same pass', async () => {
+    // Arrange: Queue one ready provider insert followed by its dependent tariff.
+    const uploadOrder: string[] = []
+    const providerUpsert = vi.fn(() => {
+      uploadOrder.push('providers')
+      return Promise.resolve({ error: null })
+    })
+    const chargingPlanUpsert = vi.fn(() => {
+      uploadOrder.push('charging_plans')
+      return Promise.resolve({ error: null })
+    })
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => {
+      if (tableName === 'providers') {
+        return { upsert: providerUpsert } as unknown as ReturnType<typeof supabase.from>
+      }
+      return { upsert: chargingPlanUpsert } as unknown as ReturnType<typeof supabase.from>
+    })
+
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'providers',
+        action: 'INSERT',
+        payload: buildProvider({ id: 'provider-ready' }),
+        timestamp: new Date('2026-05-21T11:00:00.000Z')
+      },
+      {
+        table_name: 'charging_plans',
+        action: 'INSERT',
+        payload: buildChargingPlan({
+          id: 'plan-ready-after-provider',
+          provider_id: 'provider-ready'
+        }),
+        timestamp: new Date('2026-05-21T11:01:00.000Z')
+      }
+    ])
+
+    // Act: Process both ready dependency-ordered rows.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+
+    // Assert: Provider success releases the tariff later in the same pass.
+    expect(uploadOrder).toEqual(['providers', 'charging_plans'])
+    expect(await db.sync_outbox.count()).toBe(0)
+  })
+
+  it('should retain a provider-name conflict, block its tariff, and sync unrelated ready work', async () => {
+    // Arrange: Reject the provider with the named remote uniqueness constraint.
+    const now = new Date('2026-05-21T12:00:00.000Z')
+    const providerUpsert = vi.fn(() => Promise.resolve({
+      error: {
+        code: '23505',
+        message: 'duplicate key value violates unique constraint "providers_user_name_active_unique"'
+      }
+    }))
+    const chargingPlanUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    const chargingSessionUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => {
+      if (tableName === 'providers') {
+        return { upsert: providerUpsert } as unknown as ReturnType<typeof supabase.from>
+      }
+      if (tableName === 'charging_plans') {
+        return { upsert: chargingPlanUpsert } as unknown as ReturnType<typeof supabase.from>
+      }
+      return { upsert: chargingSessionUpsert } as unknown as ReturnType<typeof supabase.from>
+    })
+
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'providers',
+        action: 'INSERT',
+        payload: buildProvider({ id: 'provider-name-conflict' }),
+        timestamp: new Date('2026-05-21T11:00:00.000Z')
+      },
+      {
+        table_name: 'charging_plans',
+        action: 'INSERT',
+        payload: buildChargingPlan({
+          id: 'plan-blocked-by-provider-conflict',
+          provider_id: 'provider-name-conflict'
+        }),
+        timestamp: new Date('2026-05-21T11:01:00.000Z')
+      },
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: buildChargingSession({ id: 'unrelated-ready-session' }),
+        timestamp: new Date('2026-05-21T11:02:00.000Z')
+      }
+    ])
+
+    // Act: Process the pass containing the terminal provider conflict.
+    await processOutbox({ now: () => now })
+
+    // Assert: The conflict is terminal, its tariff is untouched, and unrelated work drains.
+    expect(providerUpsert).toHaveBeenCalledTimes(1)
+    expect(chargingPlanUpsert).not.toHaveBeenCalled()
+    expect(chargingSessionUpsert).toHaveBeenCalledTimes(1)
+    const remaining = await db.sync_outbox.orderBy('timestamp').toArray()
+    expect(remaining).toHaveLength(2)
+    expect(remaining[0]).toMatchObject({
+      table_name: 'providers',
+      retry_count: 1,
+      last_attempt_at: now,
+      next_attempt_at: undefined,
+      last_error: 'Provider name already exists remotely (active, case-insensitive)'
+    })
+    expect(remaining[1]).toMatchObject({
+      table_name: 'charging_plans',
+      retry_count: undefined,
+      last_attempt_at: undefined,
+      next_attempt_at: undefined,
+      last_error: undefined
+    })
+  })
+
+  it('should not retry a known terminal provider-name conflict on later passes', async () => {
+    // Arrange: Queue a provider conflict and its dependent tariff.
+    const providerUpsert = vi.fn(() => Promise.resolve({
+      error: {
+        code: '23505',
+        message: 'duplicate key value violates unique constraint "providers_user_name_active_unique"'
+      }
+    }))
+    const chargingPlanUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => {
+      if (tableName === 'providers') {
+        return { upsert: providerUpsert } as unknown as ReturnType<typeof supabase.from>
+      }
+      return { upsert: chargingPlanUpsert } as unknown as ReturnType<typeof supabase.from>
+    })
+
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'providers',
+        action: 'INSERT',
+        payload: buildProvider({ id: 'provider-terminal-conflict' }),
+        timestamp: new Date('2026-05-21T11:00:00.000Z')
+      },
+      {
+        table_name: 'charging_plans',
+        action: 'INSERT',
+        payload: buildChargingPlan({
+          id: 'plan-still-blocked',
+          provider_id: 'provider-terminal-conflict'
+        }),
+        timestamp: new Date('2026-05-21T11:01:00.000Z')
+      }
+    ])
+
+    // Act: Process the original conflict and another pass after a normal retry delay.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+    await processOutbox({ now: () => new Date('2026-05-21T12:02:00.000Z') })
+
+    // Assert: Neither the terminal provider nor its tariff is reissued.
+    expect(providerUpsert).toHaveBeenCalledTimes(1)
+    expect(chargingPlanUpsert).not.toHaveBeenCalled()
+    expect(await db.sync_outbox.count()).toBe(2)
   })
 
   it('should keep unknown table_name items queued with retry metadata', async () => {
