@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -6,6 +6,7 @@ import { type ChargingPlan } from '../../../infra/db';
 import { formatCentsToDecimal } from '../../../shared/lib';
 import { DatePicker, ThinInput } from '../../../shared/ui';
 import { useProviders } from '../hooks/useProviders';
+import { DuplicateProviderNameError } from '../services/providerService';
 import {
   addUtcDays,
   formatUtcDate,
@@ -22,8 +23,9 @@ interface TariffLogicalIdentity {
   name: string;
 }
 
+/** Submission contract for create, update-current, and successor tariff workflows. */
 export type TariffFormSubmit =
-  | { intent: 'create'; plan: ChargingPlan }
+  | { intent: 'create'; plan: ChargingPlan; stagedProvider?: StagedProviderDraft }
   | {
       intent: 'update_current';
       plan: ChargingPlan;
@@ -44,14 +46,21 @@ export interface TariffFormProps {
   initialValues?: Partial<ChargingPlan>;
 }
 
+/** Provider identity staged alongside a create-only tariff submission. */
+export interface StagedProviderDraft {
+  id: string;
+  name: string;
+}
+
 const tariffFormSchema = z.object({
   name: z.string().optional(),
-  provider_id: z.string().min(1, 'Provider is required'),
+  provider_id: z.string().optional(),
   valid_from: z.string().min(1, 'Valid from date is required'),
   valid_to: z.string().optional(),
   ...tariffPriceFields,
   affiliation: z.string().optional(),
   notes: z.string().optional(),
+  new_provider_name: z.string().optional(),
 });
 
 type TariffFormSchemaValues = z.infer<typeof tariffFormSchema>;
@@ -98,6 +107,7 @@ interface ProviderSelectProps {
   onChange: (value: string) => void;
   error?: string;
   disabled?: boolean;
+  providers: ReturnType<typeof useProviders>['providers'];
 }
 
 function ProviderSelect({
@@ -105,9 +115,8 @@ function ProviderSelect({
   onChange,
   error,
   disabled = false,
+  providers,
 }: ProviderSelectProps): React.ReactElement {
-  const { providers } = useProviders();
-
   return (
     <div className="flex flex-col">
       <label htmlFor="provider_id" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
@@ -142,11 +151,18 @@ function StandardTariffForm({
   initialValues,
 }: TariffFormProps): React.ReactElement {
   const resolvedMode = mode ?? (initialValues?.id ? 'edit' : 'create');
-  const { register, handleSubmit, control, setError, clearErrors, formState: { errors, isSubmitting } } = useForm<TariffFormSchemaValues>({
+  const { providers, isLoading: providersLoading } = useProviders();
+  type ProviderModeState =
+    | { mode: 'existing' }
+    | { mode: 'new'; source: 'automatic' | 'explicit' | 'interacted'; id: string; previousProviderId: string };
+  const [providerModeState, setProviderModeState] = useState<ProviderModeState>({ mode: 'existing' });
+  const [duplicateProvider, setDuplicateProvider] = useState<{ id: string; name: string }>();
+  const { register, handleSubmit, control, setValue, setFocus, setError, clearErrors, formState: { errors, isSubmitting } } = useForm<TariffFormSchemaValues>({
     resolver: zodResolver(tariffFormSchema),
     defaultValues: {
       name: initialValues?.name ?? '',
       provider_id: initialValues?.provider_id ?? '',
+      new_provider_name: '',
       valid_from: formatDateInputValue(initialValues?.valid_from ?? new Date()),
       valid_to: initialValues?.valid_to ? formatExclusiveEndDateInputValue(initialValues.valid_to) : '',
       ac_price: initialValues?.ac_price_per_kwh != null ? formatCentsToDecimal(initialValues.ac_price_per_kwh) : '',
@@ -159,6 +175,30 @@ function StandardTariffForm({
       notes: initialValues?.notes ?? '',
     },
   });
+  const newProviderRegistration = register('new_provider_name');
+
+  const [automaticDraftId] = useState(() => crypto.randomUUID());
+  const effectiveProviderMode: ProviderModeState = resolvedMode === 'create' && !providersLoading && providers.length === 0 && providerModeState.mode === 'existing'
+    ? { mode: 'new', source: 'automatic', id: automaticDraftId, previousProviderId: '' }
+    : providerModeState;
+
+  useEffect(() => {
+    if (effectiveProviderMode.mode === 'new') setFocus('new_provider_name');
+  }, [effectiveProviderMode.mode, setFocus]);
+
+  const enterNewProviderMode = (currentProviderId: string) => {
+    setProviderModeState({ mode: 'new', source: 'explicit', id: crypto.randomUUID(), previousProviderId: currentProviderId });
+    setValue('new_provider_name', '', { shouldValidate: false });
+    setDuplicateProvider(undefined);
+  };
+
+  const leaveNewProviderMode = () => {
+    const previous = providerModeState.mode === 'new' ? providerModeState.previousProviderId : '';
+    setValue('provider_id', providers.some((provider) => provider.id === previous) ? previous : '', { shouldValidate: false });
+    setValue('new_provider_name', '', { shouldValidate: false });
+    setProviderModeState({ mode: 'existing' });
+    setDuplicateProvider(undefined);
+  };
 
   const handleFormSubmit = async (values: TariffFormSchemaValues) => {
     const now = new Date();
@@ -166,6 +206,11 @@ function StandardTariffForm({
     const originalValidFrom = initialValues?.valid_from ? coerceDate(initialValues.valid_from) : null;
     const submittedValidFrom = parseUtcDateInput(values.valid_from);
     clearErrors('root.submit');
+
+    if (effectiveProviderMode.mode === 'existing' && !values.provider_id) {
+      setError('provider_id', { type: 'required', message: 'Provider is required' });
+      return;
+    }
 
     if (resolvedMode === 'edit' && originalValidFrom == null) {
       setError('root.submit', {
@@ -182,12 +227,22 @@ function StandardTariffForm({
       ? submittedValidFrom.getTime() === resolvedOriginalValidFrom.getTime()
       : false;
     const prices = toTariffPriceInput(values);
+    let stagedProvider: StagedProviderDraft | undefined;
+    if (resolvedMode === 'create' && effectiveProviderMode.mode === 'new') {
+      const trimmedProviderName = (values.new_provider_name ?? '').trim();
+      if (!trimmedProviderName) {
+        setError('new_provider_name', { type: 'required', message: 'Provider name is required' });
+        setFocus('new_provider_name');
+        return;
+      }
+      stagedProvider = { id: effectiveProviderMode.id, name: trimmedProviderName };
+    }
     const plan: ChargingPlan = {
       id: resolvedMode === 'edit' && isSameValidFrom
         ? initialValues?.id ?? crypto.randomUUID()
         : crypto.randomUUID(),
       user_id: initialValues?.user_id ?? '',
-      provider_id: values.provider_id,
+      provider_id: stagedProvider?.id ?? values.provider_id ?? '',
       name: normalizedPlanName,
       valid_from: submittedValidFrom,
       valid_to: values.valid_to ? addUtcDays(parseUtcDateInput(values.valid_to), 1) : null,
@@ -201,10 +256,16 @@ function StandardTariffForm({
 
     try {
       if (resolvedMode === 'create') {
-        await onSubmit({
-          intent: 'create',
-          plan,
-        });
+        try {
+          await onSubmit({ intent: 'create', plan, stagedProvider });
+        } catch (error) {
+          if (stagedProvider && error instanceof DuplicateProviderNameError) {
+            setError('new_provider_name', { type: 'server', message: error.message });
+            setDuplicateProvider(error.provider);
+            return;
+          }
+          throw error;
+        }
         return;
       }
 
@@ -243,12 +304,42 @@ function StandardTariffForm({
           name="provider_id"
           control={control}
           render={({ field }) => (
-            <ProviderSelect
-              value={field.value}
-              onChange={field.onChange}
-              error={errors.provider_id?.message}
-              disabled={resolvedMode === 'edit'}
-            />
+            effectiveProviderMode.mode === 'new' && resolvedMode === 'create' ? (
+              <div className="flex flex-col">
+                <ThinInput
+                  id="new_provider_name"
+                  label="New Provider Name"
+                  {...newProviderRegistration}
+                  autoFocus
+                  required
+                  requiredIndicator
+                  error={errors.new_provider_name?.message}
+                  className="min-h-[44px]"
+                  onChange={(event) => {
+                    newProviderRegistration.onChange(event);
+                    setProviderModeState((current) => current.mode === 'new'
+                      ? { ...current, source: 'interacted' }
+                      : { mode: 'new', source: 'interacted', id: automaticDraftId, previousProviderId: '' });
+                    clearErrors('new_provider_name');
+                    setDuplicateProvider(undefined);
+                  }}
+                />
+                {duplicateProvider && <button type="button" onClick={() => {
+                  setProviderModeState({ mode: 'existing' });
+                  setValue('new_provider_name', '', { shouldValidate: false });
+                  setDuplicateProvider(undefined);
+                  setValue('provider_id', duplicateProvider.id);
+                }} className="w-full mt-2 min-h-[44px] px-3 py-2 bg-secondary/10 text-primary font-semibold rounded-xl hover:bg-secondary/20 transition-colors">
+                  Select {duplicateProvider.name} instead
+                </button>}
+                {providers.length > 0 && <button type="button" onClick={leaveNewProviderMode} className="self-start mt-2 min-h-[44px] px-3 py-2 bg-secondary/10 text-primary font-semibold rounded-xl hover:bg-secondary/20 transition-colors">Back to provider list</button>}
+              </div>
+            ) : (
+              <div>
+                <ProviderSelect providers={providers} value={field.value ?? ''} onChange={field.onChange} error={errors.provider_id?.message} disabled={resolvedMode === 'edit'} />
+                {resolvedMode === 'create' && <button type="button" onClick={() => enterNewProviderMode(field.value ?? '')} className="w-full mt-2 min-h-[44px] px-3 py-2 bg-secondary/10 text-primary font-semibold rounded-xl hover:bg-secondary/20 transition-colors">Add new provider</button>}
+              </div>
+            )
           )}
         />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
