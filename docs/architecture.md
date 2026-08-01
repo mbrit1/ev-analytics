@@ -49,8 +49,8 @@ The app shell may compose and lazy-load feature UI. Domain behavior remains insi
 User-visible mutations are local-first:
 
 1. A form or application action invokes a feature service.
-2. The service validates and prepares the domain record, including ownership, timestamps, soft-delete state, and pricing snapshots where applicable.
-3. A single Dexie transaction writes the domain table and a complete replay payload to `sync_outbox`. Session saves can update `sessions`, `provider_plan_selections`, and their outbox entries in the same transaction.
+2. The service validates and prepares the domain record, including ownership, timestamps, soft-delete state, and pricing snapshots where applicable. Tariff creation may also stage a new provider; `TariffList` assigns the same authenticated user and generated provider ID to both records.
+3. A single Dexie transaction writes the domain table and a complete replay payload to `sync_outbox`. Session saves can update `sessions`, `provider_plan_selections`, and their outbox entries in the same transaction. As a specific subcase, staged provider-and-tariff creation covers `providers`, `charging_plans`, and `sync_outbox` in one transaction, writes the provider row and outbox entry before the tariff, rolls back on any local failure, and surfaces local duplicate names for selecting the matching provider instead.
 4. Dexie commits locally without waiting for connectivity. Hooks backed by `useLiveQuery` react to the committed local state, so the UI updates immediately and can mark pending session rows from the outbox.
 5. The sync runtime subscribes to committed outbox insertions and requests an outbox pass after the transaction completes.
 6. The sync engine replays ready payloads to Supabase with idempotent upserts. It removes an outbox row only after Supabase accepts it.

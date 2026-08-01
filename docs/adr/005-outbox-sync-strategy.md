@@ -10,7 +10,7 @@ Accepted
 
 ## Last updated
 
-2026-07-03
+2026-08-01
 
 ## Context
 
@@ -23,6 +23,7 @@ Use Dexie as the local source for domain data and a transactional outbox for rem
 ### Local mutations
 
 - A synchronizable mutation writes the domain row and a full replay payload to `sync_outbox` in the same Dexie transaction.
+- Creating a tariff with a staged provider uses one local transaction covering `providers`, `charging_plans`, and `sync_outbox`; provider insertion and its outbox entry precede the dependent tariff entry, and any local failure rolls back the transaction.
 - The outbox supports `providers`, `charging_plans`, `provider_plan_selections`, and local `sessions`. Local sessions map to the remote `charging_sessions` table.
 - Outbox actions are recorded as `INSERT`, `UPDATE`, or `DELETE` for intent and diagnostics. Remote replay uses idempotent Supabase `upsert` operations for every action.
 - Deletions use a `deleted_at` soft-delete marker and replay the complete row so the deletion state reaches Supabase.
@@ -48,6 +49,8 @@ Use Dexie as the local source for domain data and a transactional outbox for rem
 - Ready items are considered oldest-first by their original timestamp.
 - Items whose `next_attempt_at` is still in the future are skipped so later ready work is not starved.
 - A successful item is removed from the outbox only after Supabase accepts it.
+- Before replaying a charging-plan insert, the runtime guards against a pending provider insert for the same provider ID, including providers delayed for retry or marked terminal. When the provider succeeds, its pending ID is removed and the dependent tariff becomes eligible; unrelated ready work continues while dependent tariffs remain blocked.
+- Provider and tariff upserts are separate remote operations, so Supabase may temporarily contain the provider without its tariff. A canonical provider-name `23505` conflict is terminal and requires manual resolution; the client never automatically rebinds the staged provider ID.
 - Retryable failures remain queued with `retry_count`, `last_attempt_at`, `next_attempt_at`, and `last_error`. Retry delay grows exponentially from one minute and is capped at fifteen minutes.
 - A retryable failure stops the current pass because later writes may depend on it. A future runtime trigger starts another eligible pass; there is no dedicated wake-up timer for `next_attempt_at`.
 - Database check and exclusion-constraint failures are marked non-retryable with no next retry time. Charging-plan validity overlap conflicts are item-local and allow later ready items to continue; other failures stop the pass.
