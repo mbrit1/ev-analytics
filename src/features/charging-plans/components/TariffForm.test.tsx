@@ -3,12 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { TariffForm } from './TariffForm';
 import { useProviders } from '../hooks/useProviders';
 import { useAuth } from '../../auth';
+import { DuplicateProviderNameError } from '../services/providerService';
 
 // Mock hooks and provider persistence so form tests stay focused on rendered
 // inputs instead of IndexedDB state.
 vi.mock('../hooks/useProviders');
 vi.mock('../../auth');
-vi.mock('../services/providerService');
 
 function getPickerMonth(): string {
   const monthHeading = screen.getByTestId('date-picker-month');
@@ -394,6 +394,274 @@ describe('TariffForm', () => {
     // Assert: Valid From preserves its day and Valid To shows the inclusive boundary.
     expect(screen.getByLabelText(/valid from/i)).toHaveTextContent('01.01.2026');
     expect(screen.getByLabelText(/valid to/i)).toHaveTextContent('31.01.2026');
+  });
+
+  it('defaults create mode to an existing provider and exposes Add new provider', () => {
+    // Arrange: Render create mode with a hydrated provider list.
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Act: Inspect provider-mode controls.
+
+    // Assert: Existing-provider selection is shown with an explicit add action.
+    expect(screen.getByRole('combobox', { name: /^provider$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /add new provider/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/new provider name/i)).not.toBeInTheDocument();
+  });
+
+  it('switches to new-provider mode and focuses the provider name input', () => {
+    // Arrange: Render create mode with an existing provider.
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Act: Enter the staged-provider mode.
+    fireEvent.click(screen.getByRole('button', { name: /add new provider/i }));
+
+    // Assert: The new name input is present and receives focus.
+    const nameInput = screen.getByLabelText(/new provider name/i);
+    expect(nameInput).toBeInTheDocument();
+    expect(document.activeElement).toBe(nameInput);
+  });
+
+  it('backs to the provider list while discarding only the staged name', () => {
+    // Arrange: Preserve an unrelated tariff value while staging a provider name.
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,49' } });
+    fireEvent.click(screen.getByRole('button', { name: /add new provider/i }));
+    fireEvent.change(screen.getByLabelText(/new provider name/i), { target: { value: '  New CPO  ' } });
+
+    // Act: Return to the existing-provider mode.
+    fireEvent.click(screen.getByRole('button', { name: /back to provider list/i }));
+
+    // Assert: Only the provider draft is discarded.
+    expect(screen.getByRole('combobox', { name: /^provider$/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/new provider name/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,49');
+  });
+
+  it('enters new-provider mode only after an empty provider load resolves', () => {
+    // Arrange: Start with an unresolved provider query.
+    vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: true });
+    const { rerender } = render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    expect(screen.queryByLabelText(/new provider name/i)).not.toBeInTheDocument();
+
+    // Act: Resolve loading with no providers.
+    vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });
+    rerender(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Assert: Empty results automatically enter the new-provider mode.
+    expect(screen.getByLabelText(/new provider name/i)).toBeInTheDocument();
+  });
+
+  it('returns an untouched automatic empty state to existing mode when providers hydrate late', () => {
+    // Arrange: Render an automatic empty state, then hydrate an existing provider.
+    vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });
+    const { rerender } = render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    expect(screen.getByLabelText(/new provider name/i)).toBeInTheDocument();
+
+    // Act: Providers arrive without user interaction.
+    vi.mocked(useProviders).mockReturnValue({
+      providers: [{ id: 'p2', name: 'EWE Go', user_id: 'user-1', created_at: new Date(), updated_at: new Date() }],
+      isLoading: false,
+    });
+    rerender(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Assert: The untouched automatic state returns to existing-provider mode.
+    expect(screen.getByRole('combobox', { name: /^provider$/i })).toBeInTheDocument();
+    expect(screen.queryByLabelText(/new provider name/i)).not.toBeInTheDocument();
+  });
+
+  it('does not show Back to provider list for automatic empty-provider mode', () => {
+    // Arrange: Resolve the provider list empty without an explicit mode choice.
+    vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Act: Inspect automatic new-provider mode actions.
+
+    // Assert: Automatic mode has no discard action until the user explicitly enters it.
+    expect(screen.getByLabelText(/new provider name/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /back to provider list/i })).not.toBeInTheDocument();
+  });
+
+  it('restores the selected provider and unrelated tariff fields after explicit mode Back', () => {
+    // Arrange: Select p1, edit a tariff value, then explicitly stage a provider.
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,49' } });
+    fireEvent.click(screen.getByRole('button', { name: /add new provider/i }));
+
+    // Act: Discard only the staged provider mode.
+    fireEvent.click(screen.getByRole('button', { name: /back to provider list/i }));
+
+    // Assert: The previous provider selection and tariff input remain intact.
+    expect(screen.getByRole('combobox', { name: /^provider$/i })).toHaveValue('p1');
+    expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,49');
+  });
+
+  it('preserves an interacted-with provider draft when providers hydrate late', () => {
+    // Arrange: Enter a draft while the provider list is empty.
+    vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });
+    const { rerender } = render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/new provider name/i), { target: { value: 'Draft CPO' } });
+
+    // Act: Hydrate providers after the user interacted with the draft.
+    vi.mocked(useProviders).mockReturnValue({
+      providers: [{ id: 'p2', name: 'EWE Go', user_id: 'user-1', created_at: new Date(), updated_at: new Date() }],
+      isLoading: false,
+    });
+    rerender(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Assert: Explicit user input remains staged and visible.
+    expect(screen.getByLabelText(/new provider name/i)).toHaveValue('Draft CPO');
+  });
+
+  it('preserves an explicitly chosen new-provider mode across later provider-list changes', () => {
+    // Arrange: Enter new-provider mode explicitly with an empty draft.
+    const { rerender } = render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.click(screen.getByRole('button', { name: /add new provider/i }));
+    expect(screen.getByLabelText(/new provider name/i)).toHaveValue('');
+
+    // Act: Hydrate or change the provider list after the explicit mode choice.
+    vi.mocked(useProviders).mockReturnValue({
+      providers: [{ id: 'p2', name: 'EWE Go', user_id: 'user-1', created_at: new Date(), updated_at: new Date() }],
+      isLoading: false,
+    });
+    rerender(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Assert: Explicit mode remains new-provider mode even with an empty name.
+    expect(screen.getByLabelText(/new provider name/i)).toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: /^provider$/i })).not.toBeInTheDocument();
+  });
+
+  it('submits a trimmed staged provider and matching plan provider id', async () => {
+    // Arrange: Stage a provider and provide the minimum tariff values.
+    vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/new provider name/i), { target: { value: '  New CPO  ' } });
+
+    // Act: Save the tariff with the staged provider.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Create-only stagedProvider identity is shared by provider and plan.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+    expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      intent: 'create',
+      stagedProvider: { id: expect.any(String), name: 'New CPO' },
+      plan: expect.objectContaining({ provider_id: expect.any(String) }),
+    }));
+    const submission = mockOnSubmit.mock.calls[0][0] as { stagedProvider: { id: string }; plan: { provider_id: string } };
+    expect(submission.plan.provider_id).toBe(submission.stagedProvider.id);
+  });
+
+  it('reuses the staged provider id across a generic rejection and retry', async () => {
+    // Arrange: Reject the first staged-provider submission generically.
+    vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });
+    mockOnSubmit.mockRejectedValueOnce(new Error('Temporary save failure')).mockResolvedValueOnce(undefined);
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/new provider name/i), { target: { value: 'Stable CPO' } });
+
+    // Act: Submit twice after the first attempt fails.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+    await screen.findByRole('alert');
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Both create payloads carry the same staged provider identity.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(2));
+    const first = mockOnSubmit.mock.calls[0][0] as { stagedProvider: { id: string } };
+    const second = mockOnSubmit.mock.calls[1][0] as { stagedProvider: { id: string } };
+    expect(second.stagedProvider.id).toBe(first.stagedProvider.id);
+  });
+
+  it('keeps a generic same-name rejection as a root save error without recovery', async () => {
+    // Arrange: A generic error is returned for a staged name matching a local provider.
+    mockOnSubmit.mockRejectedValueOnce(new Error('Temporary save failure'));
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.click(screen.getByRole('button', { name: /add new provider/i }));
+    fireEvent.change(screen.getByLabelText(/new provider name/i), { target: { value: 'ChargePoint' } });
+
+    // Act: Submit and inspect the generic failure state.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Generic failures stay in root submit handling and offer no duplicate recovery.
+    expect(await screen.findByRole('alert')).toHaveTextContent('Temporary save failure');
+    expect(screen.queryByRole('button', { name: /select chargepoint instead/i })).not.toBeInTheDocument();
+  });
+
+  it('requires a real provider selection after untouched automatic mode hydrates existing providers', async () => {
+    // Arrange: Automatic empty mode later hydrates with an existing provider.
+    vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });
+    const { rerender } = render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    vi.mocked(useProviders).mockReturnValue({
+      providers: [{ id: 'p2', name: 'EWE Go', user_id: 'user-1', created_at: new Date(), updated_at: new Date() }],
+      isLoading: false,
+    });
+    rerender(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Act: Submit without selecting the now-visible provider.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Native provider validation blocks submission; no hidden sentinel is accepted.
+    await screen.findByText(/provider is required/i);
+    expect(mockOnSubmit).not.toHaveBeenCalled();
+  });
+
+  it('offers duplicate-provider recovery that selects the existing provider and preserves tariff values', async () => {
+    // Arrange: Reject a staged provider with the typed duplicate error.
+    const existing = { id: 'p2', name: 'EWE Go', user_id: 'user-1', created_at: new Date(), updated_at: new Date() };
+    vi.mocked(useProviders).mockReturnValue({ providers: [existing], isLoading: false });
+    mockOnSubmit.mockRejectedValueOnce(new DuplicateProviderNameError(existing));
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.click(screen.getByRole('button', { name: /add new provider/i }));
+    fireEvent.change(screen.getByLabelText(/new provider name/i), { target: { value: 'EWE Go' } });
+    fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,49' } });
+
+    // Act: Submit and choose the duplicate recovery action.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+    const duplicateInput = await screen.findByLabelText(/new provider name/i);
+    const duplicateError = screen.getByText(/provider name already exists/i);
+    expect(duplicateInput).toHaveAttribute('aria-describedby', expect.stringContaining(duplicateError.id));
+    const recovery = await screen.findByRole('button', { name: /select ewe go instead/i });
+    fireEvent.click(recovery);
+
+    // Assert: Existing mode and selection replace only the staged provider state.
+    expect(screen.getByRole('combobox', { name: /^provider$/i })).toHaveValue('p2');
+    expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,49');
+  });
+
+  it('locks provider selection in edit mode and exposes no add/new-provider action', () => {
+    // Arrange: Render an existing tariff in edit mode.
+    render(
+      <TariffForm
+        mode="edit"
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        initialValues={{ id: 'plan-1', provider_id: 'p1', name: 'Lidl' }}
+      />
+    );
+
+    // Act: Inspect provider controls.
+
+    // Assert: Edit mode keeps the native select disabled and provider mode locked.
+    expect(screen.getByRole('combobox', { name: /^provider$/i })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: /add new provider/i })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/new provider name/i)).not.toBeInTheDocument();
+  });
+
+  it('blocks edit submission when provider_id is empty', async () => {
+    // Arrange: Render a locked edit form without a provider selection.
+    render(
+      <TariffForm
+        mode="edit"
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        initialValues={{ id: 'plan-empty-provider', provider_id: '', name: 'Draft', valid_from: new Date('2026-01-01T00:00:00.000Z') }}
+      />
+    );
+
+    // Act: Attempt to save the invalid edit.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: The existing provider requirement blocks persistence.
+    expect(await screen.findByText(/provider is required/i)).toBeInTheDocument();
+    expect(mockOnSubmit).not.toHaveBeenCalled();
   });
 
   it('locks provider and keeps tariff name editable in edit mode', () => {
