@@ -191,6 +191,96 @@ ALTER TABLE public.charging_plans
   WHERE (deleted_at IS NULL AND monthly_base_fee > 0);
 ```
 
+## Production Provider-Name Index Rollout
+
+`supabase/schema.sql` is a clean-import baseline. Do not run it against an
+existing project. The checked-in SQL and this procedure are not authorization
+to change production; production execution requires separate explicit
+authorization.
+
+### 1. Read-only aggregate preflight
+
+Immediately before a separately authorized rollout, run this query with a
+suitably authorized read-only connection. It returns counts only. If any count
+is non-zero, stop: do not run the replacement DDL. Prepare a separately
+reviewed data-repair plan, complete it under its own authorization, and rerun
+this preflight.
+
+```sql
+WITH active_providers AS (
+  SELECT user_id, name
+  FROM public.providers
+  WHERE deleted_at IS NULL
+),
+normalized_duplicates AS (
+  SELECT user_id, lower(btrim(name)) AS normalized_name
+  FROM active_providers
+  GROUP BY user_id, lower(btrim(name))
+  HAVING COUNT(*) > 1
+)
+SELECT
+  COUNT(*) FILTER (WHERE name <> btrim(name))
+    AS names_with_surrounding_whitespace,
+  COUNT(*) FILTER (WHERE btrim(name) = '')
+    AS names_blank_after_trim,
+  (SELECT COUNT(*) FROM normalized_duplicates)
+    AS normalized_duplicate_groups
+FROM active_providers;
+```
+
+### 2. Reviewed transactional replacement DDL — DO NOT RUN without separate authorization
+
+Run this reviewed incremental replacement only after the aggregate preflight
+returns zero for every count and a production change is separately authorized.
+It creates the stronger index before dropping the old one, then restores the
+canonical final name in the same transaction. If any statement fails, stop and
+investigate; do not attempt an ad-hoc repair or rerun individual statements.
+
+```sql
+BEGIN;
+
+CREATE UNIQUE INDEX providers_user_name_active_unique_replacement
+  ON public.providers(user_id, lower(btrim(name)))
+  WHERE deleted_at IS NULL;
+
+DROP INDEX public.providers_user_name_active_unique;
+
+ALTER INDEX public.providers_user_name_active_unique_replacement
+  RENAME TO providers_user_name_active_unique;
+
+COMMIT;
+```
+
+### 3. Read-only postflight
+
+After the authorized transaction commits, run both read-only checks in the
+target project. The first must return the exact active-provider index
+definition below; the second must return zero. If either result differs, stop
+and prepare a separately reviewed repair plan before any further schema work.
+
+```sql
+SELECT pg_get_indexdef('public.providers_user_name_active_unique'::regclass);
+```
+
+Expected definition:
+
+```sql
+CREATE UNIQUE INDEX providers_user_name_active_unique
+  ON public.providers USING btree (user_id, lower(btrim(name)))
+  WHERE (deleted_at IS NULL)
+```
+
+```sql
+SELECT COUNT(*) AS normalized_duplicate_groups
+FROM (
+  SELECT user_id, lower(btrim(name)) AS normalized_name
+  FROM public.providers
+  WHERE deleted_at IS NULL
+  GROUP BY user_id, lower(btrim(name))
+  HAVING COUNT(*) > 1
+) AS normalized_duplicates;
+```
+
 ## Deploy to Cloudflare
 
 The application is deployed with Wrangler using the configuration in `wrangler.jsonc`. The `npm run deploy` command builds the Vite application before running `wrangler deploy`.
