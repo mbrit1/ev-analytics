@@ -134,6 +134,45 @@ describe('providerService', () => {
     expect(await db.sync_outbox.count()).toBe(0);
   });
 
+  it.each([
+    ['longer than 120 Unicode code points', 'A'.repeat(121), 'Provider name must be 120 characters or fewer'],
+    ['containing a control character', 'New\u0007 CPO', 'Provider name cannot contain control characters'],
+  ])('should reject a provider name %s before writing local records', async (_description, name, message) => {
+    // Arrange: Build a provider that violates the durable name contract.
+    const provider: Provider = {
+      id: 'provider-invalid-name',
+      user_id: 'user-1',
+      name,
+      created_at: new Date(),
+      updated_at: new Date(),
+    };
+
+    // Act: Attempt to save the invalid provider.
+    const saveResult = saveProvider(provider);
+
+    // Assert: Neither the provider nor its outbox entry is persisted.
+    await expect(saveResult).rejects.toThrow(message);
+    expect(await db.providers.count()).toBe(0);
+    expect(await db.sync_outbox.count()).toBe(0);
+  });
+
+  it('should accept a provider name containing exactly 120 Unicode code points', async () => {
+    // Arrange: Build a name whose JavaScript UTF-16 length exceeds its code-point count.
+    const provider: Provider = {
+      id: 'provider-unicode-boundary',
+      user_id: 'user-1',
+      name: '⚡'.repeat(120),
+      created_at: new Date(),
+      updated_at: new Date(),
+    };
+
+    // Act: Save the maximum-length valid provider name.
+    await saveProvider(provider);
+
+    // Assert: The durable limit counts Unicode code points rather than UTF-16 units.
+    expect(await db.providers.get(provider.id)).toMatchObject({ name: provider.name });
+  });
+
   it('should allow provider name reuse when only soft-deleted matches exist', async () => {
     // Arrange: Seed a soft-deleted provider with a matching name.
     const softDeletedProvider: Provider = {

@@ -868,6 +868,61 @@ describe('syncEngine', () => {
     expect(remaining[1].last_error).toBeUndefined()
   })
 
+  it('should retain a generic provider sync failure without exposing backend details in outbox metadata', async () => {
+    // Arrange: Return an unexpected provider error whose raw detail is diagnostic-only.
+    const rawErrorMessage = 'database backend detail for provider sync';
+    const providerUpsert = vi.fn(() => Promise.resolve({ error: { message: rawErrorMessage } }))
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => {
+      if (tableName === 'providers') {
+        return { upsert: providerUpsert } as unknown as ReturnType<typeof supabase.from>
+      }
+      return { upsert: vi.fn(() => Promise.resolve({ error: null })) } as unknown as ReturnType<typeof supabase.from>
+    })
+    await db.sync_outbox.add({
+      table_name: 'providers',
+      action: 'INSERT',
+      payload: buildProvider({ id: 'provider-generic-error' }),
+      timestamp: new Date('2026-05-21T11:00:00.000Z'),
+    })
+
+    // Act: Process the unexpected provider failure.
+    await processOutbox()
+
+    // Assert: User-facing metadata is stable while the console retains raw diagnostics.
+    const [outboxItem] = await db.sync_outbox.toArray()
+    expect(outboxItem.last_error).toBe('Unable to sync provider. Please try again.')
+    expect(consoleErrorSpy).toHaveBeenCalledWith('Sync error for table providers:', rawErrorMessage)
+  })
+
+  it('should retain a provider constraint failure without exposing backend details in outbox metadata', async () => {
+    // Arrange: Return a non-retryable provider constraint error with raw database detail.
+    const rawErrorMessage = 'new row violates check constraint "providers_name_contract_check"';
+    const providerUpsert = vi.fn(() => Promise.resolve({ error: { code: '23514', message: rawErrorMessage } }))
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => {
+      if (tableName === 'providers') {
+        return { upsert: providerUpsert } as unknown as ReturnType<typeof supabase.from>
+      }
+      return { upsert: vi.fn(() => Promise.resolve({ error: null })) } as unknown as ReturnType<typeof supabase.from>
+    })
+    await db.sync_outbox.add({
+      table_name: 'providers',
+      action: 'INSERT',
+      payload: buildProvider({ id: 'provider-constraint-error' }),
+      timestamp: new Date('2026-05-21T11:00:00.000Z'),
+    })
+
+    // Act: Process the provider constraint failure.
+    await processOutbox()
+
+    // Assert: User-facing metadata remains stable while the console retains raw diagnostics.
+    const [outboxItem] = await db.sync_outbox.toArray()
+    expect(outboxItem.last_error).toBe('Unable to sync provider. Please try again.')
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      'Non-retryable sync validation error for table providers:',
+      rawErrorMessage,
+    )
+  })
+
   it('should not retry a known terminal provider-name conflict on later passes', async () => {
     // Arrange: Queue a provider conflict and its dependent tariff.
     const providerUpsert = vi.fn(() => Promise.resolve({

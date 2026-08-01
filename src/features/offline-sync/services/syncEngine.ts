@@ -91,6 +91,7 @@ interface SyncFailure {
 
 const PROVIDER_NAME_CONFLICT_ERROR_MESSAGE =
   'Provider name already exists remotely (active, case-insensitive)';
+const GENERIC_PROVIDER_SYNC_ERROR_MESSAGE = 'Unable to sync provider. Please try again.';
 const LOGICAL_TARIFF_OVERLAP_ERROR_MESSAGE =
   'Tariff validity overlaps with an existing active version for this provider and name';
 const PAID_PROVIDER_TARIFF_OVERLAP_ERROR_MESSAGE =
@@ -636,21 +637,33 @@ async function syncItem(item: SyncOutbox): Promise<{ success: true } | ({ succes
         const overlapConflictMessage = item.table_name === 'charging_plans'
           ? getChargingPlanOverlapConflictMessage(error)
           : undefined;
-        const message = overlapConflictMessage
+        const message = item.table_name === 'providers'
+          ? GENERIC_PROVIDER_SYNC_ERROR_MESSAGE
+          : overlapConflictMessage
           ? overlapConflictMessage
           : `Validation failed for ${item.table_name}: ${error.message}`;
         console.error(`Non-retryable sync validation error for table ${item.table_name}:`, error.message);
         return { success: false, errorMessage: message, nonRetryable: true, isOverlapConflict: overlapConflictMessage !== undefined };
       }
       console.error(`Sync error for table ${item.table_name}:`, error.message);
-      return { success: false, errorMessage: error.message };
+      return {
+        success: false,
+        errorMessage: item.table_name === 'providers'
+          ? GENERIC_PROVIDER_SYNC_ERROR_MESSAGE
+          : error.message,
+      };
     }
 
     return { success: true };
   } catch (err) {
     console.error(`Unexpected sync failure for table ${item.table_name}:`, err);
     const message = err instanceof Error ? err.message : String(err);
-    return { success: false, errorMessage: message };
+    return {
+      success: false,
+      errorMessage: item.table_name === 'providers'
+        ? GENERIC_PROVIDER_SYNC_ERROR_MESSAGE
+        : message,
+    };
   }
 }
 

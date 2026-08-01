@@ -551,6 +551,34 @@ describe('TariffForm', () => {
     expect(submission.plan.provider_id).toBe(submission.stagedProvider.id);
   });
 
+  it('rejects a staged provider name longer than 120 Unicode code points before submit', async () => {
+    // Arrange: Enter a provider name that exceeds the accepted storage contract.
+    vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/new provider name/i), { target: { value: 'A'.repeat(121) } });
+
+    // Act: Attempt to save the tariff with the oversized staged provider.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Form validation blocks the local creation request.
+    expect(await screen.findByText(/provider name must be 120 characters or fewer/i)).toBeInTheDocument();
+    expect(mockOnSubmit).not.toHaveBeenCalled();
+  });
+
+  it('rejects a staged provider name containing a control character before submit', async () => {
+    // Arrange: Enter a non-printable control character in the staged provider name.
+    vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/new provider name/i), { target: { value: 'New\u0007 CPO' } });
+
+    // Act: Attempt to save the tariff with the invalid staged provider.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Form validation blocks the local creation request.
+    expect(await screen.findByText(/provider name cannot contain control characters/i)).toBeInTheDocument();
+    expect(mockOnSubmit).not.toHaveBeenCalled();
+  });
+
   it('reuses the staged provider id across a generic rejection and retry', async () => {
     // Arrange: Reject the first staged-provider submission generically.
     vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });

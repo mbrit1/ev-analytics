@@ -6,7 +6,11 @@ import { type ChargingPlan } from '../../../infra/db';
 import { formatCentsToDecimal } from '../../../shared/lib';
 import { DatePicker, ThinInput } from '../../../shared/ui';
 import { useProviders } from '../hooks/useProviders';
-import { DuplicateProviderNameError } from '../services/providerService';
+import {
+  DuplicateProviderNameError,
+  getProviderNameValidationError,
+  normalizeProviderName,
+} from '../services/providerService';
 import {
   addUtcDays,
   formatUtcDate,
@@ -229,12 +233,13 @@ function StandardTariffForm({
     const prices = toTariffPriceInput(values);
     let stagedProvider: StagedProviderDraft | undefined;
     if (resolvedMode === 'create' && effectiveProviderMode.mode === 'new') {
-      const trimmedProviderName = (values.new_provider_name ?? '').trim();
-      if (!trimmedProviderName) {
-        setError('new_provider_name', { type: 'required', message: 'Provider name is required' });
+      const providerNameError = getProviderNameValidationError(values.new_provider_name);
+      if (providerNameError) {
+        setError('new_provider_name', { type: 'validate', message: providerNameError });
         setFocus('new_provider_name');
         return;
       }
+      const trimmedProviderName = normalizeProviderName(values.new_provider_name ?? '');
       stagedProvider = { id: effectiveProviderMode.id, name: trimmedProviderName };
     }
     const plan: ChargingPlan = {
