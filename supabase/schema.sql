@@ -239,7 +239,7 @@ CREATE POLICY "Users can manage their own charging sessions"
 -- Indices
 CREATE INDEX IF NOT EXISTS idx_charging_plans_provider ON public.charging_plans(provider_id);
 CREATE UNIQUE INDEX IF NOT EXISTS providers_user_name_active_unique
-  ON public.providers(user_id, lower(name))
+  ON public.providers(user_id, lower(btrim(name)))
   WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS charging_plans_user_provider_name_valid_from_active_unique
   ON public.charging_plans(user_id, provider_id, lower(name), valid_from)
