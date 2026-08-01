@@ -1,6 +1,35 @@
 import { createSyncOutboxEntry, db, type Provider } from '../../../infra/db';
 
 const DUPLICATE_PROVIDER_NAME_MESSAGE = 'Provider name already exists (active, case-insensitive)';
+export const MAX_PROVIDER_NAME_LENGTH = 120;
+const CONTROL_CHARACTER_PATTERN = /\p{Cc}/u;
+
+/**
+ * Normalizes a provider name before local persistence and remote replay.
+ */
+export function normalizeProviderName(name: string): string {
+  return name.trim();
+}
+
+/**
+ * Returns a user-safe error when a provider name violates its durable contract.
+ */
+export function getProviderNameValidationError(name: string | undefined | null): string | undefined {
+  const rawName = name ?? '';
+  if (CONTROL_CHARACTER_PATTERN.test(rawName)) {
+    return 'Provider name cannot contain control characters';
+  }
+
+  const normalizedName = normalizeProviderName(rawName);
+  if (!normalizedName) {
+    return 'Provider name is required';
+  }
+  if (Array.from(normalizedName).length > MAX_PROVIDER_NAME_LENGTH) {
+    return `Provider name must be ${MAX_PROVIDER_NAME_LENGTH} characters or fewer`;
+  }
+
+  return undefined;
+}
 
 /**
  * Error raised when an active provider already uses the requested name.
@@ -28,10 +57,11 @@ export class DuplicateProviderNameError extends Error {
  * @param provider - Provider record to insert or update.
  */
 export async function saveProvider(provider: Provider): Promise<void> {
-  const providerName = (provider.name ?? '').trim();
-  if (!providerName) {
-    throw new Error('Provider name is required');
+  const validationError = getProviderNameValidationError(provider.name);
+  if (validationError) {
+    throw new Error(validationError);
   }
+  const providerName = normalizeProviderName(provider.name);
 
   await db.transaction('rw', db.providers, db.sync_outbox, async () => {
     const existing = await db.providers.get(provider.id);

@@ -11,7 +11,14 @@ CREATE TABLE IF NOT EXISTS public.providers (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   deleted_at TIMESTAMPTZ,
-  CONSTRAINT providers_user_id_id_key UNIQUE (user_id, id)
+  CONSTRAINT providers_user_id_id_key UNIQUE (user_id, id),
+  CONSTRAINT providers_name_contract_check
+    CHECK (
+      name ~ '[^[:space:]]'
+      AND name !~ '^[[:space:]]|[[:space:]]$'
+      AND char_length(name) <= 120
+      AND name !~ '[[:cntrl:]]'
+    )
 );
 
 ALTER TABLE public.providers ENABLE ROW LEVEL SECURITY;

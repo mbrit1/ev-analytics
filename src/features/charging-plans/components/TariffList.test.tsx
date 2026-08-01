@@ -628,6 +628,38 @@ describe('TariffList', () => {
     expect(onSaveComplete).toHaveBeenCalledWith('staged-provider-1::first tariff');
   });
 
+  it('rejects staged provider creation after authentication is lost without local mutation callbacks', async () => {
+    // Arrange: Simulate a stale form submit after the authenticated user has signed out.
+    const addChargingPlan = vi.fn().mockResolvedValue(undefined);
+    const addProviderWithFirstTariff = vi.fn().mockResolvedValue(undefined);
+    mockedStagedProvider = { id: 'staged-provider-1', name: 'New CPO' };
+    mockedCreatePlanOverrides = {
+      user_id: 'stale-submission-user',
+      provider_id: 'staged-provider-1',
+      name: 'First Tariff',
+    };
+    vi.mocked(useAuth).mockReturnValue({
+      user: null,
+      session: null,
+      loading: false,
+      signIn: vi.fn(),
+      signOut: vi.fn(),
+    });
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      addChargingPlan,
+      addProviderWithFirstTariff,
+    }));
+    renderTariffList({ tariffFormState: { mode: 'create' } });
+
+    // Act: Submit the stale staged-provider form.
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Submit' }));
+
+    // Assert: The submission is rejected before either local persistence operation starts.
+    expect(await screen.findByRole('alert')).toHaveTextContent('You must be signed in to save a tariff.');
+    expect(addProviderWithFirstTariff).not.toHaveBeenCalled();
+    expect(addChargingPlan).not.toHaveBeenCalled();
+  });
+
   it('renders a duplicate staged-provider error in the still-mounted create form', async () => {
     // Arrange: Make the combined create operation reject with the domain duplicate-name error.
     const conflictingProvider: Provider = {

@@ -216,7 +216,11 @@ export function TariffList({
   }, [logicalTariffs, onRestorationComplete, restorationRequest]);
 
   const handleCreateSubmit = async (submission: TariffFormSubmit) => {
-    const candidate = { ...submission.plan, user_id: user?.id ?? submission.plan.user_id };
+    const authenticatedUserId = user?.id;
+    if (!authenticatedUserId) {
+      throw new Error('You must be signed in to save a tariff.');
+    }
+    const candidate = { ...submission.plan, user_id: authenticatedUserId };
     const restoreFocusElement = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
@@ -229,7 +233,7 @@ export function TariffList({
         const provider: Provider = {
           id: submission.stagedProvider.id,
           name: submission.stagedProvider.name,
-          user_id: user?.id ?? submission.plan.user_id,
+          user_id: authenticatedUserId,
           created_at: now,
           updated_at: now,
         };
