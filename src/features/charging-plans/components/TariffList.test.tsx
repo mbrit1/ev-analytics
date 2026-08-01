@@ -6,12 +6,14 @@ import { TariffList } from './TariffList';
 import { useChargingPlans } from '../hooks/useChargingPlans';
 import { useProviders } from '../hooks/useProviders';
 import { useAuth } from '../../auth';
-import type { ChargingPlan } from '../../../infra/db';
+import type { ChargingPlan, Provider } from '../../../infra/db';
 import type { LogicalTariff } from '../model/logicalTariffs';
 import { PaidTariffOverlapError } from '../services/planService';
+import { DuplicateProviderNameError } from '../services/providerService';
 
 let mockedTariffEditIntent: 'update_current' | 'create_successor' = 'update_current';
 let mockedCreatePlanOverrides: Partial<ChargingPlan> = {};
+let mockedStagedProvider: { id: string; name: string } | undefined;
 let replaceSubmitDuringAsyncOpen = false;
 
 vi.mock('../hooks/useChargingPlans');
@@ -72,6 +74,7 @@ vi.mock('./TariffFormLoader', () => ({
               name: 'Created Tariff',
               ...mockedCreatePlanOverrides,
             }),
+            ...(mockedStagedProvider ? { stagedProvider: mockedStagedProvider } : {}),
           } as const;
           await resolved.onSubmit?.(submission);
         }
@@ -172,6 +175,7 @@ const buildLogicalTariff = (overrides: Partial<LogicalTariff> = {}): LogicalTari
 
 type ChargingPlansHookValue = ReturnType<typeof useChargingPlans>;
 type TestChargingPlansHookValue = ChargingPlansHookValue & {
+  addProviderWithFirstTariff?: (input: { provider: Provider; plan: ChargingPlan }) => Promise<void>;
   switchActivePaidTariff?: (input: { candidate: ChargingPlan; incumbentId: string }) => Promise<void>;
 };
 
@@ -185,6 +189,7 @@ const buildHookValue = (
     logicalTariffs: overrides.logicalTariffs ?? [logicalTariff],
     isLoading: overrides.isLoading ?? false,
     addChargingPlan: overrides.addChargingPlan ?? vi.fn(),
+    addProviderWithFirstTariff: overrides.addProviderWithFirstTariff ?? vi.fn(),
     updateCurrentVersion: overrides.updateCurrentVersion ?? vi.fn(),
     createSuccessorVersion: overrides.createSuccessorVersion ?? vi.fn(),
     schedulePromotion: overrides.schedulePromotion ?? vi.fn(),
@@ -240,6 +245,7 @@ describe('TariffList', () => {
     vi.clearAllMocks();
     mockedTariffEditIntent = 'update_current';
     mockedCreatePlanOverrides = {};
+    mockedStagedProvider = undefined;
     replaceSubmitDuringAsyncOpen = false;
     vi.stubGlobal('scrollTo', vi.fn());
     vi.mocked(useProviders).mockReturnValue({
@@ -554,6 +560,105 @@ describe('TariffList', () => {
     // Assert: The blank-state trap is replaced by a visible fallback and cancel path.
     expect(screen.getByText(/tariff is no longer available/i)).toBeInTheDocument();
     expect(onCloseForm).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes an existing-provider create only through addChargingPlan', async () => {
+    // Arrange: Submit a create form that keeps the selected existing provider.
+    const addChargingPlan = vi.fn().mockResolvedValue(undefined);
+    const addProviderWithFirstTariff = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      addChargingPlan,
+      addProviderWithFirstTariff,
+    }));
+    renderTariffList({ tariffFormState: { mode: 'create' } });
+
+    // Act: Submit the mocked create form without a staged provider.
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Submit' }));
+
+    // Assert: The regular plan write is the only create operation invoked.
+    await waitFor(() => {
+      expect(addChargingPlan).toHaveBeenCalledWith(expect.objectContaining({
+        provider_id: 'p1',
+        user_id: 'user-1',
+      }));
+    });
+    expect(addProviderWithFirstTariff).not.toHaveBeenCalled();
+  });
+
+  it('routes a staged provider and first tariff through one combined operation', async () => {
+    // Arrange: Stage a new provider whose id is already assigned to the submitted tariff.
+    const addChargingPlan = vi.fn().mockResolvedValue(undefined);
+    const addProviderWithFirstTariff = vi.fn().mockResolvedValue(undefined);
+    const onSaveComplete = vi.fn();
+    mockedStagedProvider = { id: 'staged-provider-1', name: 'New CPO' };
+    mockedCreatePlanOverrides = {
+      provider_id: 'staged-provider-1',
+      name: 'First Tariff',
+    };
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      addChargingPlan,
+      addProviderWithFirstTariff,
+    }));
+    renderTariffList({ tariffFormState: { mode: 'create' }, onSaveComplete });
+
+    // Act: Submit the staged-provider form.
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Submit' }));
+
+    // Assert: Both records receive the authenticated owner and preserve their shared provider id.
+    await waitFor(() => {
+      expect(addProviderWithFirstTariff).toHaveBeenCalledWith({
+        provider: expect.objectContaining({
+          id: 'staged-provider-1',
+          name: 'New CPO',
+          user_id: 'user-1',
+        }),
+        plan: expect.objectContaining({
+          provider_id: 'staged-provider-1',
+          name: 'First Tariff',
+          user_id: 'user-1',
+        }),
+      });
+    });
+    const combinedInput = addProviderWithFirstTariff.mock.calls[0]?.[0];
+    expect(combinedInput?.provider.created_at).toBeInstanceOf(Date);
+    expect(combinedInput?.provider.updated_at).toBe(combinedInput?.provider.created_at);
+    expect(combinedInput?.plan.created_at).toBeInstanceOf(Date);
+    expect(combinedInput?.plan.updated_at).toBeInstanceOf(Date);
+    expect(addChargingPlan).not.toHaveBeenCalled();
+    expect(onSaveComplete).toHaveBeenCalledWith('staged-provider-1::first tariff');
+  });
+
+  it('renders a duplicate staged-provider error in the still-mounted create form', async () => {
+    // Arrange: Make the combined create operation reject with the domain duplicate-name error.
+    const conflictingProvider: Provider = {
+      id: 'existing-provider',
+      name: 'New CPO',
+      user_id: 'user-1',
+      created_at: utc('2026-01-01'),
+      updated_at: utc('2026-01-01'),
+    };
+    const addChargingPlan = vi.fn().mockResolvedValue(undefined);
+    const addProviderWithFirstTariff = vi.fn()
+      .mockRejectedValue(new DuplicateProviderNameError(conflictingProvider));
+    mockedStagedProvider = { id: 'staged-provider-1', name: 'New CPO' };
+    mockedCreatePlanOverrides = {
+      provider_id: 'staged-provider-1',
+      name: 'First Tariff',
+    };
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      addChargingPlan,
+      addProviderWithFirstTariff,
+    }));
+    renderTariffList({ tariffFormState: { mode: 'create' } });
+
+    // Act: Submit the staged-provider form.
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Submit' }));
+
+    // Assert: The typed domain error reaches the mounted form without a standalone plan write.
+    expect(await screen.findByRole('alert')).toHaveTextContent('Provider name already exists');
+    expect(screen.getByText(/tariff form:create/i)).toBeInTheDocument();
+    expect(addProviderWithFirstTariff).toHaveBeenCalledTimes(1);
+    expect(addChargingPlan).not.toHaveBeenCalled();
   });
 
   it('offers a confirmation when create overlaps exactly one earlier paid tariff', async () => {

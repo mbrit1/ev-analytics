@@ -181,6 +181,7 @@ describe('SessionForm', () => {
       logicalTariffs: [],
       isLoading: false,
       addChargingPlan: vi.fn(),
+      addProviderWithFirstTariff: vi.fn(),
       updateCurrentVersion: vi.fn(),
       createSuccessorVersion: vi.fn(),
       schedulePromotion: vi.fn(),
