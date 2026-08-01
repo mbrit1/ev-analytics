@@ -15,6 +15,10 @@ import {
   type UpdateCurrentTariffVersionInput,
   updateCurrentTariffVersion as updateCurrentTariffVersionService,
 } from '../services/planService';
+import {
+  createProviderWithTariff,
+  type CreateProviderWithTariffInput,
+} from '../services/providerTariffService';
 import type { ChargingPlan } from '../../../infra/db';
 import { useAuth } from '../../auth';
 import { useUtcToday } from './useUtcToday';
@@ -24,6 +28,7 @@ export interface UseChargingPlansResult {
   planVersions: ChargingPlan[];
   isLoading: boolean;
   addChargingPlan: (plan: ChargingPlan) => Promise<void>;
+  addProviderWithFirstTariff: (input: CreateProviderWithTariffInput) => Promise<void>;
   logicalTariffs: LogicalTariff[];
   updateCurrentVersion: (input: UpdateCurrentTariffVersionInput) => Promise<void>;
   createSuccessorVersion: (input: CreateSuccessorTariffVersionInput) => Promise<void>;
@@ -55,6 +60,10 @@ export function useChargingPlans(): UseChargingPlansResult {
     await saveChargingPlan(plan);
   };
 
+  const addProviderWithFirstTariff = async (input: CreateProviderWithTariffInput) => {
+    await createProviderWithTariff(input);
+  };
+
   const updateCurrentVersion = async (input: UpdateCurrentTariffVersionInput) => {
     await updateCurrentTariffVersionService(input);
   };
@@ -80,6 +89,7 @@ export function useChargingPlans(): UseChargingPlansResult {
     logicalTariffs,
     isLoading: versions === undefined,
     addChargingPlan,
+    addProviderWithFirstTariff,
     updateCurrentVersion,
     createSuccessorVersion,
     schedulePromotion,

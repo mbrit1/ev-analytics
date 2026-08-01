@@ -3,7 +3,7 @@ import { Info, Plus } from 'lucide-react';
 import { formatCurrency } from '../../../shared/lib';
 import { Slab } from '../../../shared/ui';
 import { useAuth } from '../../auth';
-import type { ChargingPlan } from '../../../infra/db';
+import type { ChargingPlan, Provider } from '../../../infra/db';
 import { useChargingPlans } from '../hooks/useChargingPlans';
 import { useProviders } from '../hooks/useProviders';
 import { getLogicalTariffKey, type LogicalTariffUpcomingVisibility } from '../model/logicalTariffs';
@@ -150,6 +150,7 @@ export function TariffList({
   const {
     logicalTariffs,
     addChargingPlan,
+    addProviderWithFirstTariff,
     isLoading,
     updateCurrentVersion,
     createSuccessorVersion,
@@ -223,6 +224,19 @@ export function TariffList({
       createTariffFormRef.current?.querySelector<HTMLButtonElement>('button[type="submit"]') ?? null
     );
     try {
+      if (submission.intent === 'create' && submission.stagedProvider) {
+        const now = new Date();
+        const provider: Provider = {
+          id: submission.stagedProvider.id,
+          name: submission.stagedProvider.name,
+          user_id: user?.id ?? submission.plan.user_id,
+          created_at: now,
+          updated_at: now,
+        };
+        await addProviderWithFirstTariff({ provider, plan: candidate });
+        onSaveComplete(getLogicalTariffKey({ provider_id: candidate.provider_id, name: candidate.name }));
+        return;
+      }
       await addChargingPlan(candidate);
       onSaveComplete(getLogicalTariffKey({ provider_id: candidate.provider_id, name: candidate.name }));
     } catch (error) {
