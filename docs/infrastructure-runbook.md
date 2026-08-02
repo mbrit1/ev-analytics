@@ -281,6 +281,124 @@ FROM (
 ) AS normalized_duplicates;
 ```
 
+## Production Provider-Name Validation-Constraint Rollout
+
+This is a separate follow-up from the completed provider-name index rollout
+above. `supabase/schema.sql` is a clean-import baseline. The procedure below
+is reviewed guidance only: it is not authorization and has not been executed
+against production.
+
+### 1. Read-only all-row preflight
+
+Run both queries with a suitably authorized read-only connection immediately
+before a separately authorized rollout. The aggregate query deliberately checks
+all `public.providers` rows, including soft-deleted rows, because PostgreSQL
+validates a table constraint against every row. If any count is non-zero, or if
+the named constraint already exists, stop for review; do not run the DDL or an
+ad-hoc repair.
+
+```sql
+SELECT
+  COUNT(*) FILTER (WHERE name !~ '[^[:space:]]')
+    AS names_blank_or_whitespace_only,
+  COUNT(*) FILTER (WHERE name ~ '^[[:space:]]|[[:space:]]$')
+    AS names_with_edge_whitespace,
+  COUNT(*) FILTER (WHERE char_length(name) > 120)
+    AS names_over_120_characters,
+  COUNT(*) FILTER (WHERE name ~ '[[:cntrl:]]')
+    AS names_with_control_characters
+FROM public.providers;
+```
+
+```sql
+SELECT convalidated, pg_get_constraintdef(oid) AS definition
+FROM pg_constraint
+WHERE conrelid = 'public.providers'::regclass
+  AND conname = 'providers_name_contract_check';
+```
+
+Expected result: all aggregate counts are zero, and the constraint query
+returns zero rows. Any other result requires review before proceeding.
+
+### 2. Reviewed validation-constraint DDL — DO NOT RUN without separate authorization
+
+Run this only after the all-row preflight is clean and an explicit production
+change is authorized. It does not modify or rerun the already-deployed unique
+index. Run the following statements in order as separate autocommit
+transactions: adding the `NOT VALID` constraint is metadata work, and
+validation scans the table afterwards. Set the bounded lock timeout in the
+same session immediately before the metadata ALTER; if it cannot acquire its
+lock within five seconds, stop for review rather than retrying ad hoc. Use a
+client configured to stop on error; do not continue to a later statement after
+any failure.
+
+```sql
+SET lock_timeout = '5s';
+
+ALTER TABLE public.providers
+  ADD CONSTRAINT providers_name_contract_check
+  CHECK (
+    name ~ '[^[:space:]]'
+    AND name !~ '^[[:space:]]|[[:space:]]$'
+    AND char_length(name) <= 120
+    AND name !~ '[[:cntrl:]]'
+  ) NOT VALID;
+
+RESET lock_timeout;
+```
+
+After the metadata statement has committed successfully, run validation as its
+own autocommit statement:
+
+```sql
+ALTER TABLE public.providers
+  VALIDATE CONSTRAINT providers_name_contract_check;
+```
+
+If validation fails, the constraint remains `NOT VALID`: it still enforces the
+contract for new or updated rows, but existing rows have not been fully
+validated. Stop and prepare a separately reviewed remediation plan; do not
+remove, retry, or alter the constraint ad hoc.
+
+### 3. Read-only postflight
+
+After the validation statement commits, run both queries below. The first
+must return one validated constraint whose `pg_get_constraintdef` output
+matches the exact CHECK expression in the reviewed DDL; the second must return
+zero for every count. Otherwise, stop and prepare a separately reviewed repair
+plan before further schema work.
+
+```sql
+SELECT convalidated, pg_get_constraintdef(oid) AS definition
+FROM pg_constraint
+WHERE conrelid = 'public.providers'::regclass
+  AND conname = 'providers_name_contract_check';
+```
+
+Expected CHECK expression:
+
+```sql
+CHECK (
+  name ~ '[^[:space:]]'
+  AND name !~ '^[[:space:]]|[[:space:]]$'
+  AND char_length(name) <= 120
+  AND name !~ '[[:cntrl:]]'
+)
+```
+
+```sql
+SELECT
+  COUNT(*) FILTER (WHERE name !~ '[^[:space:]]')
+    AS names_blank_or_whitespace_only,
+  COUNT(*) FILTER (WHERE name ~ '^[[:space:]]|[[:space:]]$')
+    AS names_with_edge_whitespace,
+  COUNT(*) FILTER (WHERE char_length(name) > 120)
+    AS names_over_120_characters,
+  COUNT(*) FILTER (WHERE name ~ '[[:cntrl:]]')
+    AS names_with_control_characters
+FROM public.providers;
+```
+
 ## Deploy to Cloudflare
 
 The application is deployed with Wrangler using the configuration in `wrangler.jsonc`. The `npm run deploy` command builds the Vite application before running `wrangler deploy`.
