@@ -107,7 +107,7 @@ The canonical local model and Dexie versions live in [`src/infra/db/db.ts`](../s
 
 | Concept | Local Dexie | Remote Supabase | Important behavior |
 | --- | --- | --- | --- |
-| Provider | `providers` | `providers` | User-owned, unique active name, soft-deleted |
+| Provider | `providers` | `providers` | User-owned, unique active name, soft-deleted; names are trimmed and nonblank, at most 120 Unicode characters, and contain no control characters. The contract is enforced before local persistence and by Supabase. |
 | Charging plan version | `charging_plans` | `charging_plans` | Half-open date-bounded pricing version; non-deleted same-name versions cannot overlap, and at most one non-deleted positive monthly-fee version can be active at a time per user/provider |
 | Provider plan selection | `provider_plan_selections` | `provider_plan_selections` | Validity history with a price snapshot; replayed by the outbox but not initially hydrated |
 | Charging session | `sessions` | `charging_sessions` | Plan session linked to a saved provider and plan, or unlinked ad-hoc session with billing-provider, optional CPO, and price snapshots |
