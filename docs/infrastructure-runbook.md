@@ -283,10 +283,13 @@ FROM (
 
 ## Production Provider-Name Validation-Constraint Rollout
 
-This is a separate follow-up from the completed provider-name index rollout
-above. `supabase/schema.sql` is a clean-import baseline. The procedure below
-is reviewed guidance only: it is not authorization and has not been executed
-against production.
+This is a separate follow-up from the provider-name index rollout above.
+`supabase/schema.sql` is a clean-import baseline. The procedure below is
+reusable reviewed operational guidance, not authorization; checked-in schema
+and procedure text does not prove the current deployed state. Before any
+rollout or verification, inspect the live named constraint and current table
+state. Each production mutation requires separately scoped explicit
+authorization.
 
 ### 1. Read-only all-row preflight
 
