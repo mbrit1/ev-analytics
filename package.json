@@ -22,7 +22,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "dexie": "^4.4.4",
     "dexie-react-hooks": "^4.4.0",
-    "lucide-react": "^1.28.0",
+    "lucide-react": "^1.29.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-hook-form": "^7.83.0",
