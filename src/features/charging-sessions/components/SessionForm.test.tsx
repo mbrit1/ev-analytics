@@ -692,6 +692,7 @@ describe('SessionForm', () => {
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
     fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), { target: { value: logicalKey } });
     fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    pickDate(/date/i, '2026-08-09');
 
     // Assert: the baseline date shows baseline pricing first.
     expect(screen.getByRole('radio', { name: /domestic ac\s+0,40 €\/kwh/i })).toBeInTheDocument();
