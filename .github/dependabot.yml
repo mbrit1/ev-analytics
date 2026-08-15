@@ -3,8 +3,7 @@ updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "monthly"
       time: "07:00"
       timezone: "Europe/Berlin"
     open-pull-requests-limit: 5
@@ -36,6 +35,14 @@ updates:
         update-types:
           - "version-update:semver-major"
     groups:
+      production-dependency-patches:
+        dependency-type: "production"
+        update-types:
+          - "patch"
+      production-dependency-minors:
+        dependency-type: "production"
+        update-types:
+          - "minor"
       dev-dependency-patches:
         dependency-type: "development"
         update-types:
