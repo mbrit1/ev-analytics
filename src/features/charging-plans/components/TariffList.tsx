@@ -5,6 +5,7 @@ import { Slab } from '../../../shared/ui';
 import { useAuth } from '../../auth';
 import type { ChargingPlan, Provider } from '../../../infra/db';
 import { useChargingPlans } from '../hooks/useChargingPlans';
+import { useUtcToday } from '../hooks/useUtcToday';
 import { useProviders } from '../hooks/useProviders';
 import { getLogicalTariffKey, type LogicalTariffUpcomingVisibility } from '../model/logicalTariffs';
 import { DeleteLogicalTariffDialog } from './DeleteLogicalTariffDialog';
@@ -13,6 +14,7 @@ import { TariffFormLoader } from './TariffFormLoader';
 import { TariffVersionActionMenu } from './TariffVersionActionMenu';
 import { TemporaryPromotionForm } from './TemporaryPromotionForm';
 import { PaidTariffSwitchDialog } from './PaidTariffSwitchDialog';
+import { RetireLogicalTariffDialog } from './RetireLogicalTariffDialog';
 import { PaidTariffOverlapError } from '../services/planService';
 
 type TariffFormState =
@@ -27,7 +29,8 @@ type TariffRestoreRequest =
 type TariffSurface =
   | { kind: 'none' }
   | { kind: 'promotion'; key: string }
-  | { kind: 'delete'; key: string };
+  | { kind: 'delete'; key: string }
+  | { kind: 'retire'; key: string };
 
 interface PendingPaidTariffSwitch {
   candidate: ChargingPlan;
@@ -156,12 +159,18 @@ export function TariffList({
     createSuccessorVersion,
     schedulePromotion,
     deleteLogicalTariff,
+    retireLogicalTariff,
     switchActivePaidTariff,
   } = useChargingPlans();
   const { providers } = useProviders();
   const { user } = useAuth();
+  const utcToday = useUtcToday();
   const [surface, setSurface] = useState<TariffSurface>({ kind: 'none' });
   const [isDeletePending, setIsDeletePending] = useState(false);
+  const [isRetirementPending, setIsRetirementPending] = useState(false);
+  const [retirementError, setRetirementError] = useState<string | null>(null);
+  const [retirementRestoreFocusElement, setRetirementRestoreFocusElement] = useState<HTMLElement | null>(null);
+  const [isRetiredTariffsOpen, setIsRetiredTariffsOpen] = useState(false);
   const [pendingPaidTariffSwitch, setPendingPaidTariffSwitch] = useState<PendingPaidTariffSwitch | null>(null);
   const [paidTariffSwitchPending, setPaidTariffSwitchPending] = useState(false);
   const [paidTariffSwitchError, setPaidTariffSwitchError] = useState<string | null>(null);
@@ -188,7 +197,51 @@ export function TariffList({
     ? logicalTariffsByKey.get(tariffFormState.logicalTariffKey) ?? null
     : null;
   const hasLogicalTariffs = (logicalTariffs ?? []).length > 0;
+  const mainLogicalTariffs = (logicalTariffs ?? []).filter((logicalTariff) => logicalTariff.lifecycle.kind !== 'retired');
+  const retiredLogicalTariffs = (logicalTariffs ?? []).filter((logicalTariff) => logicalTariff.lifecycle.kind === 'retired');
   const isMissingEditTarget = tariffFormState.mode === 'edit' && activeEditLogicalTariff == null;
+
+  const resolveTariffActionTrigger = (logicalTariffLabel: string): HTMLElement | null => (
+    Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
+      (button) => button.getAttribute('aria-label') === `Tariff actions for ${logicalTariffLabel}`,
+    ) ?? null
+  );
+
+  const closeRetirementDialog = () => {
+    if (isRetirementPending) return;
+    setSurface({ kind: 'none' });
+    setRetirementError(null);
+    setRetirementRestoreFocusElement(null);
+  };
+
+  const confirmRetirement = async () => {
+    if (resolvedSurface.kind !== 'retire' || !activeSurfaceLogicalTariff || isRetirementPending) return;
+
+    setIsRetirementPending(true);
+    setRetirementError(null);
+    try {
+      await retireLogicalTariff({
+        userId: user?.id ?? '',
+        providerId: activeSurfaceLogicalTariff.providerId,
+        name: activeSurfaceLogicalTariff.name,
+        retirementDate: utcToday,
+        versionSnapshot: activeSurfaceLogicalTariff.versions
+          .filter((version) => !version.deleted_at)
+          .map((version) => ({
+            id: version.id,
+            updated_at: version.updated_at,
+            valid_from: version.valid_from,
+            valid_to: version.valid_to ?? null,
+          })),
+      });
+      setSurface({ kind: 'none' });
+      setRetirementRestoreFocusElement(null);
+    } catch (error) {
+      setRetirementError(error instanceof Error ? error.message : 'Could not retire tariff.');
+    } finally {
+      setIsRetirementPending(false);
+    }
+  };
 
   useEffect(() => {
     onFormOpenChange?.(isShellOwnedFormVisible);
@@ -386,6 +439,21 @@ export function TariffList({
         />
       )}
 
+      {!isShellOwnedFormVisible && resolvedSurface.kind === 'retire' && activeSurfaceLogicalTariff && (
+        <RetireLogicalTariffDialog
+          logicalTariffLabel={getLogicalTariffLabel(
+            providerNameById.get(activeSurfaceLogicalTariff.providerId) ?? activeSurfaceLogicalTariff.providerId,
+            activeSurfaceLogicalTariff.name,
+          )}
+          finalActiveDate={utcToday}
+          restoreFocusElement={retirementRestoreFocusElement}
+          isPending={isRetirementPending}
+          error={retirementError}
+          onCancel={closeRetirementDialog}
+          onConfirm={confirmRetirement}
+        />
+      )}
+
       {!isCreateOpen && activeEditLogicalTariff && (
         <TariffFormLoader
           mode="edit"
@@ -443,12 +511,14 @@ export function TariffList({
         </Slab>
       )}
 
-      {!isShellOwnedFormVisible && (logicalTariffs ?? []).map((logicalTariff) => {
+      {!isShellOwnedFormVisible && mainLogicalTariffs.map((logicalTariff) => {
         const providerName = providerNameById.get(logicalTariff.providerId) ?? logicalTariff.providerId;
         const logicalTariffLabel = getLogicalTariffLabel(providerName, logicalTariff.name);
         const upcomingPreviewCopy = logicalTariff.upcomingVisibility.kind === 'preview'
           ? formatUpcomingPreviewCopy(logicalTariff.upcomingVisibility)
           : '';
+        const canRetire = logicalTariff.currentVersion != null
+          && logicalTariff.lifecycle.kind === 'current';
 
         return (
           <Slab key={logicalTariff.key} className="space-y-4 p-6">
@@ -457,6 +527,9 @@ export function TariffList({
                 <h2 className="text-xl font-semibold text-primary">{providerName}</h2>
                 {logicalTariff.name && (
                   <p className="text-sm text-secondary">{logicalTariff.name}</p>
+                )}
+                {logicalTariff.lifecycle.kind === 'ending_today' && (
+                  <p className="text-sm font-medium text-primary">Ends today</p>
                 )}
                 {logicalTariff.badge?.kind === 'promo' && (
                   <p className="text-sm font-medium text-primary">{logicalTariff.badge.label}</p>
@@ -476,6 +549,11 @@ export function TariffList({
                 </button>
                 <TariffVersionActionMenu
                   label={logicalTariffLabel}
+                  onRetire={canRetire ? () => {
+                    setRetirementError(null);
+                    setRetirementRestoreFocusElement(resolveTariffActionTrigger(logicalTariffLabel));
+                    setSurface({ kind: 'retire', key: logicalTariff.key });
+                  } : undefined}
                   onPromotion={() => setSurface({ kind: 'promotion', key: logicalTariff.key })}
                   onDelete={() => setSurface({ kind: 'delete', key: logicalTariff.key })}
                 />
@@ -508,6 +586,55 @@ export function TariffList({
           </Slab>
         );
       })}
+
+      {!isShellOwnedFormVisible && retiredLogicalTariffs.length > 0 && (
+        <div className="space-y-4">
+          <button
+            type="button"
+            aria-expanded={isRetiredTariffsOpen}
+            aria-controls="retired-tariffs"
+            onClick={() => setIsRetiredTariffsOpen((isOpen) => !isOpen)}
+            className="flex min-h-[44px] w-full items-center justify-between rounded-xl bg-secondary/10 px-4 py-2 text-left font-bold text-primary transition-all hover:bg-secondary/20"
+          >
+            <span>Retired tariffs ({retiredLogicalTariffs.length})</span>
+            <span aria-hidden="true">{isRetiredTariffsOpen ? 'Hide' : 'Show'}</span>
+          </button>
+          {isRetiredTariffsOpen && (
+            <section id="retired-tariffs" aria-label="Retired tariffs" className="space-y-4">
+              {retiredLogicalTariffs.map((logicalTariff) => {
+                const providerName = providerNameById.get(logicalTariff.providerId) ?? logicalTariff.providerId;
+                const finalVersion = logicalTariff.lifecycle.finalEffectiveVersion;
+
+                return (
+                  <Slab key={logicalTariff.key} className="space-y-4 p-6">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="space-y-1">
+                        <h2 className="text-xl font-semibold text-primary">{providerName}</h2>
+                        {logicalTariff.name && (
+                          <p className="text-sm text-secondary">{logicalTariff.name}</p>
+                        )}
+                        {logicalTariff.lifecycle.finalActiveDate && (
+                          <p className="text-sm text-secondary">
+                            Final active date: {logicalTariff.lifecycle.finalActiveDate}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={onCreateTariff}
+                        className="inline-flex min-h-[44px] w-full items-center justify-center rounded-xl bg-secondary/10 px-4 py-2 font-bold text-primary transition-all hover:bg-secondary/20 sm:w-auto"
+                      >
+                        Create new from retired
+                      </button>
+                    </div>
+                    <CurrentPricingRows plan={finalVersion} />
+                  </Slab>
+                );
+              })}
+            </section>
+          )}
+        </div>
+      )}
 
       {!isShellOwnedFormVisible && resolvedSurface.kind === 'delete' && activeSurfaceLogicalTariff && (
         <DeleteLogicalTariffDialog

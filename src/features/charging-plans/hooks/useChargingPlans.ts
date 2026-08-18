@@ -5,11 +5,13 @@ import {
   createSuccessorTariffVersion,
   deleteLogicalTariff as deleteLogicalTariffService,
   getChargingPlanVersions,
+  retireLogicalTariff as retireLogicalTariffService,
   saveChargingPlan,
   scheduleTemporaryPromotion,
   switchActivePaidTariff as switchActivePaidTariffService,
   type SwitchActivePaidTariffInput,
   type LogicalTariffIdentityInput,
+  type RetireLogicalTariffInput,
   type CreateSuccessorTariffVersionInput,
   type ScheduleTemporaryPromotionInput,
   type UpdateCurrentTariffVersionInput,
@@ -34,6 +36,7 @@ export interface UseChargingPlansResult {
   createSuccessorVersion: (input: CreateSuccessorTariffVersionInput) => Promise<void>;
   schedulePromotion: (input: ScheduleTemporaryPromotionInput) => Promise<void>;
   deleteLogicalTariff: (input: LogicalTariffIdentityInput) => Promise<void>;
+  retireLogicalTariff: (input: RetireLogicalTariffInput) => Promise<void>;
   switchActivePaidTariff: (input: SwitchActivePaidTariffInput) => Promise<void>;
 }
 
@@ -80,6 +83,10 @@ export function useChargingPlans(): UseChargingPlansResult {
     await deleteLogicalTariffService(input);
   };
 
+  const retireLogicalTariff = async (input: RetireLogicalTariffInput) => {
+    await retireLogicalTariffService(input);
+  };
+
   const switchActivePaidTariff = async (input: SwitchActivePaidTariffInput) => {
     await switchActivePaidTariffService(input);
   };
@@ -94,6 +101,7 @@ export function useChargingPlans(): UseChargingPlansResult {
     createSuccessorVersion,
     schedulePromotion,
     deleteLogicalTariff,
+    retireLogicalTariff,
     switchActivePaidTariff,
   };
 }
