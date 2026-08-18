@@ -181,6 +181,47 @@ describe('TariffForm', () => {
     );
   });
 
+  it('keeps unavailable cloned energy prices blank and undefined through ordinary create submission', async () => {
+    // Arrange: Open a create form with a retired tariff's safe partial defaults and unavailable energy prices omitted.
+    render(
+      <TariffForm
+        mode="create"
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        initialValues={{
+          provider_id: 'p1',
+          name: 'Retired Tariff',
+          ac_price_per_kwh: 47,
+          monthly_base_fee: 599,
+          session_fee: 99,
+        }}
+      />
+    );
+
+    // Act: Inspect untouched inputs, then save the clone through the ordinary create mode.
+    expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,47');
+    expect(screen.getByLabelText(/^dc price$/i)).toHaveValue('');
+    expect(screen.getByLabelText(/roaming ac price/i)).toHaveValue('');
+    expect(screen.getByLabelText(/roaming dc price/i)).toHaveValue('');
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Omitted optional amounts are never materialized as zeroes in the new create payload.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+    expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      intent: 'create',
+      plan: expect.objectContaining({
+        provider_id: 'p1',
+        name: 'Retired Tariff',
+        ac_price_per_kwh: 47,
+        dc_price_per_kwh: undefined,
+        roaming_ac_price_per_kwh: undefined,
+        roaming_dc_price_per_kwh: undefined,
+        monthly_base_fee: 599,
+        session_fee: 99,
+      }),
+    }));
+  });
+
   it('allows submit when tariff name is empty', async () => {
     // Arrange: Fill only required fields without tariff name.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);

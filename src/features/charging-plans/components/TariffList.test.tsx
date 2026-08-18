@@ -16,6 +16,11 @@ let mockedTariffEditIntent: 'update_current' | 'create_successor' = 'update_curr
 let mockedCreatePlanOverrides: Partial<ChargingPlan> = {};
 let mockedStagedProvider: { id: string; name: string } | undefined;
 let replaceSubmitDuringAsyncOpen = false;
+let useInitialValuesForCreateSubmission = false;
+let latestTariffFormLoaderProps: {
+  mode?: 'create' | 'edit';
+  initialValues?: Partial<ChargingPlan>;
+} | null = null;
 
 vi.mock('../hooks/useChargingPlans');
 vi.mock('../hooks/useProviders');
@@ -28,6 +33,10 @@ vi.mock('./TariffFormLoader', () => ({
       initialValues?: Partial<ChargingPlan>;
       onCancel?: () => void;
       onSubmit?: (submission: unknown) => Promise<void>;
+    };
+    latestTariffFormLoaderProps = {
+      mode: resolved.mode,
+      initialValues: resolved.initialValues,
     };
     const [error, setError] = useState<string | null>(null);
     const [submitVersion, setSubmitVersion] = useState(0);
@@ -67,13 +76,23 @@ vi.mock('./TariffFormLoader', () => ({
             originalValidFrom: resolved.initialValues?.valid_from ?? utc('2026-01-01'),
           });
         } else {
+          const initialValues = useInitialValuesForCreateSubmission ? resolved.initialValues : undefined;
           const submission = {
             intent: 'create',
             plan: buildPlan({
-              id: 'created-plan',
+              id: initialValues ? 'cloned-created-plan' : 'created-plan',
               user_id: '',
-              provider_id: 'p1',
-              name: 'Created Tariff',
+              provider_id: initialValues?.provider_id ?? 'p1',
+              name: initialValues?.name ?? 'Created Tariff',
+              valid_from: initialValues ? utc('2026-10-01') : utc('2026-01-01'),
+              ac_price_per_kwh: initialValues?.ac_price_per_kwh,
+              dc_price_per_kwh: initialValues?.dc_price_per_kwh,
+              roaming_ac_price_per_kwh: initialValues?.roaming_ac_price_per_kwh,
+              roaming_dc_price_per_kwh: initialValues?.roaming_dc_price_per_kwh,
+              monthly_base_fee: initialValues?.monthly_base_fee,
+              session_fee: initialValues?.session_fee,
+              affiliation: initialValues?.affiliation,
+              notes: initialValues?.notes,
               ...mockedCreatePlanOverrides,
             }),
             ...(mockedStagedProvider ? { stagedProvider: mockedStagedProvider } : {}),
@@ -236,6 +255,21 @@ const tariffListElement = (
   />
 );
 
+function TariffListCreateHarness(): React.ReactElement {
+  const [tariffFormState, setTariffFormState] = useState<{ mode: 'closed' } | { mode: 'create' }>({ mode: 'closed' });
+
+  return (
+    <TariffList
+      tariffFormState={tariffFormState}
+      onCreateTariff={() => setTariffFormState({ mode: 'create' })}
+      onEditTariff={vi.fn()}
+      onCloseForm={() => setTariffFormState({ mode: 'closed' })}
+      onSaveComplete={vi.fn()}
+      onRestorationComplete={vi.fn()}
+    />
+  );
+}
+
 async function openMenuAndChoose(label: string): Promise<void> {
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: /tariff actions for ionity lidl/i }));
@@ -255,6 +289,8 @@ describe('TariffList', () => {
     mockedCreatePlanOverrides = {};
     mockedStagedProvider = undefined;
     replaceSubmitDuringAsyncOpen = false;
+    useInitialValuesForCreateSubmission = false;
+    latestTariffFormLoaderProps = null;
     vi.mocked(useUtcToday).mockReturnValue(utc('2026-08-16'));
     vi.stubGlobal('scrollTo', vi.fn());
     vi.mocked(useProviders).mockReturnValue({
@@ -654,6 +690,55 @@ describe('TariffList', () => {
     });
   });
 
+  it('submits the version snapshot captured when retirement confirmation opens after a live timeline refresh', async () => {
+    // Arrange: Open retirement with a complete timeline whose current version has the original revision timestamp.
+    const historical = buildPlan({
+      id: 'historical', name: 'Lidl', valid_from: utc('2026-01-01'), valid_to: utc('2026-07-01'), updated_at: utc('2026-06-30'),
+    });
+    const current = buildPlan({
+      id: 'current', name: 'Lidl', valid_from: utc('2026-07-01'), valid_to: utc('2026-09-01'), updated_at: utc('2026-08-01'),
+    });
+    const scheduled = buildPlan({
+      id: 'scheduled', name: 'Lidl', valid_from: utc('2026-09-01'), valid_to: null, updated_at: utc('2026-08-02'),
+    });
+    const originalLogicalTariff = buildLogicalTariff({
+      versions: [historical, current, scheduled], currentVersion: current, nextVersion: scheduled,
+      upcomingVisibility: { kind: 'none' }, lifecycle: { kind: 'current', finalEffectiveVersion: scheduled, finalActiveDate: null },
+    });
+    const refreshedCurrent = { ...current, updated_at: utc('2026-08-16') };
+    const refreshedLogicalTariff = buildLogicalTariff({
+      versions: [historical, refreshedCurrent, scheduled], currentVersion: refreshedCurrent, nextVersion: scheduled,
+      upcomingVisibility: { kind: 'none' }, lifecycle: { kind: 'current', finalEffectiveVersion: scheduled, finalActiveDate: null },
+    });
+    const retireLogicalTariff = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [originalLogicalTariff],
+      retireLogicalTariff,
+    }));
+    const user = userEvent.setup();
+    const { rerender } = render(tariffListElement());
+
+    // Act: Open confirmation, receive a live-query revision before accepting it, then confirm.
+    await user.click(screen.getByRole('button', { name: /tariff actions for ionity lidl/i }));
+    await user.click(screen.getByRole('button', { name: /^retire tariff$/i }));
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [refreshedLogicalTariff],
+      retireLogicalTariff,
+    }));
+    rerender(tariffListElement());
+    await user.click(within(screen.getByRole('dialog', { name: /^retire tariff$/i }))
+      .getByRole('button', { name: /^retire tariff$/i }));
+
+    // Assert: The service compares against the exact snapshot the user reviewed, not the refreshed timeline.
+    expect(retireLogicalTariff).toHaveBeenCalledWith(expect.objectContaining({
+      versionSnapshot: [
+        { id: 'historical', updated_at: utc('2026-06-30'), valid_from: utc('2026-01-01'), valid_to: utc('2026-07-01') },
+        { id: 'current', updated_at: utc('2026-08-01'), valid_from: utc('2026-07-01'), valid_to: utc('2026-09-01') },
+        { id: 'scheduled', updated_at: utc('2026-08-02'), valid_from: utc('2026-09-01'), valid_to: null },
+      ],
+    }));
+  });
+
   it('keeps a failed retirement confirmation open and prevents duplicate writes while pending', async () => {
     // Arrange: Hold the first service call pending so repeat confirmation is possible to attempt.
     let rejectRetirement: (error: Error) => void = () => undefined;
@@ -819,6 +904,167 @@ describe('TariffList', () => {
     // Assert: The blank-state trap is replaced by a visible fallback and cancel path.
     expect(screen.getByText(/tariff is no longer available/i)).toBeInTheDocument();
     expect(onCloseForm).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens ordinary creation from a retired tariff with only final-effective clone defaults', async () => {
+    // Arrange: Provide a retired timeline whose final effective version has a normalized display name and sparse prices.
+    const historical = buildPlan({
+      id: 'retired-history',
+      name: 'Old Tariff',
+      valid_from: utc('2025-01-01'),
+      valid_to: utc('2025-06-01'),
+      ac_price_per_kwh: 31,
+      dc_price_per_kwh: 41,
+    });
+    const finalVersion = buildPlan({
+      id: 'retired-final',
+      name: '  Retired Tariff  ',
+      valid_from: utc('2025-06-01'),
+      valid_to: utc('2026-08-16'),
+      ac_price_per_kwh: 47,
+      roaming_dc_price_per_kwh: 89,
+      monthly_base_fee: 599,
+      session_fee: 99,
+      affiliation: 'Family',
+      notes: 'Grandfathered plan',
+      created_at: utc('2025-06-01'),
+      updated_at: utc('2026-08-16'),
+    });
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [buildLogicalTariff({
+        name: 'Retired Tariff',
+        versions: [historical, finalVersion],
+        currentVersion: null,
+        nextVersion: null,
+        upcomingVisibility: { kind: 'none' },
+        lifecycle: { kind: 'retired', finalEffectiveVersion: finalVersion, finalActiveDate: '2026-08-15' },
+      })],
+    }));
+    const user = userEvent.setup();
+
+    // Act: Expand retired tariffs and start a new ordinary create flow from the retired card.
+    render(<TariffListCreateHarness />);
+    await user.click(screen.getByRole('button', { name: /retired tariffs \(1\)/i }));
+    await user.click(screen.getByRole('button', { name: /create new from retired/i }));
+
+    // Assert: Only safe display and pricing fields are passed to the ordinary create form.
+    expect(latestTariffFormLoaderProps).toEqual({
+      mode: 'create',
+      initialValues: {
+        provider_id: 'p1',
+        name: 'Retired Tariff',
+        ac_price_per_kwh: 47,
+        roaming_dc_price_per_kwh: 89,
+        monthly_base_fee: 599,
+        session_fee: 99,
+        affiliation: 'Family',
+        notes: 'Grandfathered plan',
+      },
+    });
+  });
+
+  it('clears retired clone defaults on cancel and keeps generic create flows clean', async () => {
+    // Arrange: Render a retired card inside a stateful shell that opens and closes the ordinary create form.
+    const finalVersion = buildPlan({
+      id: 'retired-final', name: 'Retired Tariff', valid_from: utc('2025-01-01'), valid_to: utc('2026-08-16'),
+      ac_price_per_kwh: 47,
+    });
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [buildLogicalTariff({
+        name: 'Retired Tariff', versions: [finalVersion], currentVersion: null, nextVersion: null,
+        upcomingVisibility: { kind: 'none' },
+        lifecycle: { kind: 'retired', finalEffectiveVersion: finalVersion, finalActiveDate: '2026-08-15' },
+      })],
+    }));
+    const user = userEvent.setup();
+    const { unmount } = render(<TariffListCreateHarness />);
+    await user.click(screen.getByRole('button', { name: /retired tariffs \(1\)/i }));
+    const createFromRetired = screen.getByRole('button', { name: /create new from retired/i });
+
+    // Act: Cancel the clone, then open the regular desktop create action.
+    await user.click(createFromRetired);
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    // Assert: The retired disclosure remains available, focus returns, and subsequent generic creation has no clone defaults.
+    expect(screen.getByRole('region', { name: /retired tariffs/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /create new from retired/i })).toHaveFocus();
+    await user.click(screen.getByRole('button', { name: /add tariff/i }));
+    expect(latestTariffFormLoaderProps).toEqual({ mode: 'create', initialValues: undefined });
+
+    // Act: Simulate an externally opened mobile create state after leaving the clone workflow.
+    unmount();
+    renderTariffList({ tariffFormState: { mode: 'create' } });
+
+    // Assert: Shell-owned creation is clean too.
+    expect(latestTariffFormLoaderProps).toEqual({ mode: 'create', initialValues: undefined });
+  });
+
+  it('keeps cloned paid-tariff saves on the ordinary create and forward-switch paths', async () => {
+    // Arrange: Clone a retired paid tariff into a later standalone row that overlaps one active paid incumbent.
+    const retiredFinalVersion = buildPlan({
+      id: 'retired-final',
+      name: 'Retired Tariff',
+      valid_from: utc('2025-01-01'),
+      valid_to: utc('2026-08-16'),
+      ac_price_per_kwh: 47,
+      monthly_base_fee: 499,
+    });
+    const retiredSnapshot = { ...retiredFinalVersion };
+    const candidate = buildPlan({
+      id: 'cloned-created-plan',
+      user_id: 'user-1',
+      provider_id: 'p1',
+      name: 'Retired Tariff',
+      valid_from: utc('2026-10-01'),
+      monthly_base_fee: 499,
+      ac_price_per_kwh: 47,
+    });
+    const incumbent = buildPlan({
+      id: 'active-paid',
+      user_id: 'user-1',
+      provider_id: 'p1',
+      name: 'Active Paid Tariff',
+      valid_from: utc('2026-08-16'),
+      monthly_base_fee: 299,
+    });
+    const addChargingPlan = vi.fn().mockRejectedValue(new PaidTariffOverlapError(candidate, [incumbent]));
+    const createSuccessorVersion = vi.fn();
+    const updateCurrentVersion = vi.fn();
+    const switchActivePaidTariff = vi.fn().mockResolvedValue(undefined);
+    useInitialValuesForCreateSubmission = true;
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [buildLogicalTariff({
+        name: 'Retired Tariff', versions: [retiredFinalVersion], currentVersion: null, nextVersion: null,
+        upcomingVisibility: { kind: 'none' },
+        lifecycle: { kind: 'retired', finalEffectiveVersion: retiredFinalVersion, finalActiveDate: '2026-08-15' },
+      })],
+      addChargingPlan,
+      createSuccessorVersion,
+      updateCurrentVersion,
+      switchActivePaidTariff,
+    }));
+    const user = userEvent.setup();
+
+    // Act: Open the clone, submit its new row, then accept the existing paid-tariff forward switch confirmation.
+    render(<TariffListCreateHarness />);
+    await user.click(screen.getByRole('button', { name: /retired tariffs \(1\)/i }));
+    await user.click(screen.getByRole('button', { name: /create new from retired/i }));
+    expect(latestTariffFormLoaderProps?.initialValues).toEqual(expect.objectContaining({
+      provider_id: 'p1', name: 'Retired Tariff', ac_price_per_kwh: 47, monthly_base_fee: 499,
+    }));
+    await user.click(screen.getByRole('button', { name: 'Submit' }));
+    await user.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /confirm/i }));
+
+    // Assert: The clone is a new ordinary row, historical versions remain unchanged, and existing paid handling is reused.
+    await waitFor(() => {
+      expect(addChargingPlan).toHaveBeenCalledWith(candidate);
+      expect(switchActivePaidTariff).toHaveBeenCalledWith({ candidate, incumbentId: incumbent.id });
+    });
+    expect(candidate.id).not.toBe(retiredFinalVersion.id);
+    expect(candidate.valid_from.getTime()).toBeGreaterThan(retiredFinalVersion.valid_to?.getTime() ?? 0);
+    expect(retiredFinalVersion).toEqual(retiredSnapshot);
+    expect(createSuccessorVersion).not.toHaveBeenCalled();
+    expect(updateCurrentVersion).not.toHaveBeenCalled();
   });
 
   it('routes an existing-provider create only through addChargingPlan', async () => {

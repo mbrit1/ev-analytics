@@ -522,6 +522,11 @@ export async function switchActivePaidTariff(
       );
     }
 
+    const incumbentLogicalTariffKey = getLogicalTariffKey(incumbent);
+    assertLogicalTariffIsMutable(providerVersions.filter(
+      (plan) => getLogicalTariffKey(plan) === incumbentLogicalTariffKey,
+    ));
+
     const now = new Date();
     const closedIncumbent: ChargingPlan = {
       ...incumbent,
@@ -655,6 +660,10 @@ export async function retireLogicalTariff(input: RetireLogicalTariffInput): Prom
     assertRetirementSnapshotMatches(versions, input.versionSnapshot);
 
     const retirementDate = startOfUtcDay(input.retirementDate);
+    if (retirementDate.getTime() !== startOfUtcDay(new Date()).getTime()) {
+      throw new Error('Tariff retirement confirmation is stale');
+    }
+
     const retirementBoundary = addUtcDays(retirementDate, 1);
     const currentVersion = resolveEffectivePlanForDate(versions, retirementDate);
 

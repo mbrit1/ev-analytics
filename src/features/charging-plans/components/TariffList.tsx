@@ -7,7 +7,11 @@ import type { ChargingPlan, Provider } from '../../../infra/db';
 import { useChargingPlans } from '../hooks/useChargingPlans';
 import { useUtcToday } from '../hooks/useUtcToday';
 import { useProviders } from '../hooks/useProviders';
-import { getLogicalTariffKey, type LogicalTariffUpcomingVisibility } from '../model/logicalTariffs';
+import {
+  getLogicalTariffKey,
+  type LogicalTariff,
+  type LogicalTariffUpcomingVisibility,
+} from '../model/logicalTariffs';
 import { DeleteLogicalTariffDialog } from './DeleteLogicalTariffDialog';
 import type { TariffFormSubmit } from './TariffForm';
 import { TariffFormLoader } from './TariffFormLoader';
@@ -15,7 +19,7 @@ import { TariffVersionActionMenu } from './TariffVersionActionMenu';
 import { TemporaryPromotionForm } from './TemporaryPromotionForm';
 import { PaidTariffSwitchDialog } from './PaidTariffSwitchDialog';
 import { RetireLogicalTariffDialog } from './RetireLogicalTariffDialog';
-import { PaidTariffOverlapError } from '../services/planService';
+import { PaidTariffOverlapError, type RetirementVersionSnapshot } from '../services/planService';
 
 type TariffFormState =
   | { mode: 'closed' }
@@ -38,6 +42,19 @@ interface PendingPaidTariffSwitch {
   providerName: string;
   restoreFocusElement: HTMLElement | null;
   resolveRestoreFocusElement: () => HTMLElement | null;
+}
+
+interface RetiredTariffCloneDraft {
+  initialValues: Partial<ChargingPlan>;
+  restoreFocusKey: string;
+}
+
+interface PendingTariffRetirement {
+  providerId: string;
+  name: string;
+  logicalTariffLabel: string;
+  retirementDate: Date;
+  versionSnapshot: readonly RetirementVersionSnapshot[];
 }
 
 /**
@@ -137,6 +154,31 @@ function getLogicalTariffLabel(providerName: string, tariffName: string): string
   return tariffName ? `${providerName} ${tariffName}` : providerName;
 }
 
+function buildRetiredTariffCloneDefaults(logicalTariff: LogicalTariff): Partial<ChargingPlan> | null {
+  const finalVersion = logicalTariff.lifecycle.finalEffectiveVersion;
+  if (!finalVersion) return null;
+
+  const initialValues: Partial<ChargingPlan> = {
+    provider_id: logicalTariff.providerId,
+    name: logicalTariff.name,
+    monthly_base_fee: finalVersion.monthly_base_fee,
+    session_fee: finalVersion.session_fee,
+  };
+
+  if (finalVersion.affiliation != null) initialValues.affiliation = finalVersion.affiliation;
+  if (finalVersion.notes != null) initialValues.notes = finalVersion.notes;
+  if (finalVersion.ac_price_per_kwh != null) initialValues.ac_price_per_kwh = finalVersion.ac_price_per_kwh;
+  if (finalVersion.dc_price_per_kwh != null) initialValues.dc_price_per_kwh = finalVersion.dc_price_per_kwh;
+  if (finalVersion.roaming_ac_price_per_kwh != null) {
+    initialValues.roaming_ac_price_per_kwh = finalVersion.roaming_ac_price_per_kwh;
+  }
+  if (finalVersion.roaming_dc_price_per_kwh != null) {
+    initialValues.roaming_dc_price_per_kwh = finalVersion.roaming_dc_price_per_kwh;
+  }
+
+  return initialValues;
+}
+
 /**
  * Tariffs screen backed by the charging-plan domain.
  */
@@ -170,11 +212,15 @@ export function TariffList({
   const [isRetirementPending, setIsRetirementPending] = useState(false);
   const [retirementError, setRetirementError] = useState<string | null>(null);
   const [retirementRestoreFocusElement, setRetirementRestoreFocusElement] = useState<HTMLElement | null>(null);
+  const [pendingTariffRetirement, setPendingTariffRetirement] = useState<PendingTariffRetirement | null>(null);
   const [isRetiredTariffsOpen, setIsRetiredTariffsOpen] = useState(false);
+  const [retiredTariffCloneDraft, setRetiredTariffCloneDraft] = useState<RetiredTariffCloneDraft | null>(null);
+  const [retiredCloneRestoreFocusKey, setRetiredCloneRestoreFocusKey] = useState<string | null>(null);
   const [pendingPaidTariffSwitch, setPendingPaidTariffSwitch] = useState<PendingPaidTariffSwitch | null>(null);
   const [paidTariffSwitchPending, setPaidTariffSwitchPending] = useState(false);
   const [paidTariffSwitchError, setPaidTariffSwitchError] = useState<string | null>(null);
   const editButtonElementsRef = useRef<Record<string, HTMLButtonElement | null>>({});
+  const retiredCreateButtonElementsRef = useRef<Record<string, HTMLButtonElement | null>>({});
   const createTariffFormRef = useRef<HTMLDivElement>(null);
 
   const providerNameById = useMemo(
@@ -185,7 +231,9 @@ export function TariffList({
     () => new Map((logicalTariffs ?? []).map((logicalTariff) => [logicalTariff.key, logicalTariff])),
     [logicalTariffs],
   );
-  const resolvedSurface: TariffSurface = surface.kind !== 'none' && !logicalTariffsByKey.has(surface.key)
+  const resolvedSurface: TariffSurface = surface.kind !== 'none'
+    && surface.kind !== 'retire'
+    && !logicalTariffsByKey.has(surface.key)
     ? { kind: 'none' }
     : surface;
   const activeSurfaceLogicalTariff = resolvedSurface.kind === 'none'
@@ -212,30 +260,25 @@ export function TariffList({
     setSurface({ kind: 'none' });
     setRetirementError(null);
     setRetirementRestoreFocusElement(null);
+    setPendingTariffRetirement(null);
   };
 
   const confirmRetirement = async () => {
-    if (resolvedSurface.kind !== 'retire' || !activeSurfaceLogicalTariff || isRetirementPending) return;
+    if (!pendingTariffRetirement || isRetirementPending) return;
 
     setIsRetirementPending(true);
     setRetirementError(null);
     try {
       await retireLogicalTariff({
         userId: user?.id ?? '',
-        providerId: activeSurfaceLogicalTariff.providerId,
-        name: activeSurfaceLogicalTariff.name,
-        retirementDate: utcToday,
-        versionSnapshot: activeSurfaceLogicalTariff.versions
-          .filter((version) => !version.deleted_at)
-          .map((version) => ({
-            id: version.id,
-            updated_at: version.updated_at,
-            valid_from: version.valid_from,
-            valid_to: version.valid_to ?? null,
-          })),
+        providerId: pendingTariffRetirement.providerId,
+        name: pendingTariffRetirement.name,
+        retirementDate: pendingTariffRetirement.retirementDate,
+        versionSnapshot: pendingTariffRetirement.versionSnapshot,
       });
       setSurface({ kind: 'none' });
       setRetirementRestoreFocusElement(null);
+      setPendingTariffRetirement(null);
     } catch (error) {
       setRetirementError(error instanceof Error ? error.message : 'Could not retire tariff.');
     } finally {
@@ -246,6 +289,15 @@ export function TariffList({
   useEffect(() => {
     onFormOpenChange?.(isShellOwnedFormVisible);
   }, [isShellOwnedFormVisible, onFormOpenChange]);
+
+  useEffect(() => {
+    if (isShellOwnedFormVisible || !retiredCloneRestoreFocusKey) return;
+
+    const restoreFocusElement = retiredCreateButtonElementsRef.current[retiredCloneRestoreFocusKey];
+    if (!restoreFocusElement) return;
+    restoreFocusElement.focus();
+    setRetiredCloneRestoreFocusKey(null);
+  }, [isShellOwnedFormVisible, retiredCloneRestoreFocusKey]);
 
   useEffect(() => {
     if (!restorationRequest) return;
@@ -291,10 +343,12 @@ export function TariffList({
           updated_at: now,
         };
         await addProviderWithFirstTariff({ provider, plan: candidate });
+        setRetiredTariffCloneDraft(null);
         onSaveComplete(getLogicalTariffKey({ provider_id: candidate.provider_id, name: candidate.name }));
         return;
       }
       await addChargingPlan(candidate);
+      setRetiredTariffCloneDraft(null);
       onSaveComplete(getLogicalTariffKey({ provider_id: candidate.provider_id, name: candidate.name }));
     } catch (error) {
       if (!(error instanceof PaidTariffOverlapError)) throw error;
@@ -329,6 +383,7 @@ export function TariffList({
         candidate: pendingPaidTariffSwitch.candidate,
         incumbentId: pendingPaidTariffSwitch.incumbent.id,
       });
+      setRetiredTariffCloneDraft(null);
       onSaveComplete(getLogicalTariffKey({
         provider_id: pendingPaidTariffSwitch.candidate.provider_id,
         name: pendingPaidTariffSwitch.candidate.name,
@@ -401,7 +456,11 @@ export function TariffList({
           <h1 className="text-2xl font-bold tracking-tight text-primary">Tariffs</h1>
           <button
             type="button"
-            onClick={onCreateTariff}
+            onClick={() => {
+              setRetiredTariffCloneDraft(null);
+              setRetiredCloneRestoreFocusKey(null);
+              onCreateTariff();
+            }}
             className="hidden min-h-[44px] items-center rounded-xl bg-accent px-4 py-2 font-bold text-white shadow-md shadow-accent/20 transition-all hover:opacity-90 md:flex"
           >
             <Plus className="mr-2 h-5 w-5" />
@@ -415,7 +474,14 @@ export function TariffList({
           <TariffFormLoader
             mode="create"
             onSubmit={handleCreateSubmit}
-            onCancel={onCloseForm}
+            onCancel={() => {
+              if (retiredTariffCloneDraft) {
+                setRetiredCloneRestoreFocusKey(retiredTariffCloneDraft.restoreFocusKey);
+                setRetiredTariffCloneDraft(null);
+              }
+              onCloseForm();
+            }}
+            initialValues={retiredTariffCloneDraft?.initialValues}
           />
         </div>
       )}
@@ -439,13 +505,10 @@ export function TariffList({
         />
       )}
 
-      {!isShellOwnedFormVisible && resolvedSurface.kind === 'retire' && activeSurfaceLogicalTariff && (
+      {!isShellOwnedFormVisible && resolvedSurface.kind === 'retire' && pendingTariffRetirement && (
         <RetireLogicalTariffDialog
-          logicalTariffLabel={getLogicalTariffLabel(
-            providerNameById.get(activeSurfaceLogicalTariff.providerId) ?? activeSurfaceLogicalTariff.providerId,
-            activeSurfaceLogicalTariff.name,
-          )}
-          finalActiveDate={utcToday}
+          logicalTariffLabel={pendingTariffRetirement.logicalTariffLabel}
+          finalActiveDate={pendingTariffRetirement.retirementDate}
           restoreFocusElement={retirementRestoreFocusElement}
           isPending={isRetirementPending}
           error={retirementError}
@@ -550,8 +613,23 @@ export function TariffList({
                 <TariffVersionActionMenu
                   label={logicalTariffLabel}
                   onRetire={canRetire ? () => {
+                    const versionSnapshot = logicalTariff.versions
+                      .filter((version) => !version.deleted_at)
+                      .map((version) => ({
+                        id: version.id,
+                        updated_at: new Date(version.updated_at.getTime()),
+                        valid_from: new Date(version.valid_from.getTime()),
+                        valid_to: version.valid_to ? new Date(version.valid_to.getTime()) : null,
+                      }));
                     setRetirementError(null);
                     setRetirementRestoreFocusElement(resolveTariffActionTrigger(logicalTariffLabel));
+                    setPendingTariffRetirement({
+                      providerId: logicalTariff.providerId,
+                      name: logicalTariff.name,
+                      logicalTariffLabel,
+                      retirementDate: new Date(utcToday.getTime()),
+                      versionSnapshot,
+                    });
                     setSurface({ kind: 'retire', key: logicalTariff.key });
                   } : undefined}
                   onPromotion={() => setSurface({ kind: 'promotion', key: logicalTariff.key })}
@@ -621,7 +699,19 @@ export function TariffList({
                       </div>
                       <button
                         type="button"
-                        onClick={onCreateTariff}
+                        ref={(element) => {
+                          retiredCreateButtonElementsRef.current[logicalTariff.key] = element;
+                        }}
+                        onClick={() => {
+                          const initialValues = buildRetiredTariffCloneDefaults(logicalTariff);
+                          if (!initialValues) return;
+                          setRetiredTariffCloneDraft({
+                            initialValues,
+                            restoreFocusKey: logicalTariff.key,
+                          });
+                          setRetiredCloneRestoreFocusKey(null);
+                          onCreateTariff();
+                        }}
                         className="inline-flex min-h-[44px] w-full items-center justify-center rounded-xl bg-secondary/10 px-4 py-2 font-bold text-primary transition-all hover:bg-secondary/20 sm:w-auto"
                       >
                         Create new from retired
