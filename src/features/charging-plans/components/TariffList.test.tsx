@@ -169,6 +169,11 @@ const buildLogicalTariff = (overrides: Partial<LogicalTariff> = {}): LogicalTari
       effectiveDate: '2026-08-15',
       label: 'Update scheduled · 15 Aug 2026',
     },
+    lifecycle: overrides.lifecycle ?? {
+      kind: 'current',
+      finalEffectiveVersion: successor,
+      finalActiveDate: null,
+    },
     history: overrides.history ?? [],
   };
 };
