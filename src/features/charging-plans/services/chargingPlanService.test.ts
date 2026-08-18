@@ -18,6 +18,34 @@ import 'fake-indexeddb/auto'
 
 const utc = (date: string): Date => new Date(`${date}T00:00:00.000Z`)
 
+const stubSystemTime = (time: string): void => {
+  const SystemDate = Date
+
+  class FixedDate extends SystemDate {
+    constructor()
+    constructor(value: string | number | Date)
+    constructor(value?: string | number | Date) {
+      super(value ?? time)
+    }
+
+    static now(): number {
+      return new SystemDate(time).getTime()
+    }
+  }
+
+  vi.stubGlobal('Date', FixedDate)
+}
+
+const withSystemTime = async <T>(time: string, action: () => Promise<T>): Promise<T> => {
+  stubSystemTime(time)
+
+  try {
+    return await action()
+  } finally {
+    vi.unstubAllGlobals()
+  }
+}
+
 const buildPrices = (overrides: Partial<{
   ac_price_per_kwh: number
   dc_price_per_kwh: number
@@ -698,6 +726,37 @@ describe('planService', () => {
       ['UPDATE', 'paid-incumbent'],
       ['INSERT', 'paid-replacement'],
     ])
+  })
+
+  it('rejects a paid switch that would rewrite a fully retired incumbent', async () => {
+    // Arrange: Preserve one paid timeline that ended before today and prepare an overlapping historical clone.
+    const retiredIncumbent = buildPlan({
+      id: 'retired-paid-incumbent',
+      name: 'Retired paid tariff',
+      valid_from: utc('2026-01-01'),
+      valid_to: utc('2026-07-01'),
+      monthly_base_fee: 499,
+    })
+    const candidate = buildPlan({
+      id: 'historical-paid-clone',
+      name: retiredIncumbent.name,
+      valid_from: utc('2026-04-01'),
+      valid_to: null,
+      monthly_base_fee: 999,
+    })
+    await db.charging_plans.add(retiredIncumbent)
+    const plansBefore = await db.charging_plans.toArray()
+
+    // Act: Attempt the forward-switch path after the incumbent timeline is fully retired.
+    const switchTariff = withSystemTime('2026-08-16T12:00:00.000Z', () => switchActivePaidTariff({
+      candidate,
+      incumbentId: retiredIncumbent.id,
+    }))
+
+    // Assert: Historical immutability wins over overlap confirmation and nothing is queued.
+    await expect(switchTariff).rejects.toThrow('Cannot modify a retired logical tariff')
+    expect(await db.charging_plans.toArray()).toEqual(plansBefore)
+    expect(await db.sync_outbox.count()).toBe(0)
   })
 
   it('rejects an invalid paid replacement interval before changing the incumbent or outbox', async () => {
@@ -1938,7 +1997,7 @@ describe('planService', () => {
     await db.charging_plans.add(current)
 
     // Act: Retire the tariff on its final inclusive active day.
-    await retireLogicalTariff(buildRetirementInput([current]))
+    await withSystemTime('2026-08-16T12:00:00.000Z', () => retireLogicalTariff(buildRetirementInput([current])))
 
     // Assert: The stored half-open boundary is the following UTC day and one update is queued.
     const retired = await db.charging_plans.get(current.id)
@@ -1961,12 +2020,38 @@ describe('planService', () => {
     await db.charging_plans.add(current)
 
     // Act: Retire using a non-midnight instant on the inclusive UTC calendar day.
-    await retireLogicalTariff(buildRetirementInput([current], {
+    await withSystemTime('2026-08-16T12:00:00.000Z', () => retireLogicalTariff(buildRetirementInput([current], {
       retirementDate: new Date('2026-08-16T18:30:00.000Z'),
-    }))
+    })))
 
     // Assert: Storage retains the date-only half-open boundary instead of preserving the input time.
     expect((await db.charging_plans.get(current.id))?.valid_to).toEqual(utc('2026-08-17'))
+  })
+
+  it('rejects a retirement confirmation that becomes stale after its scheduled successor starts without writes', async () => {
+    // Arrange: Confirm retirement before a scheduled successor becomes effective, then advance the UTC clock past that boundary.
+    const current = buildPlan({
+      id: 'stale-retirement-current',
+      valid_from: utc('2026-01-01'),
+      valid_to: utc('2026-08-17'),
+      updated_at: utc('2026-08-01'),
+    })
+    const successor = buildPlan({
+      id: 'stale-retirement-successor',
+      valid_from: utc('2026-08-17'),
+      valid_to: null,
+      updated_at: utc('2026-08-02'),
+    })
+    await db.charging_plans.bulkAdd([current, successor])
+    const input = buildRetirementInput([current, successor])
+    const plansBefore = await db.charging_plans.toArray()
+
+    // Act/Assert: An action confirmed for yesterday must not cancel a successor that is already active today.
+    await withSystemTime('2026-08-17T12:00:00.000Z', async () => {
+      await expect(retireLogicalTariff(input)).rejects.toThrow('Tariff retirement confirmation is stale')
+    })
+    expect(await db.charging_plans.toArray()).toEqual(plansBefore)
+    expect(await db.sync_outbox.count()).toBe(0)
   })
 
   it('retires the current version, cancels future versions, and preserves unrelated history', async () => {
@@ -2012,7 +2097,7 @@ describe('planService', () => {
     const unrelatedBefore = await db.charging_plans.get(unrelated.id)
 
     // Act: Retire the target timeline while later versions are still scheduled.
-    await retireLogicalTariff(buildRetirementInput([current, future, laterFuture]))
+    await withSystemTime('2026-08-16T12:00:00.000Z', () => retireLogicalTariff(buildRetirementInput([current, future, laterFuture])))
 
     // Assert: Only charging-plan rows and their outbox records change; selection, session snapshot, and unrelated tariff remain intact.
     expect((await db.charging_plans.get(current.id))?.valid_to).toEqual(utc('2026-08-17'))
@@ -2094,19 +2179,21 @@ describe('planService', () => {
     const plansBefore = await db.charging_plans.toArray()
 
     // Act/Assert: Ownership, date applicability, and a boundary that would extend expired history are rejected before writes.
-    await expect(retireLogicalTariff(buildRetirementInput([], {
-      userId: 'user-1',
-      providerId: otherUser.provider_id,
-      name: otherUser.name,
-    }))).rejects.toThrow(
-      'No applicable tariff version exists for retirement date',
-    )
-    await expect(retireLogicalTariff(buildRetirementInput([expired], { retirementDate: utc('2026-08-16') }))).rejects.toThrow(
-      'Retirement must not extend an expired tariff version',
-    )
-    await expect(retireLogicalTariff(buildRetirementInput([expired], { retirementDate: utc('2026-09-01') }))).rejects.toThrow(
-      'No applicable tariff version exists for retirement date',
-    )
+    await withSystemTime('2026-08-16T12:00:00.000Z', async () => {
+      await expect(retireLogicalTariff(buildRetirementInput([], {
+        userId: 'user-1',
+        providerId: otherUser.provider_id,
+        name: otherUser.name,
+      }))).rejects.toThrow(
+        'No applicable tariff version exists for retirement date',
+      )
+      await expect(retireLogicalTariff(buildRetirementInput([expired], { retirementDate: utc('2026-08-16') }))).rejects.toThrow(
+        'Retirement must not extend an expired tariff version',
+      )
+      await expect(retireLogicalTariff(buildRetirementInput([expired], { retirementDate: utc('2026-09-01') }))).rejects.toThrow(
+        'Tariff retirement confirmation is stale',
+      )
+    })
     expect(await db.charging_plans.toArray()).toEqual(plansBefore)
     expect(await db.sync_outbox.count()).toBe(0)
   })
@@ -2132,9 +2219,11 @@ describe('planService', () => {
     const plansBefore = await db.charging_plans.toArray()
 
     // Act/Assert: Existing provider-level paid invariants are enforced before retirement changes any row.
-    await expect(retireLogicalTariff(buildRetirementInput([current]))).rejects.toThrow(
-      'Paid tariff validity overlaps with another active paid tariff for this provider',
-    )
+    await withSystemTime('2026-08-16T12:00:00.000Z', async () => {
+      await expect(retireLogicalTariff(buildRetirementInput([current]))).rejects.toThrow(
+        'Paid tariff validity overlaps with another active paid tariff for this provider',
+      )
+    })
     expect(await db.charging_plans.toArray()).toEqual(plansBefore)
     expect(await db.sync_outbox.count()).toBe(0)
   })
@@ -2158,9 +2247,11 @@ describe('planService', () => {
     const plansBefore = await db.charging_plans.toArray()
 
     // Act/Assert: Retirement must not leave any non-deleted same logical timeline overlap behind.
-    await expect(retireLogicalTariff(buildRetirementInput([current, overlapping]))).rejects.toThrow(
-      'Tariff validity overlaps with an existing active version for this provider and name',
-    )
+    await withSystemTime('2026-08-16T12:00:00.000Z', async () => {
+      await expect(retireLogicalTariff(buildRetirementInput([current, overlapping]))).rejects.toThrow(
+        'Tariff validity overlaps with an existing active version for this provider and name',
+      )
+    })
     expect(await db.charging_plans.toArray()).toEqual(plansBefore)
     expect(await db.sync_outbox.count()).toBe(0)
   })
@@ -2178,7 +2269,9 @@ describe('planService', () => {
 
     try {
       // Act/Assert: A row failure rolls back both plan and outbox mutations.
-      await expect(retireLogicalTariff(buildRetirementInput([current, future]))).rejects.toThrow('charging-plan write failure')
+      await withSystemTime('2026-08-16T12:00:00.000Z', async () => {
+        await expect(retireLogicalTariff(buildRetirementInput([current, future]))).rejects.toThrow('charging-plan write failure')
+      })
       expect(await db.charging_plans.toArray()).toEqual(plansBefore)
       expect(await db.sync_outbox.count()).toBe(0)
     } finally {
@@ -2196,7 +2289,9 @@ describe('planService', () => {
 
     try {
       // Act/Assert: A queue failure rolls back the current closure and future cancellation together.
-      await expect(retireLogicalTariff(buildRetirementInput([current, future]))).rejects.toThrow('outbox failure')
+      await withSystemTime('2026-08-16T12:00:00.000Z', async () => {
+        await expect(retireLogicalTariff(buildRetirementInput([current, future]))).rejects.toThrow('outbox failure')
+      })
       expect(await db.charging_plans.toArray()).toEqual(plansBefore)
       expect(await db.sync_outbox.count()).toBe(0)
     } finally {
