@@ -909,6 +909,72 @@ describe('SessionForm', () => {
     expect(setActivePlanSelection).not.toHaveBeenCalled();
   });
 
+  it('resolves a retired tariff for its historical date but rejects the same tariff after retirement', async () => {
+    // Arrange: A retired version closes after August 16 with no later applicable version.
+    const retiredPlan = buildPlanFixture({
+      id: 'retired-version',
+      name: 'P1 Retired',
+      valid_from: utc('2026-01-01'),
+      valid_to: utc('2026-08-17'),
+    });
+    setChargingPlansMock([retiredPlan]);
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey(retiredPlan) },
+    });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '25' } });
+    pickDate(/date/i, '2026-08-16');
+
+    // Act: Save once on the inclusive final active date, then once after retirement.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      session: expect.objectContaining({ tariff_plan_id: retiredPlan.id }),
+    })));
+    pickDate(/date/i, '2026-08-17');
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: Historical pricing remains available, but the following UTC day is not persisted.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+  });
+
+  it('preserves an existing retired session snapshot and total without repricing it', async () => {
+    // Arrange: The existing session references a version that retired after its historical date.
+    const retiredPlan = buildPlanFixture({
+      id: 'retired-version',
+      name: 'P1 Retired',
+      valid_from: utc('2026-01-01'),
+      valid_to: utc('2026-08-17'),
+      ac_price_per_kwh: 40,
+      session_fee: 100,
+    });
+    setChargingPlansMock([retiredPlan]);
+    const initialValues = buildSessionFixture({
+      id: 'retired-session',
+      session_timestamp: utc('2026-08-16'),
+      tariff_plan_id: retiredPlan.id,
+      plan_selection_id: 'retired-selection',
+      price_snapshot: { label: 'ChargePoint P1 Retired', kWhPrice: 40, sessionFee: 100 },
+      applied_price_per_kwh: 40,
+      applied_session_fee: 100,
+      total_cost: 1100,
+    });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+
+    // Act: Save the unchanged historical session after the tariff has retired.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: Retirement does not rewrite stored tariff identity, snapshot, or total.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      session: expect.objectContaining({
+        tariff_plan_id: retiredPlan.id,
+        price_snapshot: initialValues.price_snapshot,
+        total_cost: 1100,
+      }),
+    })));
+    expect(mockOnSubmit.mock.calls[0]?.[0]?.planSelectionChange).toBeUndefined();
+  });
+
   it('preserves the original exact timestamp when the visible edit date is unchanged', async () => {
     // Arrange: persisted sessions may store a non-midnight UTC timestamp.
     const originalTimestamp = new Date('2026-06-01T14:37:12.000Z');

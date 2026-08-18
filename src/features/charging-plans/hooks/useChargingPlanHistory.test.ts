@@ -57,6 +57,34 @@ describe('useChargingPlanHistory', () => {
     )
   })
 
+  it('retains retired and soft-deleted rows returned for a referenced session timeline', async () => {
+    // Arrange: A referenced retired version needs its cancelled successor for complete history reconstruction.
+    const retiredVersion = {
+      ...plan,
+      id: 'retired-version',
+      valid_to: new Date('2026-08-17T00:00:00.000Z'),
+    }
+    const cancelledFutureVersion = {
+      ...plan,
+      id: 'cancelled-future-version',
+      valid_from: new Date('2026-08-17T00:00:00.000Z'),
+      deleted_at: new Date('2026-08-16T00:00:00.000Z'),
+    }
+    vi.mocked(getChargingPlanHistory).mockResolvedValue([
+      retiredVersion,
+      cancelledFutureVersion,
+    ])
+
+    // Act: Subscribe using the retired raw version referenced by a session.
+    const { result } = renderHook(() => useChargingPlanHistory(['retired-version']))
+
+    // Assert: The hook preserves every service-supplied row instead of filtering retired history.
+    await waitFor(() => expect(result.current).toEqual({
+      status: 'success',
+      planVersions: [retiredVersion, cancelledFutureVersion],
+    }))
+  })
+
   it('surfaces local query failures without presenting empty history', async () => {
     // Arrange: Reject the local history read with its original diagnostic.
     const error = new Error('IndexedDB read failed')

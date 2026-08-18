@@ -248,12 +248,23 @@ function roundNonNegativeRationalCents(total: RationalCents): number {
   return Number(rounded)
 }
 
+function wasCancelledBeforeTakingEffect(plan: ChargingPlan): boolean {
+  return Boolean(
+    plan.deleted_at
+    && plan.deleted_at.getTime() < plan.valid_from.getTime(),
+  )
+}
+
 function createLogicalTariffTimelines(
   plans: readonly ChargingPlan[],
 ): Map<string, LogicalTariffTimeline> {
   const timelines = new Map<string, LogicalTariffTimeline>()
 
   for (const plan of plans) {
+    if (wasCancelledBeforeTakingEffect(plan)) {
+      continue
+    }
+
     const key = getLogicalTariffKey(plan)
     const existing = timelines.get(key)
     if (existing) {
