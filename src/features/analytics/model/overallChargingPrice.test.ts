@@ -449,6 +449,36 @@ describe('calculateOverallChargingPrice', () => {
     expect(result).toMatchObject({ status: 'ready', fixedCostCents: 1000 })
   })
 
+  it('keeps a retired tariff ready through its final active date without charging its cancelled future version', () => {
+    // Arrange: Retiring on August 16 closes the active version and soft-deletes the scheduled successor.
+    const retiredVersion = buildPlan({
+      id: 'retired-version',
+      valid_from: utcDate('2026-08-01'),
+      valid_to: utcDate('2026-08-17'),
+      monthly_base_fee: 3100,
+    })
+    const cancelledFutureVersion = buildPlan({
+      id: 'cancelled-future-version',
+      valid_from: utcDate('2026-08-17'),
+      monthly_base_fee: 3100,
+      deleted_at: utcDate('2026-08-16'),
+    })
+    const sessions = [buildSession({
+      session_timestamp: new Date(2026, 7, 16, 12),
+      tariff_plan_id: retiredVersion.id,
+    })]
+
+    // Act: Calculate after the original final active date and cancelled successor boundary.
+    const result = calculateOverallChargingPrice({
+      sessions,
+      chargingPlanVersions: [retiredVersion, cancelledFutureVersion],
+      asOfLocalDate: '2026-08-31',
+    })
+
+    // Assert: The August 1-16 fee remains, while no cancelled future days accrue.
+    expect(result).toMatchObject({ status: 'ready', fixedCostCents: 1600 })
+  })
+
   it('collapses promotions and restored versions into one logical tariff timeline', () => {
     // Arrange: One tariff changes fee for a promotion, then restores its baseline.
     const baseline = buildPlan({
