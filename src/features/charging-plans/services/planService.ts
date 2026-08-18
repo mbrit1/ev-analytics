@@ -2,6 +2,7 @@ import { type Table } from 'dexie';
 import { createSyncOutboxEntry, db, type ChargingPlan, type ProviderPlanSelection, type SyncOutbox } from '../../../infra/db';
 import {
   addUtcDays,
+  buildLogicalTariffs,
   buildCurrentChargingPlans,
   formatUtcDate,
   getLogicalTariffKey,
@@ -55,6 +56,20 @@ export interface UpdateLogicalTariffDetailsInput extends LogicalTariffIdentityIn
   nextName: string;
   affiliation?: string;
   notes?: string;
+}
+
+/** Immutable version fields presented to the user when retirement is confirmed. */
+export interface RetirementVersionSnapshot {
+  id: string;
+  updated_at: Date;
+  valid_from: Date;
+  valid_to: Date | null;
+}
+
+/** Owner-scoped request to retire one logical tariff on an inclusive UTC date. */
+export interface RetireLogicalTariffInput extends LogicalTariffIdentityInput {
+  retirementDate: Date;
+  versionSnapshot: readonly RetirementVersionSnapshot[];
 }
 
 /** Describes a replacement for the sole currently overlapping paid tariff. */
@@ -194,6 +209,29 @@ function periodsOverlap(
 ): boolean {
   return leftStart.getTime() < dateToComparableMs(rightEnd)
     && rightStart.getTime() < dateToComparableMs(leftEnd);
+}
+
+function startOfUtcDay(date: Date): Date {
+  const time = date.getTime();
+  if (Number.isNaN(time)) {
+    throw new Error('retirementDate must be a valid date');
+  }
+
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function assertNoLogicalTimelineOverlap(versions: readonly ChargingPlan[]): void {
+  const activeVersions = versions.filter((version) => !version.deleted_at);
+
+  for (let index = 0; index < activeVersions.length; index += 1) {
+    const candidate = activeVersions[index];
+
+    if (activeVersions.slice(index + 1).some((other) => (
+      periodsOverlap(candidate.valid_from, candidate.valid_to, other.valid_from, other.valid_to)
+    ))) {
+      throw new Error('Tariff validity overlaps with an existing active version for this provider and name');
+    }
+  }
 }
 
 function trimPlanName(name: string): string {
@@ -391,6 +429,15 @@ export async function saveChargingPlan(plan: ChargingPlan): Promise<void> {
   await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
     const normalizedIncomingPlan = hydrateChargingPlanDates(plan);
     const existing = await db.charging_plans.get(normalizedIncomingPlan.id);
+    if (existing) {
+      const existingVersions = await loadLogicalVersionsFromTable(
+        db.charging_plans,
+        existing.user_id,
+        existing.provider_id,
+        existing.name,
+      );
+      assertLogicalTariffIsMutable(existingVersions);
+    }
     const now = new Date();
     const normalizedPlanName = (normalizedIncomingPlan.name ?? '').trim();
     const normalizedPlanNameLower = normalizedPlanName.toLowerCase();
@@ -562,6 +609,110 @@ export async function getChargingPlanHistory(
   return sortPlansByStartDate(relatedPlans.map(hydrateChargingPlanDates));
 }
 
+function assertRetirementSnapshotMatches(
+  versions: readonly ChargingPlan[],
+  snapshot: readonly RetirementVersionSnapshot[],
+): void {
+  const snapshotById = new Map(snapshot.map((version) => [version.id, version]));
+
+  if (snapshotById.size !== snapshot.length || snapshotById.size !== versions.length) {
+    throw new Error('Tariff retirement confirmation is stale');
+  }
+
+  const matches = versions.every((version) => {
+    const expected = snapshotById.get(version.id);
+
+    return expected != null
+      && expected.updated_at.getTime() === version.updated_at.getTime()
+      && expected.valid_from.getTime() === version.valid_from.getTime()
+      && (expected.valid_to?.getTime() ?? null) === (version.valid_to?.getTime() ?? null);
+  });
+
+  if (!matches) {
+    throw new Error('Tariff retirement confirmation is stale');
+  }
+}
+
+function assertLogicalTariffIsMutable(versions: ChargingPlan[]): void {
+  const [logicalTariff] = buildLogicalTariffs(versions, new Date());
+
+  if (logicalTariff?.lifecycle.kind === 'retired') {
+    throw new Error('Cannot modify a retired logical tariff');
+  }
+}
+
+/**
+ * Retires one user-owned logical tariff without altering selections, sessions, or unrelated plans.
+ */
+export async function retireLogicalTariff(input: RetireLogicalTariffInput): Promise<void> {
+  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
+    const versions = await loadLogicalVersionsFromTable(
+      db.charging_plans,
+      input.userId,
+      input.providerId,
+      input.name,
+    );
+    assertRetirementSnapshotMatches(versions, input.versionSnapshot);
+
+    const retirementDate = startOfUtcDay(input.retirementDate);
+    const retirementBoundary = addUtcDays(retirementDate, 1);
+    const currentVersion = resolveEffectivePlanForDate(versions, retirementDate);
+
+    if (!currentVersion) {
+      const finalVersion = versions.at(-1);
+
+      if (finalVersion?.valid_to?.getTime() === retirementDate.getTime()) {
+        throw new Error('Retirement must not extend an expired tariff version');
+      }
+
+      throw new Error('No applicable tariff version exists for retirement date');
+    }
+
+    if (currentVersion.valid_to != null && retirementBoundary.getTime() > currentVersion.valid_to.getTime()) {
+      throw new Error('Retirement must not extend an expired tariff version');
+    }
+
+    const now = new Date();
+    const closedCurrentVersion: ChargingPlan = {
+      ...currentVersion,
+      valid_to: retirementBoundary,
+      updated_at: now,
+    };
+    const cancelledFutureVersions = versions
+      .filter((version) => version.valid_from.getTime() > retirementDate.getTime())
+      .map((version) => ({
+        ...version,
+        deleted_at: now,
+        updated_at: now,
+      }));
+
+    validatePlan(closedCurrentVersion);
+    cancelledFutureVersions.forEach(validatePlan);
+    const cancelledVersionIds = new Set(cancelledFutureVersions.map((version) => version.id));
+    const resultingVersions = versions.map((version) => {
+      if (version.id === closedCurrentVersion.id) {
+        return closedCurrentVersion;
+      }
+
+      return cancelledVersionIds.has(version.id)
+        ? cancelledFutureVersions.find((cancelled) => cancelled.id === version.id)!
+        : version;
+    });
+    assertNoLogicalTimelineOverlap(resultingVersions);
+    const providerVersions = await loadProviderVersionsFromTable(
+      db.charging_plans,
+      input.userId,
+      input.providerId,
+    );
+    assertNoPaidTariffOverlap([closedCurrentVersion, ...cancelledFutureVersions], providerVersions);
+
+    await putPlanAndQueue(db.charging_plans, db.sync_outbox, closedCurrentVersion, 'UPDATE', now);
+    for (const cancelledVersion of cancelledFutureVersions) {
+      await putPlanAndQueue(db.charging_plans, db.sync_outbox, cancelledVersion, 'DELETE', now);
+    }
+  });
+}
+
 export async function scheduleTemporaryPromotion(
   input: ScheduleTemporaryPromotionInput
 ): Promise<void> {
@@ -576,6 +727,7 @@ export async function scheduleTemporaryPromotion(
       input.providerId,
       input.name
     );
+    assertLogicalTariffIsMutable(versions);
     const baseline = resolveEffectivePlanForDate(versions, input.promoStart);
 
     if (!baseline) {
@@ -649,6 +801,7 @@ export async function updateCurrentTariffVersion(
       input.providerId,
       input.name
     );
+    assertLogicalTariffIsMutable(sourceVersions);
 
     const currentVersion = sourceVersions.find((version) => version.id === input.currentVersionId);
     if (!currentVersion) {
@@ -730,6 +883,7 @@ export async function createSuccessorTariffVersion(
       input.providerId,
       input.name
     );
+    assertLogicalTariffIsMutable(versions);
     const baseline = resolveEffectivePlanForDate(versions, input.effectiveFrom);
 
     if (!baseline) {
@@ -822,6 +976,7 @@ export async function updateLogicalTariffDetails(
     if (sourceVersions.length === 0) {
       return;
     }
+    assertLogicalTariffIsMutable(sourceVersions);
 
     const destinationVersions = sortPlansByStartDate(
       (await loadLogicalVersionsFromTable(
