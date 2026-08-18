@@ -128,6 +128,32 @@ the candidate `INSERT` in the same local transaction. Ambiguous overlaps need
 manual date repair; the application does not infer a restoration of a prior
 paid tariff.
 
+A logical tariff groups non-deleted plan versions by provider ID and normalized
+tariff name. Its lifecycle is derived from the half-open UTC timeline rather
+than stored: it is current when a version applies on the UTC day, scheduled
+when only a future version exists, ending today when its final current version
+closes at the next UTC boundary, and retired when neither current nor future
+versions exist. The UI presents the stored exclusive `valid_to` as the
+inclusive final active date.
+
+Retirement is an atomic local mutation of one logical tariff. The service
+re-reads the user-owned timeline, compares it with the confirmation snapshot,
+and validates the effective current version, non-extending UTC boundary, and
+tariff interval and paid-fee invariants. One Dexie transaction closes the
+current version at the next UTC day boundary, soft-deletes later scheduled
+versions, and queues every changed plan in `sync_outbox`; any failed write
+rolls back the complete mutation. Retirement does not change charging sessions
+or `provider_plan_selections`: selections remain session-derived history and
+are not authoritative subscription-validity records.
+
+Fully retired timelines are immutable through normal edit, promotion,
+successor, and logical-detail workflows. Creating a tariff from retired history
+uses the ordinary create path with a new plan row and ID. It copies the final
+effective version's provider, tariff name, affiliation, notes, and available
+prices and fees, but not ownership, dates, timestamps, deletion state, or
+the retired row's identifier. The new row therefore preserves the historical
+inactive gap and continues to use ordinary paid-tariff overlap validation.
+
 New or materially changed ad-hoc sessions are rejected when their billing
 provider exactly matches an active saved tariff for their UTC session date:
 trimmed, case-insensitive `provider_name_snapshot` equals a non-deleted
@@ -139,6 +165,11 @@ field rechecks the rule. UI guidance is attached to the billing-provider field,
 not the optional CPO field.
 
 Money values, including session totals and per-kWh prices, are integer cents. Energy values are decimal kWh. Timestamps are stored as UTC-capable instants; charging-plan validity uses date values. Optional measurements remain absent when unknown rather than being converted to zero. Session pricing snapshots preserve historical display and calculation inputs even when plans later change or are deleted; see [ADR 006](./adr/006-tariff-snapshots.md).
+
+Retirement does not rewrite a session's plan ID, price snapshot, or stored
+total. A retired version remains available when creating or editing a plan
+session whose selected UTC date falls inside its historical validity interval;
+the version cannot price a later date.
 
 ## Analytics Semantics
 
@@ -168,10 +199,13 @@ month selector, remains available offline, and follows the split authority in
 - Ad-hoc sessions contribute session spend and billed energy but never qualify
   a tariff fee. A plan session qualifies its logical tariff in that local
   calendar month.
-- Applicable fees use the relevant charging-plan version history, including
-  referenced soft-deleted versions. They are prorated by active calendar days,
-  stop at the current local day, and round once after all lifetime fee
-  contributions are accumulated.
+- Scoped plan history retains referenced timelines, including soft-deleted
+  rows. Fee reconstruction and paid-tariff conflict detection include a
+  soft-deleted version that was historically effective, but exclude a scheduled
+  version cancelled before its `valid_from`; retired history therefore remains
+  usable without accruing cancelled future fees. Applicable fees are prorated
+  by active calendar days, stop at the current local day, and round once after
+  all lifetime fee contributions are accumulated.
 - The final rate divides included spend by total provider-billed energy.
   Missing referenced history or inconsistent qualifying paid history returns an
   unavailable KPI instead of a partial price. Overlapping zero-fee definitions
