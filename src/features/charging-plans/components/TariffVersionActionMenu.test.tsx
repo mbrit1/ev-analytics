@@ -9,8 +9,9 @@ import { TariffVersionActionMenu } from './TariffVersionActionMenu';
  * Verifies required menu labels, action callbacks, and governed control sizing.
  */
 describe('TariffVersionActionMenu', () => {
-  it('renders the remaining overflow actions and triggers each callback', async () => {
-    // Arrange: Render the menu with spies for each remaining action.
+  it('renders Retire alongside the unchanged promotion and delete actions', async () => {
+    // Arrange: Render the menu with a callback for every active-tariff action.
+    const onRetire = vi.fn();
     const onPromotion = vi.fn();
     const onDelete = vi.fn();
     const user = userEvent.setup();
@@ -18,6 +19,7 @@ describe('TariffVersionActionMenu', () => {
     render(
       <TariffVersionActionMenu
         label="Ionity Lidl"
+        onRetire={onRetire}
         onPromotion={onPromotion}
         onDelete={onDelete}
       />,
@@ -25,11 +27,14 @@ describe('TariffVersionActionMenu', () => {
 
     // Act: Open the menu and trigger each action.
     await user.click(screen.getByRole('button', { name: /tariff actions for ionity lidl/i }));
+    await user.click(screen.getByRole('button', { name: /retire tariff/i }));
+    await user.click(screen.getByRole('button', { name: /tariff actions for ionity lidl/i }));
     await user.click(screen.getByRole('button', { name: /run temporary promotion/i }));
     await user.click(screen.getByRole('button', { name: /tariff actions for ionity lidl/i }));
     await user.click(screen.getByRole('button', { name: /delete tariff/i }));
 
-    // Assert: The remaining actions are reachable and invoke their handlers.
+    // Assert: Retire is reachable without changing the established actions.
+    expect(onRetire).toHaveBeenCalledTimes(1);
     expect(onPromotion).toHaveBeenCalledTimes(1);
     expect(onDelete).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('button', { name: /edit details/i })).not.toBeInTheDocument();
@@ -41,6 +46,7 @@ describe('TariffVersionActionMenu', () => {
     render(
       <TariffVersionActionMenu
         label="Ionity Lidl"
+        onRetire={vi.fn()}
         onPromotion={vi.fn()}
         onDelete={vi.fn()}
       />,
@@ -63,6 +69,7 @@ describe('TariffVersionActionMenu', () => {
       <div>
         <TariffVersionActionMenu
           label="Ionity Lidl"
+          onRetire={vi.fn()}
           onPromotion={vi.fn()}
           onDelete={vi.fn()}
         />

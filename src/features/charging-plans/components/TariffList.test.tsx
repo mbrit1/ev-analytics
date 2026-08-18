@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TariffList } from './TariffList';
 import { useChargingPlans } from '../hooks/useChargingPlans';
 import { useProviders } from '../hooks/useProviders';
+import { useUtcToday } from '../hooks/useUtcToday';
 import { useAuth } from '../../auth';
 import type { ChargingPlan, Provider } from '../../../infra/db';
 import type { LogicalTariff } from '../model/logicalTariffs';
@@ -18,6 +19,7 @@ let replaceSubmitDuringAsyncOpen = false;
 
 vi.mock('../hooks/useChargingPlans');
 vi.mock('../hooks/useProviders');
+vi.mock('../hooks/useUtcToday');
 vi.mock('../../auth');
 vi.mock('./TariffFormLoader', () => ({
   TariffFormLoader: (props: unknown) => {
@@ -199,6 +201,7 @@ const buildHookValue = (
     createSuccessorVersion: overrides.createSuccessorVersion ?? vi.fn(),
     schedulePromotion: overrides.schedulePromotion ?? vi.fn(),
     deleteLogicalTariff: overrides.deleteLogicalTariff ?? vi.fn(),
+    retireLogicalTariff: overrides.retireLogicalTariff ?? vi.fn(),
     switchActivePaidTariff: overrides.switchActivePaidTariff ?? vi.fn(),
   };
 };
@@ -252,6 +255,7 @@ describe('TariffList', () => {
     mockedCreatePlanOverrides = {};
     mockedStagedProvider = undefined;
     replaceSubmitDuringAsyncOpen = false;
+    vi.mocked(useUtcToday).mockReturnValue(utc('2026-08-16'));
     vi.stubGlobal('scrollTo', vi.fn());
     vi.mocked(useProviders).mockReturnValue({
       providers: [
@@ -471,6 +475,256 @@ describe('TariffList', () => {
         },
       }),
     );
+  });
+
+  it('keeps current, scheduled, and ending-today tariffs in the main overview while retired tariffs are collapsed', async () => {
+    // Arrange: Supply one logical tariff for each lifecycle state.
+    const current = buildPlan({ id: 'current', name: 'Current Tariff', valid_from: utc('2026-01-01') });
+    const scheduled = buildPlan({ id: 'scheduled', name: 'Scheduled Tariff', valid_from: utc('2026-09-01') });
+    const endingToday = buildPlan({
+      id: 'ending-today',
+      name: 'Ending Today Tariff',
+      valid_from: utc('2026-01-01'),
+      valid_to: utc('2026-08-17'),
+    });
+    const retired = buildPlan({
+      id: 'retired',
+      name: 'Retired Tariff',
+      valid_from: utc('2026-01-01'),
+      valid_to: utc('2026-08-16'),
+    });
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [
+        buildLogicalTariff({
+          key: 'p1::current-tariff', name: 'Current Tariff', versions: [current], currentVersion: current,
+          nextVersion: null, upcomingVisibility: { kind: 'none' },
+          lifecycle: { kind: 'current', finalEffectiveVersion: current, finalActiveDate: null },
+        }),
+        buildLogicalTariff({
+          key: 'p1::scheduled-tariff', name: 'Scheduled Tariff', versions: [scheduled], currentVersion: null,
+          nextVersion: scheduled, upcomingVisibility: { kind: 'none' },
+          lifecycle: { kind: 'scheduled', finalEffectiveVersion: scheduled, finalActiveDate: null },
+        }),
+        buildLogicalTariff({
+          key: 'p1::ending-today-tariff', name: 'Ending Today Tariff', versions: [endingToday],
+          currentVersion: endingToday, nextVersion: null, upcomingVisibility: { kind: 'none' },
+          lifecycle: { kind: 'ending_today', finalEffectiveVersion: endingToday, finalActiveDate: '2026-08-16' },
+        }),
+        buildLogicalTariff({
+          key: 'p1::retired-tariff', name: 'Retired Tariff', versions: [retired], currentVersion: null,
+          nextVersion: null, upcomingVisibility: { kind: 'none' },
+          lifecycle: { kind: 'retired', finalEffectiveVersion: retired, finalActiveDate: '2026-08-15' },
+        }),
+      ],
+    }));
+    const user = userEvent.setup();
+
+    // Act: Render the overview, then expand the retired disclosure deliberately.
+    renderTariffList();
+    const disclosure = screen.getByRole('button', { name: /retired tariffs \(1\)/i });
+
+    // Assert: Only the active timeline states appear before the collapsed disclosure is opened.
+    expect(screen.getByText('Current Tariff')).toBeInTheDocument();
+    expect(screen.getByText('Scheduled Tariff')).toBeInTheDocument();
+    expect(screen.getByText('Ending Today Tariff')).toBeInTheDocument();
+    expect(screen.queryByText('Retired Tariff')).not.toBeInTheDocument();
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    await user.click(disclosure);
+    expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('region', { name: /retired tariffs/i })).toHaveTextContent('Retired Tariff');
+  });
+
+  it('renders final retired pricing and only offers a new-tariff action', async () => {
+    // Arrange: Supply one fully retired tariff whose final version has recurring and energy prices.
+    const finalVersion = buildPlan({
+      id: 'retired-final',
+      name: 'Retired Tariff',
+      valid_from: utc('2026-01-01'),
+      valid_to: utc('2026-08-16'),
+      ac_price_per_kwh: 47,
+      monthly_base_fee: 599,
+    });
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [buildLogicalTariff({
+        key: 'p1::retired-tariff', name: 'Retired Tariff', versions: [finalVersion], currentVersion: null,
+        nextVersion: null, upcomingVisibility: { kind: 'none' },
+        lifecycle: { kind: 'retired', finalEffectiveVersion: finalVersion, finalActiveDate: '2026-08-15' },
+      })],
+    }));
+    const user = userEvent.setup();
+
+    // Act: Reveal the retired-card details.
+    renderTariffList();
+    await user.click(screen.getByRole('button', { name: /retired tariffs \(1\)/i }));
+    const retiredRegion = screen.getByRole('region', { name: /retired tariffs/i });
+
+    // Assert: The card retains only historical summary and safe recreation affordances.
+    expect(retiredRegion).toHaveTextContent('Ionity');
+    expect(retiredRegion).toHaveTextContent('Retired Tariff');
+    expect(retiredRegion).toHaveTextContent(/final active date.*2026-08-15/i);
+    expect(retiredRegion).toHaveTextContent('0,47 €');
+    expect(retiredRegion).toHaveTextContent('5,99 €');
+    expect(within(retiredRegion).getByRole('button', { name: /create new from retired/i })).toBeInTheDocument();
+    expect(within(retiredRegion).queryByRole('button', { name: /edit/i })).not.toBeInTheDocument();
+    expect(within(retiredRegion).queryByRole('button', { name: /tariff actions/i })).not.toBeInTheDocument();
+    expect(within(retiredRegion).queryByRole('button', {
+      name: /^(run temporary promotion|retire tariff|delete tariff)$/i,
+    })).not.toBeInTheDocument();
+  });
+
+  it('offers Retire only for timelines with a version applicable today', async () => {
+    // Arrange: Supply current, scheduled, ending-today, and retired logical timelines.
+    const current = buildPlan({ id: 'current', name: 'Current Tariff', valid_from: utc('2026-01-01') });
+    const scheduled = buildPlan({ id: 'scheduled', name: 'Scheduled Tariff', valid_from: utc('2026-09-01') });
+    const endingToday = buildPlan({
+      id: 'ending-today', name: 'Ending Today Tariff', valid_from: utc('2026-01-01'), valid_to: utc('2026-08-17'),
+    });
+    const retired = buildPlan({
+      id: 'retired', name: 'Retired Tariff', valid_from: utc('2026-01-01'), valid_to: utc('2026-08-16'),
+    });
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [
+        buildLogicalTariff({ key: 'p1::current-tariff', name: 'Current Tariff', versions: [current], currentVersion: current,
+          nextVersion: null, upcomingVisibility: { kind: 'none' }, lifecycle: { kind: 'current', finalEffectiveVersion: current, finalActiveDate: null } }),
+        buildLogicalTariff({ key: 'p1::scheduled-tariff', name: 'Scheduled Tariff', versions: [scheduled], currentVersion: null,
+          nextVersion: scheduled, upcomingVisibility: { kind: 'none' }, lifecycle: { kind: 'scheduled', finalEffectiveVersion: scheduled, finalActiveDate: null } }),
+        buildLogicalTariff({ key: 'p1::ending-today-tariff', name: 'Ending Today Tariff', versions: [endingToday], currentVersion: endingToday,
+          nextVersion: null, upcomingVisibility: { kind: 'none' }, lifecycle: { kind: 'ending_today', finalEffectiveVersion: endingToday, finalActiveDate: '2026-08-16' } }),
+        buildLogicalTariff({ key: 'p1::retired-tariff', name: 'Retired Tariff', versions: [retired], currentVersion: null,
+          nextVersion: null, upcomingVisibility: { kind: 'none' }, lifecycle: { kind: 'retired', finalEffectiveVersion: retired, finalActiveDate: '2026-08-15' } }),
+      ],
+    }));
+    const user = userEvent.setup();
+
+    // Act: Open each main-overview overflow menu.
+    renderTariffList();
+    await user.click(screen.getByRole('button', { name: /tariff actions for ionity scheduled tariff/i }));
+    expect(screen.queryByRole('button', { name: /^retire tariff$/i })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /tariff actions for ionity scheduled tariff/i }));
+    await user.click(screen.getByRole('button', { name: /tariff actions for ionity current tariff/i }));
+
+    // Assert: Retire appears for a current tariff but not for an ending-today version.
+    expect(screen.getByRole('button', { name: /^retire tariff$/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /tariff actions for ionity current tariff/i }));
+    await user.click(screen.getByRole('button', { name: /tariff actions for ionity ending today tariff/i }));
+    expect(screen.getByText('Ends today')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^retire tariff$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /tariff actions for ionity retired tariff/i })).not.toBeInTheDocument();
+  });
+
+  it('confirms retirement with the authenticated UTC date and complete immutable version snapshot', async () => {
+    // Arrange: Capture today's UTC date and provide past, current, and future non-deleted timeline versions.
+    const historical = buildPlan({
+      id: 'historical', name: 'Lidl', valid_from: utc('2026-01-01'), valid_to: utc('2026-07-01'), updated_at: utc('2026-06-30'),
+    });
+    const current = buildPlan({
+      id: 'current', name: 'Lidl', valid_from: utc('2026-07-01'), valid_to: utc('2026-09-01'), updated_at: utc('2026-08-01'),
+    });
+    const scheduled = buildPlan({
+      id: 'scheduled', name: 'Lidl', valid_from: utc('2026-09-01'), valid_to: null, updated_at: utc('2026-08-02'),
+    });
+    const retireLogicalTariff = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [buildLogicalTariff({
+        versions: [historical, current, scheduled], currentVersion: current, nextVersion: scheduled,
+        upcomingVisibility: { kind: 'none' }, lifecycle: { kind: 'current', finalEffectiveVersion: scheduled, finalActiveDate: null },
+      })],
+      retireLogicalTariff,
+    }));
+    const user = userEvent.setup();
+
+    // Act: Start retirement from the active-card overflow and accept the confirmation.
+    renderTariffList();
+    await user.click(screen.getByRole('button', { name: /tariff actions for ionity lidl/i }));
+    await user.click(screen.getByRole('button', { name: /^retire tariff$/i }));
+    await user.click(within(screen.getByRole('dialog', { name: /^retire tariff$/i }))
+      .getByRole('button', { name: /^retire tariff$/i }));
+
+    // Assert: The domain call receives only owner, identity, UTC date, and immutable version fields.
+    expect(retireLogicalTariff).toHaveBeenCalledWith({
+      userId: 'user-1',
+      providerId: 'p1',
+      name: 'Lidl',
+      retirementDate: utc('2026-08-16'),
+      versionSnapshot: [
+        { id: 'historical', updated_at: utc('2026-06-30'), valid_from: utc('2026-01-01'), valid_to: utc('2026-07-01') },
+        { id: 'current', updated_at: utc('2026-08-01'), valid_from: utc('2026-07-01'), valid_to: utc('2026-09-01') },
+        { id: 'scheduled', updated_at: utc('2026-08-02'), valid_from: utc('2026-09-01'), valid_to: null },
+      ],
+    });
+  });
+
+  it('keeps a failed retirement confirmation open and prevents duplicate writes while pending', async () => {
+    // Arrange: Hold the first service call pending so repeat confirmation is possible to attempt.
+    let rejectRetirement: (error: Error) => void = () => undefined;
+    const current = buildPlan({ id: 'current', name: 'Lidl', valid_from: utc('2026-01-01') });
+    const retireLogicalTariff = vi.fn(() => new Promise<void>((_, reject) => {
+      rejectRetirement = reject;
+    }));
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [buildLogicalTariff({
+        versions: [current], currentVersion: current, nextVersion: null, upcomingVisibility: { kind: 'none' },
+        lifecycle: { kind: 'current', finalEffectiveVersion: current, finalActiveDate: null },
+      })],
+      retireLogicalTariff,
+    }));
+    const user = userEvent.setup();
+
+    // Act: Confirm once, attempt a second confirmation while pending, then reject the first request.
+    renderTariffList();
+    await user.click(screen.getByRole('button', { name: /tariff actions for ionity lidl/i }));
+    await user.click(screen.getByRole('button', { name: /^retire tariff$/i }));
+    const dialog = screen.getByRole('dialog', { name: /^retire tariff$/i });
+    const confirm = within(dialog).getByRole('button', { name: /^retire tariff$/i });
+    await user.click(confirm);
+    await user.click(confirm);
+    await act(async () => rejectRetirement(new Error('Retirement rejected')));
+
+    // Assert: The pending button blocks duplicates and failure remains recoverable in the dialog.
+    expect(retireLogicalTariff).toHaveBeenCalledTimes(1);
+    expect(await screen.findByRole('alert')).toHaveTextContent('Retirement rejected');
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    expect(dialog).toBeInTheDocument();
+  });
+
+  it('restores the active-card action after cancellation and success while ending-today remains in the main overview', async () => {
+    // Arrange: Start with a current tariff and a resolving retirement operation.
+    const current = buildPlan({ id: 'current', name: 'Lidl', valid_from: utc('2026-01-01') });
+    const endingToday = buildPlan({
+      id: 'current', name: 'Lidl', valid_from: utc('2026-01-01'), valid_to: utc('2026-08-17'),
+    });
+    const retireLogicalTariff = vi.fn().mockResolvedValue(undefined);
+    const currentLogicalTariff = buildLogicalTariff({
+      versions: [current], currentVersion: current, nextVersion: null, upcomingVisibility: { kind: 'none' },
+      lifecycle: { kind: 'current', finalEffectiveVersion: current, finalActiveDate: null },
+    });
+    const endingTodayLogicalTariff = buildLogicalTariff({
+      versions: [endingToday], currentVersion: endingToday, nextVersion: null, upcomingVisibility: { kind: 'none' },
+      lifecycle: { kind: 'ending_today', finalEffectiveVersion: endingToday, finalActiveDate: '2026-08-16' },
+    });
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ logicalTariffs: [currentLogicalTariff], retireLogicalTariff }));
+    const user = userEvent.setup();
+    const { rerender } = render(tariffListElement());
+    const actionTrigger = screen.getByRole('button', { name: /tariff actions for ionity lidl/i });
+
+    // Act: Cancel once, then confirm a second attempt and simulate the live-query lifecycle refresh.
+    await user.click(actionTrigger);
+    await user.click(screen.getByRole('button', { name: /^retire tariff$/i }));
+    await user.click(within(screen.getByRole('dialog', { name: /^retire tariff$/i }))
+      .getByRole('button', { name: 'Cancel' }));
+    expect(actionTrigger).toHaveFocus();
+    await user.click(actionTrigger);
+    await user.click(screen.getByRole('button', { name: /^retire tariff$/i }));
+    await user.click(within(screen.getByRole('dialog', { name: /^retire tariff$/i }))
+      .getByRole('button', { name: /^retire tariff$/i }));
+    await waitFor(() => expect(retireLogicalTariff).toHaveBeenCalledTimes(1));
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ logicalTariffs: [endingTodayLogicalTariff], retireLogicalTariff }));
+    rerender(tariffListElement());
+
+    // Assert: Focus returns to the originating action and same-day retirement stays visible until UTC rollover.
+    expect(actionTrigger).toHaveFocus();
+    expect(screen.getByText('Ends today')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /retired tariffs/i })).not.toBeInTheDocument();
   });
 
   it('keeps promotion and delete available from the overflow menu', async () => {

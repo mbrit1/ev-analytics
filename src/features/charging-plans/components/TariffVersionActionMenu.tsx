@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 
 interface TariffVersionActionMenuProps {
   label: string;
+  onRetire?: () => void;
   onPromotion: () => void;
   onDelete: () => void;
 }
@@ -12,6 +13,7 @@ interface TariffVersionActionMenuProps {
  */
 export function TariffVersionActionMenu({
   label,
+  onRetire,
   onPromotion,
   onDelete,
 }: TariffVersionActionMenuProps) {
@@ -61,6 +63,15 @@ export function TariffVersionActionMenu({
       </button>
       {isOpen && (
         <div className="absolute right-0 top-[calc(100%+0.5rem)] z-10 min-w-[15rem] rounded-xl border border-secondary/10 bg-surface p-2 shadow-lg">
+          {onRetire && (
+            <button
+              type="button"
+              onClick={() => runAction(onRetire)}
+              className="flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left text-primary transition-colors hover:bg-secondary/5"
+            >
+              Retire tariff
+            </button>
+          )}
           <button
             type="button"
             onClick={() => runAction(onPromotion)}
