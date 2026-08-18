@@ -33,6 +33,15 @@ export interface LogicalTariffHistoryRow {
   endDateInclusive: string | null
 }
 
+export type LogicalTariffLifecycleKind = 'current' | 'scheduled' | 'ending_today' | 'retired'
+
+/** Derived availability and final-history data for one logical tariff. */
+export interface LogicalTariffLifecycle {
+  kind: LogicalTariffLifecycleKind
+  finalEffectiveVersion: ChargingPlan | null
+  finalActiveDate: string | null
+}
+
 export interface LogicalTariff {
   key: string
   providerId: string
@@ -40,6 +49,7 @@ export interface LogicalTariff {
   versions: ChargingPlan[]
   currentVersion: ChargingPlan | null
   nextVersion: ChargingPlan | null
+  lifecycle: LogicalTariffLifecycle
   badge?: LogicalTariffBadge
   upcomingVisibility: LogicalTariffUpcomingVisibility
   history: LogicalTariffHistoryRow[]
@@ -273,6 +283,34 @@ export const resolveEffectivePlanForDate = (versions: ChargingPlan[], at: Date):
   )
 }
 
+const deriveLogicalTariffLifecycle = (
+  versions: ChargingPlan[],
+  currentVersion: ChargingPlan | null,
+  nextVersion: ChargingPlan | null,
+  today: Date,
+): LogicalTariffLifecycle => {
+  const finalEffectiveVersion = versions.at(-1) ?? null
+  const finalActiveDate = finalEffectiveVersion?.valid_to
+    ? formatUtcDate(addUtcDays(finalEffectiveVersion.valid_to, -1))
+    : null
+
+  if (currentVersion) {
+    const endingToday = currentVersion.valid_to?.getTime() === addUtcDays(startOfUtcDay(today), 1).getTime()
+
+    return {
+      kind: endingToday && !nextVersion ? 'ending_today' : 'current',
+      finalEffectiveVersion,
+      finalActiveDate,
+    }
+  }
+
+  return {
+    kind: nextVersion ? 'scheduled' : 'retired',
+    finalEffectiveVersion,
+    finalActiveDate,
+  }
+}
+
 export const buildLogicalTariffs = (plans: ChargingPlan[], today: Date): LogicalTariff[] => {
   const groups = new Map<string, ChargingPlan[]>()
 
@@ -349,6 +387,7 @@ export const buildLogicalTariffs = (plans: ChargingPlan[], today: Date): Logical
             ? buildBadgeForVersion(versions, nextIndex, promotionIndexes)
             : undefined
       const upcomingVisibility = getTariffUpdateVisibility(comparisonVersion, visibilityCandidate, today)
+      const lifecycle = deriveLogicalTariffLifecycle(versions, currentVersion, nextVersion, today)
 
       return {
         key,
@@ -357,6 +396,7 @@ export const buildLogicalTariffs = (plans: ChargingPlan[], today: Date): Logical
         versions,
         currentVersion,
         nextVersion,
+        lifecycle,
         upcomingVisibility,
         ...(badge ? { badge } : {}),
         history,

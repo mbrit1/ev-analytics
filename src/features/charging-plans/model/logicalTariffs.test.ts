@@ -550,4 +550,192 @@ describe('logicalTariffs', () => {
     expect(logical.versions.every((plan) => plan.valid_from instanceof Date)).toBe(true)
     expect(logical.history[0]?.startDate).toBe('2026-01-01')
   })
+
+  it('derives lifecycle and final effective history from non-deleted UTC intervals', () => {
+    // Arrange: Cover active, scheduled, ending-today, retired, and historical timeline shapes.
+    const cases = [
+      {
+        name: 'current open-ended tariff',
+        plans: [
+          buildPlan({
+            id: 'current',
+            valid_from: utc('2026-01-01'),
+            valid_to: null,
+          }),
+        ],
+        today: utc('2026-08-16'),
+        expected: {
+          kind: 'current',
+          finalEffectiveVersionId: 'current',
+          finalActiveDate: null,
+        },
+      },
+      {
+        name: 'gap with an open-ended future version',
+        plans: [
+          buildPlan({
+            id: 'expired',
+            valid_from: utc('2026-01-01'),
+            valid_to: utc('2026-06-01'),
+          }),
+          buildPlan({
+            id: 'scheduled',
+            valid_from: utc('2026-09-01'),
+            valid_to: null,
+          }),
+        ],
+        today: utc('2026-08-16'),
+        expected: {
+          kind: 'scheduled',
+          finalEffectiveVersionId: 'scheduled',
+          finalActiveDate: null,
+        },
+      },
+      {
+        name: 'version whose exclusive end is the next UTC day',
+        plans: [
+          buildPlan({
+            id: 'ending-today',
+            valid_from: utc('2026-01-01'),
+            valid_to: utc('2026-08-17'),
+          }),
+        ],
+        today: utc('2026-08-16'),
+        expected: {
+          kind: 'ending_today',
+          finalEffectiveVersionId: 'ending-today',
+          finalActiveDate: '2026-08-16',
+        },
+      },
+      {
+        name: 'the next UTC day after a final exclusive boundary',
+        plans: [
+          buildPlan({
+            id: 'retired-next-day',
+            valid_from: utc('2026-01-01'),
+            valid_to: utc('2026-08-17'),
+          }),
+        ],
+        today: utc('2026-08-17'),
+        expected: {
+          kind: 'retired',
+          finalEffectiveVersionId: 'retired-next-day',
+          finalActiveDate: '2026-08-16',
+        },
+      },
+      {
+        name: 'promotion followed by a scheduled restoration',
+        plans: buildPromotionChain(),
+        today: utc('2026-08-20'),
+        expected: {
+          kind: 'current',
+          finalEffectiveVersionId: 'restore',
+          finalActiveDate: null,
+        },
+      },
+      {
+        name: 'unnamed fully expired history',
+        plans: [
+          buildPlan({
+            id: 'unnamed-expired',
+            name: '   ',
+            valid_from: utc('2026-01-01'),
+            valid_to: utc('2026-02-01'),
+          }),
+        ],
+        today: utc('2026-08-16'),
+        expected: {
+          kind: 'retired',
+          finalEffectiveVersionId: 'unnamed-expired',
+          finalActiveDate: '2026-01-31',
+        },
+      },
+      {
+        name: 'ISO-hydrated fully expired history with a deleted future successor',
+        plans: [
+          buildPlan({
+            id: 'iso-expired',
+            valid_from: '2026-01-01T00:00:00.000Z' as unknown as Date,
+            valid_to: '2026-08-17T00:00:00.000Z' as unknown as Date,
+            created_at: '2026-01-01T00:00:00.000Z' as unknown as Date,
+            updated_at: '2026-01-01T00:00:00.000Z' as unknown as Date,
+          }),
+          buildPlan({
+            id: 'deleted-future',
+            valid_from: utc('2026-09-01'),
+            valid_to: null,
+            deleted_at: utc('2026-08-16'),
+          }),
+        ],
+        today: utc('2026-08-17'),
+        expected: {
+          kind: 'retired',
+          finalEffectiveVersionId: 'iso-expired',
+          finalActiveDate: '2026-08-16',
+        },
+      },
+    ]
+
+    for (const { name, plans, today, expected } of cases) {
+      // Act: Derive the logical tariff lifecycle at the supplied UTC day.
+      const [logical] = buildLogicalTariffs(plans, today)
+
+      // Assert: The lifecycle exposes the presentation-ready final effective version and inclusive date.
+      expect(logical.lifecycle, name).toEqual({
+        kind: expected.kind,
+        finalEffectiveVersion: expect.objectContaining({ id: expected.finalEffectiveVersionId }),
+        finalActiveDate: expected.finalActiveDate,
+      })
+    }
+  })
+
+  it('keeps lifecycle derivation scoped to each normalized provider identity', () => {
+    // Arrange: Build separate normalized-name identities with independent final histories.
+    const plans = [
+      buildPlan({
+        id: 'provider-one-current',
+        provider_id: 'provider-1',
+        name: ' Lidl ',
+        valid_from: utc('2026-01-01'),
+        valid_to: null,
+      }),
+      buildPlan({
+        id: 'provider-two-retired',
+        provider_id: 'provider-2',
+        name: 'lidl',
+        valid_from: utc('2026-01-01'),
+        valid_to: utc('2026-08-17'),
+      }),
+    ]
+
+    // Act: Group the timelines and derive their lifecycle contracts after the second one ends.
+    const logicalTariffs = buildLogicalTariffs(plans, utc('2026-08-17'))
+
+    // Assert: Grouping and normalized identity remain intact while each lifecycle uses only its own history.
+    expect(logicalTariffs).toHaveLength(2)
+    expect(logicalTariffs.map((logical) => ({
+      key: logical.key,
+      name: logical.name,
+      lifecycle: logical.lifecycle,
+    }))).toEqual([
+      {
+        key: 'provider-1::lidl',
+        name: 'Lidl',
+        lifecycle: {
+          kind: 'current',
+          finalEffectiveVersion: expect.objectContaining({ id: 'provider-one-current' }),
+          finalActiveDate: null,
+        },
+      },
+      {
+        key: 'provider-2::lidl',
+        name: 'lidl',
+        lifecycle: {
+          kind: 'retired',
+          finalEffectiveVersion: expect.objectContaining({ id: 'provider-two-retired' }),
+          finalActiveDate: '2026-08-16',
+        },
+      },
+    ])
+  })
 })
