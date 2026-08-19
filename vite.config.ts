@@ -30,6 +30,10 @@ export default defineConfig(({ mode }) => {
   const plugins = [react(), tailwindcss(), VitePWA({
     registerType: 'autoUpdate',
     includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+    workbox: {
+      // The worker is served from public/ for local mock mode only.
+      globIgnores: ['**/mockServiceWorker.js'],
+    },
     manifest: {
       name: 'EV Analytics',
       short_name: 'EV Analytics',
