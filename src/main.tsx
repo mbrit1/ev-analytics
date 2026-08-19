@@ -5,7 +5,9 @@ import App from './app/App.tsx'
 import { clearDevelopmentServiceWorkers, isExplicitMockMode } from './app/bootstrap'
 import { AuthProvider } from './features/auth'
 
-const ENABLE_MOCKS = isExplicitMockMode(import.meta.env)
+// Keep the Vite DEV constant at this import boundary so production builds can
+// tree-shake the complete MSW module graph.
+const ENABLE_MOCKS = import.meta.env.DEV && isExplicitMockMode(import.meta.env)
 
 /**
  * Starts the MSW browser worker only for explicit local mock-mode runs.
