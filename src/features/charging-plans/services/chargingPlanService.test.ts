@@ -555,14 +555,14 @@ describe('planService', () => {
     const plansBefore = await db.charging_plans.toArray()
 
     // Act/Assert: Promotions must leave time to restore the original baseline before it ends.
-    await expect(scheduleTemporaryPromotion({
+    await expect(withSystemTime('2026-08-01T12:00:00.000Z', () => scheduleTemporaryPromotion({
       userId: 'user-1',
       providerId: 'provider-1',
       name: 'Lidl',
       promoStart: utc('2026-08-10'),
       promoEndInclusive: utc('2026-08-31'),
       prices: buildPrices({ ac_price_per_kwh: 24 }),
-    })).rejects.toThrow('Promotion must leave time to restore the baseline before it ends')
+    }))).rejects.toThrow('Promotion must leave time to restore the baseline before it ends')
 
     expect(await db.charging_plans.toArray()).toEqual(plansBefore)
     expect(await db.sync_outbox.count()).toBe(0)
