@@ -216,6 +216,35 @@ export interface SyncOutbox {
 export type SyncOutboxEntry = SyncOutbox;
 
 /**
+ * Durable local proof that a terminal provider conflict was reconciled safely.
+ *
+ * This operational metadata is never synchronized to Supabase. Its primary key
+ * is the terminal provider-insert outbox row that reconciliation removed.
+ */
+export interface ProviderReconciliation {
+  /** Stable primary key of the resolved terminal provider outbox item. */
+  terminal_outbox_id: number;
+  /** Authenticated owner whose graph was reconciled. */
+  user_id: string;
+  /** Local provider identity retired by reconciliation. */
+  staged_provider_id: string;
+  /** Existing remote provider identity adopted locally. */
+  canonical_provider_id: string;
+  /** Exact non-provider domain rows reviewed and rebound by table. */
+  affected_row_ids: {
+    charging_plan_ids: string[];
+    selection_ids: string[];
+    session_ids: string[];
+  };
+  /** Exact dependent outbox rows rewritten by reconciliation. */
+  affected_outbox_ids: number[];
+  /** Canonical safety-review serialization verified before post-reload success. */
+  review_serialization: string;
+  /** UTC timestamp at which the local graph transaction completed. */
+  completed_at: Date;
+}
+
+/**
  * Dexie database for offline-first EV Analytics data.
  *
  * Stores domain records and the outbox in IndexedDB so charging data entry can
@@ -232,6 +261,8 @@ export class EVAnalyticsDB extends Dexie {
   provider_plan_selections!: Table<ProviderPlanSelection>;
   /** Pending local mutations to replay to Supabase. */
   sync_outbox!: Table<SyncOutbox>;
+  /** Local-only durable reconciliation evidence, keyed by terminal outbox ID. */
+  provider_reconciliations!: Table<ProviderReconciliation, number>;
 
   constructor(dbName = 'EVAnalyticsDB') {
     super(dbName);
@@ -312,6 +343,14 @@ export class EVAnalyticsDB extends Dexie {
       sessions: 'id, user_id, session_timestamp, provider_id, session_mode, tariff_plan_id, plan_selection_id, charging_type, deleted_at',
       sync_outbox: '++id, table_name, action, timestamp, next_attempt_at'
     });
+    this.version(6).stores({
+      providers: 'id, user_id, name, deleted_at',
+      charging_plans: 'id, user_id, provider_id, name, deleted_at',
+      provider_plan_selections: 'id, user_id, provider_id, tariff_plan_id, valid_from, valid_to, deleted_at',
+      sessions: 'id, user_id, session_timestamp, provider_id, session_mode, tariff_plan_id, plan_selection_id, charging_type, deleted_at',
+      sync_outbox: '++id, table_name, action, timestamp, next_attempt_at',
+      provider_reconciliations: 'terminal_outbox_id, user_id, staged_provider_id, canonical_provider_id, completed_at'
+    });
   }
 }
 
@@ -327,11 +366,12 @@ export const db = new EVAnalyticsDB();
  * multiple users share the same browser profile.
  */
 export async function clearLocalUserData(): Promise<void> {
-  await db.transaction('rw', [db.providers, db.charging_plans, db.provider_plan_selections, db.sessions, db.sync_outbox], async () => {
+  await db.transaction('rw', [db.providers, db.charging_plans, db.provider_plan_selections, db.sessions, db.sync_outbox, db.provider_reconciliations], async () => {
     await db.providers.clear();
     await db.charging_plans.clear();
     await db.provider_plan_selections.clear();
     await db.sessions.clear();
     await db.sync_outbox.clear();
+    await db.provider_reconciliations.clear();
   });
 }

@@ -131,6 +131,80 @@ describe('EVAnalyticsDB', () => {
     expect(db.sync_outbox).toBeDefined()
   })
 
+  it('closes an already-open v5 connection when the v6 runtime upgrades the database', async () => {
+    // Arrange: Hold a legacy v5 connection open with an existing provider row.
+    const dbName = 'EVAnalyticsDB-v5-versionchange-test'
+    class V5Runtime extends Dexie {
+      providers!: Table<Record<string, unknown>>
+
+      constructor() {
+        super(dbName)
+        this.version(5).stores({
+          providers: 'id, user_id, name, deleted_at',
+          charging_plans: 'id, user_id, provider_id, name, deleted_at',
+          provider_plan_selections: 'id, user_id, provider_id, tariff_plan_id, valid_from, valid_to, deleted_at',
+          sessions: 'id, user_id, session_timestamp, provider_id, session_mode, tariff_plan_id, plan_selection_id, charging_type, deleted_at',
+          sync_outbox: '++id, table_name, action, timestamp, next_attempt_at'
+        })
+      }
+    }
+    const legacy = new V5Runtime()
+    let versionChangeReceived = false
+    legacy.on('versionchange', () => {
+      versionChangeReceived = true
+    })
+    await legacy.open()
+    await legacy.providers.add({ id: 'provider-before-v6', user_id: 'user-1', name: 'Before upgrade' })
+
+    // Act: Open the current runtime against the v5 database.
+    const upgraded = new EVAnalyticsDB(dbName)
+    await upgraded.open()
+
+    // Assert: The version upgrade closes the connection that was already open.
+    expect(upgraded.verno).toBe(6)
+    expect(versionChangeReceived).toBe(true)
+    expect(legacy.isOpen()).toBe(false)
+    expect(await upgraded.providers.get('provider-before-v6')).toMatchObject({ name: 'Before upgrade' })
+    await upgraded.delete()
+  })
+
+  it('persists local-only reconciliation evidence through database recreation', async () => {
+    // Arrange: Open a fresh runtime and access the planned local evidence store.
+    const dbName = 'EVAnalyticsDB-provider-reconciliations-test'
+    const upgraded = new EVAnalyticsDB(dbName)
+    await upgraded.open()
+    const reconciliations = upgraded.provider_reconciliations
+
+    // Act: Persist the evidence without creating any outbox mutation.
+    expect(reconciliations).toBeDefined()
+    await reconciliations.add({
+      terminal_outbox_id: 41,
+      user_id: 'user-1',
+      staged_provider_id: 'staged-provider',
+      canonical_provider_id: 'canonical-provider',
+      affected_row_ids: { charging_plan_ids: ['plan-1'], selection_ids: [], session_ids: [] },
+      affected_outbox_ids: [42],
+      review_serialization: '{"review":"complete"}',
+      completed_at: new Date('2026-08-23T09:00:00.000Z'),
+    })
+    await upgraded.close()
+
+    const reopened = new EVAnalyticsDB(dbName)
+    await reopened.open()
+    const reopenedReconciliations = reopened.provider_reconciliations
+
+    // Assert: The durable local record survives recreation and is absent from the outbox.
+    expect(await reopenedReconciliations.where('terminal_outbox_id').equals(41).first()).toMatchObject({
+      user_id: 'user-1',
+      staged_provider_id: 'staged-provider',
+      canonical_provider_id: 'canonical-provider',
+      affected_outbox_ids: [42],
+      review_serialization: '{"review":"complete"}',
+    })
+    expect(await reopened.sync_outbox.count()).toBe(0)
+    await reopened.delete()
+  })
+
   it('should include charging_plans in outbox table names', () => {
     // Assert: Outbox union includes charging-plan mutations for sync replay.
     expectTypeOf<SyncOutboxEntry['table_name']>().toEqualTypeOf<
