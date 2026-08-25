@@ -1052,6 +1052,7 @@ describe('syncEngine', () => {
     const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
     vi.mocked(supabase.from).mockReturnValue({ upsert: mockUpsert } as unknown as ReturnType<typeof supabase.from>)
     const now = new Date('2026-05-21T12:00:00.000Z')
+    await db.providers.add(buildProvider())
 
     const selection = await setActivePlanSelection({
       userId: 'user-1',

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { db, type ChargingPlan, type ChargingSession } from '../../../infra/db'
+import { EVAnalyticsDB, db, type ChargingPlan, type ChargingSession, type Provider } from '../../../infra/db'
 import {
   deleteLogicalTariff,
   getChargingPlanHistory,
@@ -170,10 +170,53 @@ const buildRetirementInput = (
 describe('planService', () => {
   beforeEach(async () => {
     // Keep local charging-plan and outbox state isolated between fake IndexedDB tests.
+    await db.providers.clear()
     await db.charging_plans.clear()
     await db.provider_plan_selections.clear()
     await db.sessions.clear()
     await db.sync_outbox.clear()
+    await db.providers.bulkAdd([
+      {
+        id: 'provider-1',
+        user_id: 'user-1',
+        name: 'Provider one',
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+      },
+      {
+        id: 'provider-2',
+        user_id: 'user-1',
+        name: 'Provider two',
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+      },
+    ])
+  })
+
+  it('rejects stale plan creates and updates after another runtime removes the provider', async () => {
+    // Arrange: a stale editor still holds a provider reference that recovery removed elsewhere.
+    const provider: Provider = {
+      id: 'staged-provider',
+      user_id: 'user-1',
+      name: 'Staged provider',
+      created_at: utc('2026-01-01'),
+      updated_at: utc('2026-01-01'),
+    }
+    const existing = buildPlan({ id: 'stale-plan-update', provider_id: provider.id })
+    const staleCreate = buildPlan({ id: 'stale-plan-create', provider_id: provider.id })
+    await db.providers.add(provider)
+    await db.charging_plans.add(existing)
+
+    const reconciliationRuntime = new EVAnalyticsDB()
+    await reconciliationRuntime.providers.delete(provider.id)
+    reconciliationRuntime.close()
+
+    // Act and Assert: neither stale mutation recreates the removed provider reference or queues sync.
+    await expect(saveChargingPlan(staleCreate)).rejects.toThrow('Provider reference is unavailable')
+    await expect(saveChargingPlan({ ...existing, notes: 'Edited after removal' }))
+      .rejects.toThrow('Provider reference is unavailable')
+    expect(await db.charging_plans.toArray()).toEqual([existing])
+    expect(await db.sync_outbox.count()).toBe(0)
   })
 
   it('returns an empty charging-plan history for no referenced plan ids', async () => {

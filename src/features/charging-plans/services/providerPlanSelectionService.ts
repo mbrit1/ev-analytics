@@ -1,5 +1,6 @@
 import Dexie from 'dexie';
 import { createSyncOutboxEntry, db, type ProviderPlanSelection, type SyncOutbox, type TariffPriceSnapshot } from '../../../infra/db';
+import { assertOwnedProviderReference } from './providerService';
 
 export interface SetActivePlanSelectionInput {
   userId: string;
@@ -16,6 +17,7 @@ export interface SetActivePlanSelectionInput {
 export async function applyActivePlanSelectionChange(
   input: SetActivePlanSelectionInput
 ): Promise<ProviderPlanSelection> {
+  await assertOwnedProviderReference(input.userId, input.providerId);
   const providerPlanSelections = Dexie.currentTransaction != null
     ? Dexie.currentTransaction.table<ProviderPlanSelection, string>('provider_plan_selections')
     : db.provider_plan_selections;
@@ -67,7 +69,7 @@ export async function applyActivePlanSelectionChange(
 }
 
 export async function setActivePlanSelection(input: SetActivePlanSelectionInput): Promise<ProviderPlanSelection> {
-  return db.transaction('rw', db.provider_plan_selections, db.sync_outbox, async () => {
+  return db.transaction('rw', db.providers, db.provider_plan_selections, db.sync_outbox, async () => {
     return applyActivePlanSelectionChange(input);
   });
 }

@@ -16,6 +16,7 @@ import {
   assertNoPaidTariffOverlap,
   periodsOverlap,
 } from '../model/chargingPlanInvariants';
+import { assertOwnedProviderReference } from './providerService';
 
 export { PaidTariffOverlapError } from '../model/chargingPlanInvariants';
 
@@ -336,8 +337,12 @@ export async function getEffectiveChargingPlanAt(
 export async function saveChargingPlan(plan: ChargingPlan): Promise<void> {
   validatePlan(plan);
 
-  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.sync_outbox, async () => {
     const normalizedIncomingPlan = hydrateChargingPlanDates(plan);
+    await assertOwnedProviderReference(
+      normalizedIncomingPlan.user_id,
+      normalizedIncomingPlan.provider_id,
+    );
     const existing = await db.charging_plans.get(normalizedIncomingPlan.id);
     if (existing) {
       const existingVersions = await loadLogicalVersionsFromTable(

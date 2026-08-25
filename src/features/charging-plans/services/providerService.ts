@@ -1,3 +1,4 @@
+import Dexie from 'dexie';
 import { createSyncOutboxEntry, db, type Provider } from '../../../infra/db';
 
 const DUPLICATE_PROVIDER_NAME_MESSAGE = 'Provider name already exists (active, case-insensitive)';
@@ -45,6 +46,32 @@ export class DuplicateProviderNameError extends Error {
     super(DUPLICATE_PROVIDER_NAME_MESSAGE);
     this.name = 'DuplicateProviderNameError';
     this.provider = provider;
+  }
+}
+
+/** Raised when a local write would recreate a removed or foreign provider reference. */
+export class ProviderReferenceUnavailableError extends Error {
+  constructor() {
+    super('Provider reference is unavailable');
+    this.name = 'ProviderReferenceUnavailableError';
+  }
+}
+
+/**
+ * Verifies a provider reference inside the active Dexie transaction when one
+ * exists, so concurrent reconciliation cannot leave an orphaned local graph.
+ */
+export async function assertOwnedProviderReference(
+  userId: string,
+  providerId: string,
+): Promise<void> {
+  const providers = Dexie.currentTransaction != null
+    ? Dexie.currentTransaction.table<Provider, string>('providers')
+    : db.providers;
+  const provider = await providers.get(providerId);
+
+  if (!provider || provider.user_id !== userId || provider.deleted_at) {
+    throw new ProviderReferenceUnavailableError();
   }
 }
 

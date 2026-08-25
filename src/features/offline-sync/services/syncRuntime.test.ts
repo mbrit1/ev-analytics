@@ -7,6 +7,7 @@ import {
   createDefaultSyncRuntimeDeps,
   getSyncRuntimeHydrationSnapshot,
   retryActiveSyncRuntime,
+  runSyncRuntimeExclusive,
   type SyncRuntimeDeps,
   type SyncEngineModule
 } from './syncRuntime';
@@ -15,6 +16,47 @@ const readyHydrationResult: InitialSyncResult = {
   providers: { status: 'ready' },
   charging_plans: { status: 'ready' },
   sessions: { status: 'ready' },
+};
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+  reject: (reason?: unknown) => void;
+}
+
+const createDeferred = <T>(): Deferred<T> => {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, resolve, reject };
+};
+
+const installQueuedWebLocks = (): void => {
+  const pendingByName = new Map<string, Promise<void>>();
+
+  Object.defineProperty(navigator, 'locks', {
+    configurable: true,
+    value: {
+      request: (
+        name: string,
+        optionsOrCallback: unknown,
+        callbackArgument?: (lock: { name: string }) => unknown,
+      ): Promise<unknown> => {
+        const callback = typeof optionsOrCallback === 'function'
+          ? optionsOrCallback as (lock: { name: string }) => unknown
+          : callbackArgument;
+        const runCallback = (): Promise<unknown> => Promise.resolve(callback?.({ name }));
+        const previous = pendingByName.get(name);
+        const result = previous ? previous.then(runCallback) : runCallback();
+        pendingByName.set(name, result.then(() => undefined, () => undefined));
+        return result;
+      },
+    },
+  });
 };
 
 /**
@@ -32,8 +74,11 @@ describe('syncRuntime', () => {
   let unsubscribeOutbox: () => void;
   let unsubscribeOnlineCount: number;
   let unsubscribeOutboxCount: number;
+  let originalLocksDescriptor: PropertyDescriptor | undefined;
 
   beforeEach(() => {
+    originalLocksDescriptor = Object.getOwnPropertyDescriptor(navigator, 'locks');
+    installQueuedWebLocks();
     triggerOnline = undefined;
     triggerOutboxCreate = undefined;
     unsubscribeOnlineCount = 0;
@@ -57,6 +102,11 @@ describe('syncRuntime', () => {
   });
 
   afterEach(() => {
+    if (originalLocksDescriptor) {
+      Object.defineProperty(navigator, 'locks', originalLocksDescriptor);
+    } else {
+      Reflect.deleteProperty(navigator, 'locks');
+    }
     vi.clearAllMocks();
   });
 
@@ -184,9 +234,10 @@ describe('syncRuntime', () => {
     await Promise.resolve();
     await Promise.resolve();
     triggerOnline?.();
-    await Promise.resolve();
-    await Promise.resolve();
-    dispose();
+    await vi.waitFor(() => {
+      expect(processOutbox).toHaveBeenCalledTimes(2);
+    });
+    await dispose();
 
     // Assert: One startup call plus one online-triggered call.
     expect(processOutbox).toHaveBeenCalledTimes(2);
@@ -205,9 +256,10 @@ describe('syncRuntime', () => {
     await Promise.resolve();
     await Promise.resolve();
     triggerOutboxCreate?.();
-    await Promise.resolve();
-    await Promise.resolve();
-    dispose();
+    await vi.waitFor(() => {
+      expect(processOutbox).toHaveBeenCalledTimes(2);
+    });
+    await dispose();
 
     // Assert: Startup plus outbox-driven trigger.
     expect(processOutbox).toHaveBeenCalledTimes(2);
@@ -277,12 +329,163 @@ describe('syncRuntime', () => {
 
     // Finish the first run, then allow one rerun to start.
     release?.();
-    await Promise.resolve();
-    await Promise.resolve();
-    dispose();
+    await vi.waitFor(() => {
+      expect(processOutbox).toHaveBeenCalledTimes(2);
+    });
+    release?.();
+    await dispose();
 
     // Assert: Exactly one additional run executes after the in-flight run.
     expect(processOutbox).toHaveBeenCalledTimes(2);
+  });
+
+  it('waits for an active cooperative outbox pass before entering recovery exclusivity', async () => {
+    // Arrange: Hold the current runtime's cooperative upload after it starts.
+    const activePass = createDeferred<void>();
+    let receivedSignal: AbortSignal | undefined;
+    const processOutbox = vi.fn((options?: { signal?: AbortSignal }) => {
+      receivedSignal = options?.signal;
+      return activePass.promise;
+    });
+    const { deps } = createDeps({
+      initialSync: vi.fn(async () => readyHydrationResult),
+      processOutbox,
+    });
+    const exclusiveCallback = vi.fn(async () => undefined);
+    const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
+
+    try {
+      await vi.waitFor(() => {
+        expect(processOutbox).toHaveBeenCalledTimes(1);
+      });
+
+      // Act: Request recovery exclusion without using abort as a quiescence proof.
+      const exclusiveWork = runSyncRuntimeExclusive(exclusiveCallback);
+      await Promise.resolve();
+
+      // Assert: The in-flight upload remains active and exclusive work waits.
+      expect(receivedSignal?.aborted).toBe(false);
+      expect(exclusiveCallback).not.toHaveBeenCalled();
+
+      activePass.resolve();
+      await exclusiveWork;
+
+      // Assert: The callback can enter only after the cooperative pass settles.
+      expect(exclusiveCallback).toHaveBeenCalledTimes(1);
+    } finally {
+      activePass.resolve();
+      await dispose();
+    }
+  });
+
+  it('holds the shared lock across initialSync, outbox, and coalesced triggers in another runtime', async () => {
+    // Arrange: Hold recovery exclusivity before a second runtime starts.
+    const releaseExclusive = createDeferred<void>();
+    const exclusiveCallback = vi.fn(async () => releaseExclusive.promise);
+    const exclusiveWork = runSyncRuntimeExclusive(exclusiveCallback);
+    let triggerSecondOnline: (() => void) | undefined;
+    let triggerSecondOutbox: (() => void) | undefined;
+    const secondInitialSync = vi.fn(async () => readyHydrationResult);
+    const secondProcessOutbox = vi.fn(async () => undefined);
+    const secondDeps: SyncRuntimeDeps = {
+      loadSyncEngine: vi.fn(async () => ({
+        initialSync: secondInitialSync,
+        processOutbox: secondProcessOutbox,
+      })),
+      addOnlineListener: (listener) => {
+        triggerSecondOnline = listener;
+        return () => undefined;
+      },
+      subscribeOutboxCreates: (listener) => {
+        triggerSecondOutbox = listener;
+        return () => undefined;
+      },
+      logger: { error: vi.fn() },
+    };
+
+    await vi.waitFor(() => {
+      expect(exclusiveCallback).toHaveBeenCalledTimes(1);
+    });
+    const disposeSecond = startSyncRuntime({ isAuthenticated: true }, secondDeps);
+
+    try {
+      // Act: Request two second-runtime passes while recovery owns the database lock.
+      triggerSecondOnline?.();
+      triggerSecondOutbox?.();
+      await Promise.resolve();
+
+      // Assert: The database-scoped lock has no user component, so no write cycle starts.
+      expect(secondInitialSync).not.toHaveBeenCalled();
+      expect(secondProcessOutbox).not.toHaveBeenCalled();
+
+      releaseExclusive.resolve();
+      await exclusiveWork;
+
+      // Assert: The queued startup and triggers collapse into one normal sync after release.
+      await vi.waitFor(() => {
+        expect(secondInitialSync).toHaveBeenCalledTimes(1);
+        expect(secondProcessOutbox).toHaveBeenCalledTimes(1);
+      });
+    } finally {
+      releaseExclusive.resolve();
+      await exclusiveWork;
+      await disposeSecond();
+    }
+  });
+
+  it('releases recovery exclusivity after a throwing callback and cancels a disposed queued runtime', async () => {
+    // Arrange: Make the first exclusive callback fail, then hold a second callback.
+    const failure = new Error('recovery failed');
+    const releaseExclusive = createDeferred<void>();
+    const secondExclusiveCallback = vi.fn(async () => releaseExclusive.promise);
+    const queuedInitialSync = vi.fn(async () => readyHydrationResult);
+    const queuedProcessOutbox = vi.fn(async () => undefined);
+    const { deps } = createDeps({
+      initialSync: queuedInitialSync,
+      processOutbox: queuedProcessOutbox,
+    });
+
+    // Act: Throw from one callback, then queue and dispose a runtime behind the next one.
+    await expect(runSyncRuntimeExclusive(async () => {
+      throw failure;
+    })).rejects.toThrow(failure);
+    const exclusiveWork = runSyncRuntimeExclusive(secondExclusiveCallback);
+    await vi.waitFor(() => {
+      expect(secondExclusiveCallback).toHaveBeenCalledTimes(1);
+    });
+    const disposeQueued = startSyncRuntime({ isAuthenticated: true }, deps);
+    const queuedDisposal = disposeQueued();
+    releaseExclusive.resolve();
+    await exclusiveWork;
+    await queuedDisposal;
+
+    // Assert: The thrown callback released the lock and disposal prevented queued writes.
+    expect(queuedInitialSync).not.toHaveBeenCalled();
+    expect(queuedProcessOutbox).not.toHaveBeenCalled();
+  });
+
+  it('does not fall back to unlocked synchronization when Web Locks are unavailable', async () => {
+    // Arrange: Remove the browser capability required for cooperative exclusion.
+    Reflect.deleteProperty(navigator, 'locks');
+    const logger = { error: vi.fn() };
+    const processOutbox = vi.fn(async () => undefined);
+    const { deps } = createDeps({
+      initialSync: vi.fn(async () => readyHydrationResult),
+      processOutbox,
+    }, logger);
+
+    // Act: Start authenticated synchronization without a supported lock manager.
+    const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
+    await vi.waitFor(() => {
+      expect(logger.error).toHaveBeenCalledWith(
+        'Sync exclusion is unavailable:',
+        expect.objectContaining({ name: 'SyncExclusionUnavailableError' }),
+      );
+    });
+    await dispose();
+
+    // Assert: The runtime reports the unsupported capability and performs no unlocked writes.
+    expect(processOutbox).not.toHaveBeenCalled();
   });
 
   it('aborts an active outbox pass and drops its queued rerun on dispose', async () => {
@@ -362,9 +565,10 @@ describe('syncRuntime', () => {
     await Promise.resolve();
     triggerOnline?.();
     triggerOutboxCreate?.();
-    await Promise.resolve();
-    await Promise.resolve();
-    dispose();
+    await vi.waitFor(() => {
+      expect(processOutbox).toHaveBeenCalledTimes(2);
+    });
+    await dispose();
 
     // Assert: Engine loader runs once and returned functions are executed.
     expect(loadSyncEngine).toHaveBeenCalledTimes(1);
@@ -451,9 +655,10 @@ describe('syncRuntime', () => {
     await Promise.resolve();
     await Promise.resolve();
     triggerOnline?.();
-    await Promise.resolve();
-    await Promise.resolve();
-    dispose();
+    await vi.waitFor(() => {
+      expect(processOutbox).toHaveBeenCalledTimes(1);
+    });
+    await dispose();
 
     // Assert: Failure is logged and next trigger retries loader successfully.
     expect(logger.error).toHaveBeenCalledWith('Loading sync engine failed:', expect.any(Error));
@@ -478,9 +683,10 @@ describe('syncRuntime', () => {
 
     // Act: Start runtime and let startup complete.
     const dispose = startSyncRuntime({ isAuthenticated: true }, deps);
-    await Promise.resolve();
-    await Promise.resolve();
-    dispose();
+    await vi.waitFor(() => {
+      expect(processOutbox).toHaveBeenCalledTimes(1);
+    });
+    await dispose();
 
     // Assert: Initial failure is logged and outbox processing still runs.
     expect(logger.error).toHaveBeenCalledWith('Initial sync failed:', expect.any(Error));
@@ -503,9 +709,10 @@ describe('syncRuntime', () => {
     await Promise.resolve();
     await Promise.resolve();
     triggerOnline?.();
-    await Promise.resolve();
-    await Promise.resolve();
-    dispose();
+    await vi.waitFor(() => {
+      expect(initialSync).toHaveBeenCalledTimes(2);
+    });
+    await dispose();
 
     // Assert: Initial sync is attempted again on a later trigger.
     expect(initialSync).toHaveBeenCalledTimes(2);
@@ -531,9 +738,10 @@ describe('syncRuntime', () => {
     await Promise.resolve();
     await Promise.resolve();
     triggerOnline?.();
-    await Promise.resolve();
-    await Promise.resolve();
-    dispose();
+    await vi.waitFor(() => {
+      expect(processOutbox).toHaveBeenCalledTimes(2);
+    });
+    await dispose();
 
     // Assert: First failure is logged and later trigger executes again.
     expect(logger.error).toHaveBeenCalledWith('Outbox processing failed:', expect.any(Error));

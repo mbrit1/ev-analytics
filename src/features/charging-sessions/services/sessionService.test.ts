@@ -37,7 +37,46 @@ describe('sessionService', () => {
     await sharedDb.sessions.clear()
     await sharedDb.provider_plan_selections.clear()
     await sharedDb.sync_outbox.clear()
+    await sharedDb.providers.add({
+      id: 'provider-1',
+      user_id: 'user-456',
+      name: 'Fixture provider',
+      created_at: utc('2026-01-01'),
+      updated_at: utc('2026-01-01'),
+    })
     vi.restoreAllMocks()
+  })
+
+  it('rejects stale plan-session creates and updates after another runtime removes the provider', async () => {
+    // Arrange: a plan-mode editor was prepared before reconciliation removed its provider.
+    const provider: Provider = {
+      id: 'staged-provider',
+      user_id: 'user-456',
+      name: 'Staged provider',
+      created_at: utc('2026-01-01'),
+      updated_at: utc('2026-01-01'),
+    };
+    const existing = buildSessionFixture({
+      id: 'stale-session-update',
+      provider_id: provider.id,
+    });
+    const staleCreate = buildSessionFixture({
+      id: 'stale-session-create',
+      provider_id: provider.id,
+    });
+    await sharedDb.providers.add(provider);
+    await sharedDb.sessions.add(existing);
+
+    const reconciliationRuntime = new EVAnalyticsDB();
+    await reconciliationRuntime.providers.delete(provider.id);
+    reconciliationRuntime.close();
+
+    // Act and Assert: stale plan sessions do not recreate a reference or an outbox payload.
+    await expect(saveSession(staleCreate)).rejects.toThrow('Provider reference is unavailable');
+    await expect(updateSession({ ...existing, notes: 'Edited after removal' }))
+      .rejects.toThrow('Provider reference is unavailable');
+    expect(await sharedDb.sessions.toArray()).toEqual([existing]);
+    expect(await sharedDb.sync_outbox.count()).toBe(0);
   })
 
   const mockProvider: Provider = {
@@ -1348,10 +1387,18 @@ describe('sessionService', () => {
     const original = buildSessionFixture({
       id: 'session-edit-1',
       user_id: 'stored-user',
+      provider_id: 'stored-provider',
       created_at: new Date('2026-06-01T08:00:00.000Z'),
       session_mode: 'plan',
       deleted_at: new Date('2026-06-03T08:00:00.000Z'),
       notes: 'Original',
+    });
+    await sharedDb.providers.add({
+      id: 'stored-provider',
+      user_id: 'stored-user',
+      name: 'Stored provider',
+      created_at: new Date('2026-06-01T08:00:00.000Z'),
+      updated_at: new Date('2026-06-01T08:00:00.000Z'),
     });
     await sharedDb.sessions.put(original);
 
