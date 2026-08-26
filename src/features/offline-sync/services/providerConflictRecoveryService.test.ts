@@ -283,6 +283,160 @@ describe('prepareProviderConflictRecovery', () => {
       .resolves.toMatchObject({ status: 'ready' });
   });
 
+  it('blocks an incompatible remotely persisted selection before rebinding its local graph', async () => {
+    // Arrange: a partially synced selection with an invalid remote owner is an integrity conflict.
+    const stagedProvider = buildStagedProvider();
+    const stagedPlan = buildChargingPlan({
+      id: 'partial-plan',
+      provider_id: stagedProvider.id,
+    });
+    const selection: ProviderPlanSelection = {
+      id: 'partial-selection',
+      user_id: 'user-1',
+      provider_id: stagedProvider.id,
+      tariff_plan_id: stagedPlan.id,
+      valid_from: new Date('2026-08-25T00:00:00.000Z'),
+      valid_to: null,
+      price_snapshot: { label: 'Ionity', kWhPrice: 79 },
+      created_at: new Date('2026-08-25T10:00:00.000Z'),
+      updated_at: new Date('2026-08-25T10:00:00.000Z'),
+    };
+    await db.providers.add(stagedProvider);
+    await db.charging_plans.add(stagedPlan);
+    await db.provider_plan_selections.add(selection);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    supabaseMock.from.mockImplementation((table: string) => createRemoteQuery(
+      table === 'providers'
+        ? [buildStagedProvider({ id: 'canonical-provider' })]
+        : table === 'provider_plan_selections'
+          ? [{ ...selection, user_id: 'user-2', provider_id: 'canonical-provider' }]
+          : [],
+    ));
+
+    // Act and Assert: remote partial success must be owner-validated before local rewrites.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toMatchObject({ status: 'blocked' });
+    expect(await db.provider_plan_selections.get(selection.id)).toEqual(selection);
+  });
+
+  it('accepts a compatible remotely persisted selection as partial prior success', async () => {
+    // Arrange: the remote selection already has the canonical provider but otherwise matches the staged row.
+    const stagedProvider = buildStagedProvider();
+    const stagedPlan = buildChargingPlan({
+      id: 'compatible-partial-plan',
+      provider_id: stagedProvider.id,
+    });
+    const selection: ProviderPlanSelection = {
+      id: 'compatible-partial-selection',
+      user_id: 'user-1',
+      provider_id: stagedProvider.id,
+      tariff_plan_id: stagedPlan.id,
+      valid_from: new Date('2026-08-25T00:00:00.000Z'),
+      valid_to: null,
+      price_snapshot: { label: 'Ionity', kWhPrice: 79 },
+      created_at: new Date('2026-08-25T10:00:00.000Z'),
+      updated_at: new Date('2026-08-25T10:00:00.000Z'),
+    };
+    await db.providers.add(stagedProvider);
+    await db.charging_plans.add(stagedPlan);
+    await db.provider_plan_selections.add(selection);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    supabaseMock.from.mockImplementation((table: string) => createRemoteQuery(
+      table === 'providers'
+        ? [buildStagedProvider({ id: 'canonical-provider' })]
+        : table === 'provider_plan_selections'
+          ? [{ ...selection, provider_id: 'canonical-provider' }]
+          : [],
+    ));
+
+    // Act and Assert: the compatible prior remote write is safe to include in the review.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toMatchObject({ status: 'ready' });
+  });
+
+  it('blocks an incompatible remotely persisted plan-mode session before rebinding its local graph', async () => {
+    // Arrange: a partially synced plan-mode session must be verified before its provider ID moves.
+    const stagedProvider = buildStagedProvider();
+    const stagedPlan = buildChargingPlan({
+      id: 'partial-session-plan',
+      provider_id: stagedProvider.id,
+    });
+    const session: Extract<ChargingSession, { session_mode: 'plan' }> = {
+      id: 'partial-session',
+      user_id: 'user-1',
+      provider_id: stagedProvider.id,
+      provider_name_snapshot: 'Ionity',
+      tariff_plan_id: stagedPlan.id,
+      plan_selection_id: null,
+      charging_plan_name_snapshot: 'Ionity plan',
+      session_timestamp: new Date('2026-08-25T10:00:00.000Z'),
+      charging_type: 'DC',
+      kwh_billed: 10,
+      total_cost: 790,
+      session_mode: 'plan',
+      applied_session_fee: 0,
+      created_at: new Date('2026-08-25T10:00:00.000Z'),
+      updated_at: new Date('2026-08-25T10:00:00.000Z'),
+    };
+    await db.providers.add(stagedProvider);
+    await db.charging_plans.add(stagedPlan);
+    await db.sessions.add(session);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    supabaseMock.from.mockImplementation((table: string) => createRemoteQuery(
+      table === 'providers'
+        ? [buildStagedProvider({ id: 'canonical-provider' })]
+        : table === 'charging_sessions'
+          ? [{ ...session, user_id: 'user-2', provider_id: 'canonical-provider' }]
+          : [],
+    ));
+
+    // Act and Assert: an owner mismatch in remote partial success blocks local mutation.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toMatchObject({ status: 'blocked' });
+    expect(await db.sessions.get(session.id)).toEqual(session);
+  });
+
+  it('accepts a compatible remotely persisted plan-mode session as partial prior success', async () => {
+    // Arrange: the remote session already uses the canonical provider and otherwise matches local history.
+    const stagedProvider = buildStagedProvider();
+    const stagedPlan = buildChargingPlan({
+      id: 'compatible-session-plan',
+      provider_id: stagedProvider.id,
+    });
+    const session: Extract<ChargingSession, { session_mode: 'plan' }> = {
+      id: 'compatible-session',
+      user_id: 'user-1',
+      provider_id: stagedProvider.id,
+      provider_name_snapshot: 'Ionity',
+      tariff_plan_id: stagedPlan.id,
+      plan_selection_id: null,
+      charging_plan_name_snapshot: 'Ionity plan',
+      session_timestamp: new Date('2026-08-25T10:00:00.000Z'),
+      charging_type: 'DC',
+      kwh_billed: 10,
+      total_cost: 790,
+      session_mode: 'plan',
+      applied_session_fee: 0,
+      created_at: new Date('2026-08-25T10:00:00.000Z'),
+      updated_at: new Date('2026-08-25T10:00:00.000Z'),
+    };
+    await db.providers.add(stagedProvider);
+    await db.charging_plans.add(stagedPlan);
+    await db.sessions.add(session);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    supabaseMock.from.mockImplementation((table: string) => createRemoteQuery(
+      table === 'providers'
+        ? [buildStagedProvider({ id: 'canonical-provider' })]
+        : table === 'charging_sessions'
+          ? [{ ...session, provider_id: 'canonical-provider' }]
+          : [],
+    ));
+
+    // Act and Assert: a canonical remote prior write is included rather than treated as divergence.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toMatchObject({ status: 'ready' });
+  });
+
   it('fails closed when the authenticated principal changes during remote preflight', async () => {
     // Arrange: the authenticated user changes after preparation begins.
     const stagedProvider = buildStagedProvider();
