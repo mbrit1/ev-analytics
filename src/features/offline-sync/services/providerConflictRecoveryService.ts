@@ -9,6 +9,7 @@ import {
   type ChargingSession,
   type Provider,
   type ProviderPlanSelection,
+  type ProviderReconciliation,
   type SyncPayload,
   type SyncOutbox,
 } from '../../../infra/db';
@@ -70,7 +71,9 @@ export async function prepareProviderConflictRecovery(
 
   const completed = await db.provider_reconciliations.get(input.terminalOutboxId);
   if (completed?.user_id === input.userId) {
-    return { status: 'already-reconciled' };
+    return await hasVerifiedCompletedReconciliation(completed)
+      ? { status: 'already-reconciled' }
+      : blocked();
   }
 
   const terminalOutbox = await db.sync_outbox.get(input.terminalOutboxId);
@@ -418,6 +421,63 @@ function isMatchingStagedProvider(staged: Provider | undefined, payload: Provide
     && staged.id === payload.id
     && staged.user_id === userId
     && staged.name === payload.name;
+}
+
+async function hasVerifiedCompletedReconciliation(evidence: ProviderReconciliation): Promise<boolean> {
+  const [
+    stagedProvider,
+    canonicalProvider,
+    terminalOutbox,
+    plans,
+    selections,
+    sessions,
+    outbox,
+  ] = await Promise.all([
+    db.providers.get(evidence.staged_provider_id),
+    db.providers.get(evidence.canonical_provider_id),
+    db.sync_outbox.get(evidence.terminal_outbox_id),
+    db.charging_plans.bulkGet(evidence.affected_row_ids.charging_plan_ids),
+    db.provider_plan_selections.bulkGet(evidence.affected_row_ids.selection_ids),
+    db.sessions.bulkGet(evidence.affected_row_ids.session_ids),
+    db.sync_outbox.toArray(),
+  ]);
+
+  return stagedProvider === undefined
+    && canonicalProvider !== undefined
+    && canonicalProvider.user_id === evidence.user_id
+    && !canonicalProvider.deleted_at
+    && terminalOutbox === undefined
+    && plans.every((plan) => plan?.user_id === evidence.user_id && plan.provider_id === evidence.canonical_provider_id)
+    && selections.every((selection) => selection?.user_id === evidence.user_id && selection.provider_id === evidence.canonical_provider_id)
+    && sessions.every((session) => session?.user_id === evidence.user_id
+      && session.session_mode === 'plan'
+      && session.provider_id === evidence.canonical_provider_id)
+    && outbox.every((item) => hasCanonicalEvidenceOutboxPayload(item, evidence))
+    && !outbox.some((item) => referencesProvider(item, evidence.staged_provider_id));
+}
+
+function hasCanonicalEvidenceOutboxPayload(
+  item: SyncOutbox,
+  evidence: ProviderReconciliation,
+): boolean {
+  if (!evidence.affected_outbox_ids.includes(item.id ?? Number.NaN)) {
+    return true;
+  }
+
+  switch (item.table_name) {
+    case 'charging_plans':
+      return evidence.affected_row_ids.charging_plan_ids.includes(item.payload.id)
+        && (item.payload as ChargingPlan).provider_id === evidence.canonical_provider_id;
+    case 'provider_plan_selections':
+      return evidence.affected_row_ids.selection_ids.includes(item.payload.id)
+        && (item.payload as ProviderPlanSelection).provider_id === evidence.canonical_provider_id;
+    case 'sessions':
+      return evidence.affected_row_ids.session_ids.includes(item.payload.id)
+        && (item.payload as ChargingSession).session_mode === 'plan'
+        && (item.payload as Extract<ChargingSession, { session_mode: 'plan' }>).provider_id === evidence.canonical_provider_id;
+    case 'providers':
+      return false;
+  }
 }
 
 async function readLocalGraph(): Promise<LocalGraph> {

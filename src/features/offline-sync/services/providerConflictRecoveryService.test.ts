@@ -450,6 +450,59 @@ describe('confirmProviderConflictRecovery', () => {
     expect(await db.sync_outbox.get(terminalOutboxId)).toBeUndefined();
   });
 
+  it('rejects completion evidence when current postconditions no longer prove reconciliation', async () => {
+    // Arrange: complete a normal no-reference reconciliation, then corrupt its current postcondition.
+    const stagedProvider = buildStagedProvider();
+    await db.providers.add(stagedProvider);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    const preparation = await prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId });
+    expect(preparation).toMatchObject({ status: 'ready' });
+    if (preparation.status !== 'ready') return;
+    const confirm = (providerConflictRecoveryService as {
+      confirmProviderConflictRecovery?: (descriptor: ProviderConflictRecoveryDescriptor) => Promise<unknown>;
+    }).confirmProviderConflictRecovery;
+    expect(confirm).toBeTypeOf('function');
+    if (!confirm) return;
+    await confirm(preparation.descriptor);
+    await db.providers.delete('canonical-provider');
+
+    // Act: a repeated confirmation may use evidence only after exact state verification.
+    const repeated = await confirm(preparation.descriptor);
+
+    // Assert: missing canonical state is not silently reported as already reconciled.
+    expect(repeated).toMatchObject({ status: 'blocked' });
+  });
+
+  it('rejects completion evidence when an affected outbox payload is no longer canonical', async () => {
+    // Arrange: complete a tariff-only reconciliation with one retained dependent outbox row.
+    const stagedProvider = buildStagedProvider();
+    const stagedPlan = buildChargingPlan({ id: 'evidence-plan', provider_id: stagedProvider.id });
+    await db.providers.add(stagedProvider);
+    await db.charging_plans.add(stagedPlan);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    const planOutboxId = await db.sync_outbox.add({
+      table_name: 'charging_plans',
+      action: 'INSERT',
+      payload: stagedPlan,
+      timestamp: new Date('2026-08-25T10:02:00.000Z'),
+    });
+    const preparation = await prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId });
+    expect(preparation).toMatchObject({ status: 'ready' });
+    if (preparation.status !== 'ready') return;
+    const confirm = (providerConflictRecoveryService as {
+      confirmProviderConflictRecovery?: (descriptor: ProviderConflictRecoveryDescriptor) => Promise<unknown>;
+    }).confirmProviderConflictRecovery;
+    expect(confirm).toBeTypeOf('function');
+    if (!confirm) return;
+    await confirm(preparation.descriptor);
+    await db.sync_outbox.update(planOutboxId, {
+      payload: { ...stagedPlan, provider_id: 'unexpected-provider' },
+    });
+
+    // Act and Assert: evidence cannot override a current payload mismatch.
+    await expect(confirm(preparation.descriptor)).resolves.toMatchObject({ status: 'blocked' });
+  });
+
   it('rebinds selections and plan-mode sessions without changing snapshots or stable IDs', async () => {
     // Arrange: the full staged graph includes one tariff, selection, and plan-priced session.
     const stagedProvider = buildStagedProvider();
