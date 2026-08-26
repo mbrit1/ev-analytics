@@ -188,6 +188,9 @@ export type ChargingSession = ChargingPlanSession | AdHocChargingSession;
  */
 export type SyncPayload = Provider | ChargingPlan | ProviderPlanSelection | ChargingSession;
 
+/** Local-only durable classification for a terminal sync failure. */
+export type SyncFailureKind = 'provider-name-conflict';
+
 /**
  * Durable queue item representing a local mutation waiting for Supabase sync.
  */
@@ -210,6 +213,8 @@ export interface SyncOutbox {
   next_attempt_at?: Date;
   /** Last concise failure message recorded for diagnostics. */
   last_error?: string;
+  /** Local-only terminal classification; not indexed or synchronized. */
+  failure_kind?: SyncFailureKind;
 }
 
 /** Backward-compatible alias for a single outbox queue entry. */

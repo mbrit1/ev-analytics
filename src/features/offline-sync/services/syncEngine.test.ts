@@ -153,6 +153,10 @@ function buildProviderPlanSelection(overrides: Partial<ProviderPlanSelection> = 
   }
 }
 
+type SyncOutboxWithFailureKind = SyncOutbox & {
+  failure_kind?: 'provider-name-conflict';
+};
+
 // Mock Supabase so tests can assert sync behavior without network access.
 vi.mock('../../../infra/supabase', () => ({
   supabase: {
@@ -856,9 +860,14 @@ describe('syncEngine', () => {
       table_name: 'providers',
       retry_count: 1,
       last_attempt_at: now,
-      last_error: 'Provider name already exists remotely (active, case-insensitive)'
+      last_error: 'Provider name already exists remotely (active, case-insensitive)',
+      failure_kind: 'provider-name-conflict',
     })
     expect(remaining[0].next_attempt_at).toBeUndefined()
+    expect(consoleErrorSpy).not.toHaveBeenCalledWith(
+      expect.any(String),
+      'duplicate key value violates unique constraint "providers_user_name_active_unique"',
+    )
     expect(remaining[1]).toMatchObject({
       table_name: 'charging_plans'
     })
@@ -892,6 +901,69 @@ describe('syncEngine', () => {
     const [outboxItem] = await db.sync_outbox.toArray()
     expect(outboxItem.last_error).toBe('Unable to sync provider. Please try again.')
     expect(consoleErrorSpy).toHaveBeenCalledWith('Sync error for table providers:', rawErrorMessage)
+  })
+
+  it('clears a stale provider-name failure kind when a later live error is generic', async () => {
+    // Arrange: a new non-conflict response must not preserve a prior typed classification.
+    const providerUpsert = vi.fn(() => Promise.resolve({ error: { message: 'temporary gateway failure' } }))
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      upsert: tableName === 'providers' ? providerUpsert : vi.fn(() => Promise.resolve({ error: null }))
+    }) as unknown as ReturnType<typeof supabase.from>)
+    await db.sync_outbox.add({
+      table_name: 'providers',
+      action: 'INSERT',
+      payload: buildProvider({ id: 'provider-clear-failure-kind' }),
+      timestamp: new Date('2026-05-21T11:00:00.000Z'),
+      retry_count: 1,
+      last_attempt_at: new Date('2026-05-21T11:01:00.000Z'),
+      next_attempt_at: new Date('2026-05-21T11:59:00.000Z'),
+      last_error: 'Provider name already exists remotely (active, case-insensitive)',
+      failure_kind: 'provider-name-conflict',
+    } as SyncOutboxWithFailureKind)
+
+    // Act: the current remote response is not the recognized uniqueness conflict.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+
+    // Assert: only the safe generic error remains durable after the attempt.
+    const [outboxItem] = await db.sync_outbox.toArray()
+    expect(outboxItem).toMatchObject({
+      last_error: 'Unable to sync provider. Please try again.',
+      next_attempt_at: new Date('2026-05-21T12:02:00.000Z'),
+    })
+    expect(outboxItem).not.toHaveProperty('failure_kind')
+  })
+
+  it('discards a stale successful remote result when the captured outbox row changes', async () => {
+    // Arrange: keep the upload unresolved until a local writer replaces its payload and timestamp.
+    let resolveUpload: ((result: { error: null }) => void) | undefined
+    const providerUpsert = vi.fn(() => new Promise<{ error: null }>((resolve) => {
+      resolveUpload = resolve
+    }))
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      upsert: tableName === 'providers' ? providerUpsert : vi.fn(() => Promise.resolve({ error: null }))
+    }) as unknown as ReturnType<typeof supabase.from>)
+    const outboxId = await db.sync_outbox.add({
+      table_name: 'providers',
+      action: 'INSERT',
+      payload: buildProvider({ id: 'provider-stale-result', name: 'Original' }),
+      timestamp: new Date('2026-05-21T11:00:00.000Z'),
+    })
+
+    // Act: mutate the exact row while the remote call is in flight, then resolve it successfully.
+    const processing = processOutbox()
+    await vi.waitFor(() => expect(providerUpsert).toHaveBeenCalledTimes(1))
+    await db.sync_outbox.update(outboxId, {
+      payload: buildProvider({ id: 'provider-stale-result', name: 'Replacement' }),
+      timestamp: new Date('2026-05-21T11:01:00.000Z'),
+    })
+    resolveUpload?.({ error: null })
+    await processing
+
+    // Assert: a stale acknowledgement may not delete the newer local mutation.
+    await expect(db.sync_outbox.get(outboxId)).resolves.toMatchObject({
+      payload: expect.objectContaining({ name: 'Replacement' }),
+      timestamp: new Date('2026-05-21T11:01:00.000Z'),
+    })
   })
 
   it('should retain a provider constraint failure without exposing backend details in outbox metadata', async () => {

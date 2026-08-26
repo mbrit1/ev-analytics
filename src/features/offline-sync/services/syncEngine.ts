@@ -8,6 +8,13 @@ import {
 } from '../../../infra/db';
 import { supabase } from '../../../infra/supabase';
 import type { InitialSyncResult } from '../model/types';
+import { createCanonicalSerialization } from '../model/canonicalSerialization';
+import {
+  getLiveSyncFailureKind,
+  isLegacyTerminalProviderNameConflict,
+  isTypedTerminalProviderNameConflict,
+  PROVIDER_NAME_CONFLICT_ERROR_MESSAGE,
+} from '../model/syncFailure';
 
 const BASE_RETRY_DELAY_MS = 60_000;
 const MAX_RETRY_DELAY_MS = 15 * 60_000;
@@ -86,11 +93,9 @@ interface SyncFailure {
   errorMessage: string;
   nonRetryable?: boolean;
   isOverlapConflict?: boolean;
-  isProviderNameConflict?: boolean;
+  failureKind?: SyncOutbox['failure_kind'];
 }
 
-const PROVIDER_NAME_CONFLICT_ERROR_MESSAGE =
-  'Provider name already exists remotely (active, case-insensitive)';
 const GENERIC_PROVIDER_SYNC_ERROR_MESSAGE = 'Unable to sync provider. Please try again.';
 const LOGICAL_TARIFF_OVERLAP_ERROR_MESSAGE =
   'Tariff validity overlaps with an existing active version for this provider and name';
@@ -104,17 +109,13 @@ const CHARGING_PLAN_OVERLAP_ERROR_MESSAGES = new Set([
 function shouldContinueAfterFailure(item: SyncOutbox, result: { success: false } & SyncFailure): boolean {
   return result.nonRetryable === true && (
     (item.table_name === 'charging_plans' && result.isOverlapConflict === true)
-    || (item.table_name === 'providers' && result.isProviderNameConflict === true)
+    || (item.table_name === 'providers' && result.failureKind === 'provider-name-conflict')
   );
 }
 
 function isBlockedProviderNameConflict(item: SyncOutbox): boolean {
-  return item.table_name === 'providers'
-    && item.action === 'INSERT'
-    && (item.retry_count ?? 0) > 0
-    && item.last_attempt_at !== undefined
-    && item.next_attempt_at === undefined
-    && item.last_error === PROVIDER_NAME_CONFLICT_ERROR_MESSAGE;
+  return isTypedTerminalProviderNameConflict(item)
+    || isLegacyTerminalProviderNameConflict(item);
 }
 
 function isBlockedChargingPlanOverlap(item: SyncOutbox): boolean {
@@ -224,10 +225,70 @@ function getChargingPlanOverlapConflictMessage(error: { code?: string; message?:
   return undefined;
 }
 
-function isProviderNameConflict(error: { code?: string; message?: string } | null): boolean {
-  return error?.code === '23505'
-    && typeof error.message === 'string'
-    && error.message.includes('providers_user_name_active_unique');
+interface OutboxAttemptSnapshot {
+  id: number;
+  tableName: SyncOutbox['table_name'];
+  action: SyncOutbox['action'];
+  timestamp: string;
+  payload: string;
+}
+
+function createOutboxAttemptSnapshot(item: SyncOutbox): OutboxAttemptSnapshot | undefined {
+  if (item.id === undefined) return undefined;
+  return {
+    id: item.id,
+    tableName: item.table_name,
+    action: item.action,
+    timestamp: item.timestamp.toISOString(),
+    payload: createCanonicalSerialization(item.payload),
+  };
+}
+
+function matchesOutboxAttemptSnapshot(item: SyncOutbox, snapshot: OutboxAttemptSnapshot): boolean {
+  return item.id === snapshot.id
+    && item.table_name === snapshot.tableName
+    && item.action === snapshot.action
+    && item.timestamp.toISOString() === snapshot.timestamp
+    && createCanonicalSerialization(item.payload) === snapshot.payload;
+}
+
+async function applySyncResult(
+  item: SyncOutbox,
+  result: Awaited<ReturnType<typeof syncItem>>,
+  currentTime: Date,
+): Promise<boolean> {
+  const snapshot = createOutboxAttemptSnapshot(item);
+  if (!snapshot) return false;
+
+  return db.transaction('rw', db.sync_outbox, async () => {
+    const current = await db.sync_outbox.get(snapshot.id);
+    if (!current || !matchesOutboxAttemptSnapshot(current, snapshot)) {
+      return false;
+    }
+
+    if (result.success) {
+      await db.sync_outbox.delete(snapshot.id);
+      return true;
+    }
+
+    const retryCount = (current.retry_count ?? 0) + 1;
+    const next: SyncOutbox = {
+      ...current,
+      retry_count: retryCount,
+      last_attempt_at: currentTime,
+      next_attempt_at: result.nonRetryable
+        ? undefined
+        : new Date(currentTime.getTime() + getRetryDelayMs(retryCount)),
+      last_error: result.errorMessage ?? 'Unknown sync error',
+    };
+    if (result.failureKind === undefined) {
+      delete next.failure_kind;
+    } else {
+      next.failure_kind = result.failureKind;
+    }
+    await db.sync_outbox.put(next);
+    return true;
+  });
 }
 
 function toRemoteChargingSessionPayload(session: ChargingSession): RemoteChargingSessionPayload {
@@ -535,30 +596,19 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
       return;
     }
 
+    const applied = await applySyncResult(item, result, currentTime);
+    if (!applied) {
+      // Another writer changed or removed this row while the remote call was
+      // pending, so this acknowledgement cannot safely affect local state.
+      continue;
+    }
+
     if (result.success) {
-      await db.sync_outbox.delete(item.id!);
       await removeSupersededBlockedEntries(item);
       if (item.table_name === 'providers' && item.action === 'INSERT') {
         pendingProviderInsertIds.delete(item.payload.id);
       }
     } else {
-      const retryCount = (item.retry_count ?? 0) + 1;
-      if (result.nonRetryable) {
-        await db.sync_outbox.update(item.id!, {
-          retry_count: retryCount,
-          last_attempt_at: currentTime,
-          next_attempt_at: undefined,
-          last_error: result.errorMessage ?? 'Unknown sync error'
-        });
-      } else {
-        await db.sync_outbox.update(item.id!, {
-          retry_count: retryCount,
-          last_attempt_at: currentTime,
-          next_attempt_at: new Date(currentTime.getTime() + getRetryDelayMs(retryCount)),
-          last_error: result.errorMessage ?? 'Unknown sync error'
-        });
-      }
-
       if (shouldContinueAfterFailure(item, result)) {
         // These conflicts are terminal and item-local. Keep the failed row for
         // user resolution while allowing unrelated ready rows to sync.
@@ -623,13 +673,16 @@ async function syncItem(item: SyncOutbox): Promise<{ success: true } | ({ succes
     }
 
     if (error) {
-      if (item.table_name === 'providers' && isProviderNameConflict(error)) {
-        console.error('Non-retryable provider-name conflict:', error.message);
+      const failureKind = item.table_name === 'providers'
+        ? getLiveSyncFailureKind(error)
+        : undefined;
+      if (failureKind === 'provider-name-conflict') {
+        console.error('Non-retryable provider-name conflict recorded.');
         return {
           success: false,
           errorMessage: PROVIDER_NAME_CONFLICT_ERROR_MESSAGE,
           nonRetryable: true,
-          isProviderNameConflict: true
+          failureKind,
         };
       }
 
