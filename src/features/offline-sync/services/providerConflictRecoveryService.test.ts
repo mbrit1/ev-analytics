@@ -1,7 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import 'fake-indexeddb/auto';
-import { db, type ChargingPlan, type Provider, type SyncOutbox } from '../../../infra/db';
-import { prepareProviderConflictRecovery } from './providerConflictRecoveryService';
+import {
+  db,
+  type ChargingPlan,
+  type ChargingSession,
+  type Provider,
+  type ProviderPlanSelection,
+  type SyncOutbox,
+} from '../../../infra/db';
+import type { ProviderConflictRecoveryDescriptor } from '../model/providerConflictRecovery';
+import * as providerConflictRecoveryService from './providerConflictRecoveryService';
+
+const { prepareProviderConflictRecovery } = providerConflictRecoveryService;
 
 const supabaseMock = vi.hoisted(() => ({
   auth: { getUser: vi.fn() },
@@ -86,6 +96,12 @@ describe('prepareProviderConflictRecovery', () => {
         ? [buildStagedProvider({ id: 'canonical-provider' })]
         : [],
     ));
+    Object.defineProperty(globalThis.navigator, 'locks', {
+      configurable: true,
+      value: {
+        request: async (_name: string, _options: unknown, callback: (lock: unknown) => Promise<unknown>) => callback({}),
+      },
+    });
   });
 
   it('returns a ready descriptor only for the authenticated staged-provider terminal conflict', async () => {
@@ -320,5 +336,189 @@ describe('prepareProviderConflictRecovery', () => {
     await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
       .resolves.toMatchObject({ status: 'retryable-error' });
     expect(await db.sync_outbox.get(terminalOutboxId)).toMatchObject(buildTerminalOutbox());
+  });
+});
+
+/**
+ * RED contract tests for all-or-nothing provider conflict confirmation.
+ *
+ * Confirmation is deliberately specified after read-only preparation so no
+ * partial graph rewrite can become the accidental recovery contract.
+ */
+describe('confirmProviderConflictRecovery', () => {
+  beforeEach(async () => {
+    await db.providers.clear();
+    await db.charging_plans.clear();
+    await db.provider_plan_selections.clear();
+    await db.sessions.clear();
+    await db.sync_outbox.clear();
+    await db.provider_reconciliations.clear();
+    vi.clearAllMocks();
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: { id: 'user-1' } }, error: null });
+    supabaseMock.from.mockImplementation((table: string) => createRemoteQuery(
+      table === 'providers'
+        ? [buildStagedProvider({ id: 'canonical-provider' })]
+        : [],
+    ));
+  });
+
+  it('replaces the no-reference staged provider only with durable completion evidence', async () => {
+    // Arrange: only a typed terminal insert and its staged provider require reconciliation.
+    const stagedProvider = buildStagedProvider();
+    await db.providers.add(stagedProvider);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    const preparation = await prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId });
+    expect(preparation).toMatchObject({ status: 'ready' });
+    if (preparation.status !== 'ready') return;
+
+    const confirm = (providerConflictRecoveryService as {
+      confirmProviderConflictRecovery?: (descriptor: ProviderConflictRecoveryDescriptor) => Promise<unknown>;
+    }).confirmProviderConflictRecovery;
+
+    // Act and Assert: confirmation is an explicit, transactional service operation.
+    expect(confirm).toBeTypeOf('function');
+    if (!confirm) return;
+    await confirm(preparation.descriptor);
+
+    expect(await db.providers.get(stagedProvider.id)).toBeUndefined();
+    expect(await db.providers.get('canonical-provider')).toMatchObject({
+      id: 'canonical-provider',
+      user_id: 'user-1',
+    });
+    expect(await db.sync_outbox.get(terminalOutboxId)).toBeUndefined();
+    expect(await db.provider_reconciliations.get(terminalOutboxId)).toMatchObject({
+      terminal_outbox_id: terminalOutboxId,
+      user_id: 'user-1',
+      staged_provider_id: stagedProvider.id,
+      canonical_provider_id: 'canonical-provider',
+    });
+  });
+
+  it('rebinds a tariff-only graph and preserves its dependent outbox identity', async () => {
+    // Arrange: the staged provider has one tariff and an unsynced tariff insert.
+    const stagedProvider = buildStagedProvider();
+    const stagedPlan = buildChargingPlan({
+      id: 'staged-plan',
+      provider_id: stagedProvider.id,
+    });
+    await db.providers.add(stagedProvider);
+    await db.charging_plans.add(stagedPlan);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    const planOutboxId = await db.sync_outbox.add({
+      table_name: 'charging_plans',
+      action: 'INSERT',
+      payload: stagedPlan,
+      timestamp: new Date('2026-08-25T10:02:00.000Z'),
+      retry_count: 2,
+      last_attempt_at: new Date('2026-08-25T10:03:00.000Z'),
+      next_attempt_at: new Date('2026-08-25T10:04:00.000Z'),
+      last_error: 'Temporary network error',
+    });
+    const preparation = await prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId });
+    expect(preparation).toMatchObject({ status: 'ready' });
+    if (preparation.status !== 'ready') return;
+    const confirm = (providerConflictRecoveryService as {
+      confirmProviderConflictRecovery?: (descriptor: ProviderConflictRecoveryDescriptor) => Promise<unknown>;
+    }).confirmProviderConflictRecovery;
+    expect(confirm).toBeTypeOf('function');
+    if (!confirm) return;
+
+    // Act: approve the reviewed provider substitution.
+    await confirm(preparation.descriptor);
+
+    // Assert: tariff identity is stable while its provider reference and payload are rebound.
+    expect(await db.charging_plans.get(stagedPlan.id)).toMatchObject({
+      ...stagedPlan,
+      provider_id: 'canonical-provider',
+    });
+    expect(await db.sync_outbox.get(planOutboxId)).toMatchObject({
+      id: planOutboxId,
+      table_name: 'charging_plans',
+      action: 'INSERT',
+      timestamp: new Date('2026-08-25T10:02:00.000Z'),
+      payload: expect.objectContaining({
+        id: stagedPlan.id,
+        provider_id: 'canonical-provider',
+      }),
+    });
+    const rewrittenOutbox = await db.sync_outbox.get(planOutboxId);
+    expect(rewrittenOutbox).not.toHaveProperty('retry_count');
+    expect(rewrittenOutbox).not.toHaveProperty('last_attempt_at');
+    expect(rewrittenOutbox).not.toHaveProperty('next_attempt_at');
+    expect(rewrittenOutbox).not.toHaveProperty('last_error');
+    expect(await db.providers.get(stagedProvider.id)).toBeUndefined();
+    expect(await db.sync_outbox.get(terminalOutboxId)).toBeUndefined();
+  });
+
+  it('rebinds selections and plan-mode sessions without changing snapshots or stable IDs', async () => {
+    // Arrange: the full staged graph includes one tariff, selection, and plan-priced session.
+    const stagedProvider = buildStagedProvider();
+    const stagedPlan = buildChargingPlan({ id: 'downstream-plan', provider_id: stagedProvider.id });
+    const selection: ProviderPlanSelection = {
+      id: 'downstream-selection',
+      user_id: 'user-1',
+      provider_id: stagedProvider.id,
+      tariff_plan_id: stagedPlan.id,
+      valid_from: new Date('2026-08-25T00:00:00.000Z'),
+      valid_to: null,
+      price_snapshot: { label: 'Canonical plan', kWhPrice: 79 },
+      created_at: new Date('2026-08-25T10:00:00.000Z'),
+      updated_at: new Date('2026-08-25T10:00:00.000Z'),
+    };
+    const session: Extract<ChargingSession, { session_mode: 'plan' }> = {
+      id: 'downstream-session',
+      user_id: 'user-1',
+      provider_id: stagedProvider.id,
+      provider_name_snapshot: 'Ionity',
+      tariff_plan_id: stagedPlan.id,
+      plan_selection_id: selection.id,
+      charging_plan_name_snapshot: 'Canonical plan',
+      session_timestamp: new Date('2026-08-25T10:00:00.000Z'),
+      charging_type: 'DC',
+      kwh_billed: 10,
+      total_cost: 790,
+      session_mode: 'plan',
+      applied_session_fee: 0,
+      created_at: new Date('2026-08-25T10:00:00.000Z'),
+      updated_at: new Date('2026-08-25T10:00:00.000Z'),
+    };
+    await db.providers.add(stagedProvider);
+    await db.charging_plans.add(stagedPlan);
+    await db.provider_plan_selections.add(selection);
+    await db.sessions.add(session);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    await db.sync_outbox.bulkAdd([
+      { table_name: 'charging_plans', action: 'INSERT', payload: stagedPlan, timestamp: new Date('2026-08-25T10:02:00.000Z') },
+      { table_name: 'provider_plan_selections', action: 'INSERT', payload: selection, timestamp: new Date('2026-08-25T10:03:00.000Z') },
+      { table_name: 'sessions', action: 'INSERT', payload: session, timestamp: new Date('2026-08-25T10:04:00.000Z') },
+    ]);
+    const preparation = await prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId });
+    expect(preparation).toMatchObject({ status: 'ready' });
+    if (preparation.status !== 'ready') return;
+    const confirm = (providerConflictRecoveryService as {
+      confirmProviderConflictRecovery?: (descriptor: ProviderConflictRecoveryDescriptor) => Promise<unknown>;
+    }).confirmProviderConflictRecovery;
+    expect(confirm).toBeTypeOf('function');
+    if (!confirm) return;
+
+    // Act: confirm the complete reviewed graph.
+    await confirm(preparation.descriptor);
+
+    // Assert: only relational provider IDs move; immutable snapshots and foreign keys stay intact.
+    expect(await db.charging_plans.get(stagedPlan.id)).toMatchObject({ provider_id: 'canonical-provider' });
+    expect(await db.provider_plan_selections.get(selection.id)).toEqual({
+      ...selection,
+      provider_id: 'canonical-provider',
+    });
+    expect(await db.sessions.get(session.id)).toEqual({
+      ...session,
+      provider_id: 'canonical-provider',
+    });
+    const rewrittenOutbox = await db.sync_outbox.toArray();
+    expect(rewrittenOutbox).toEqual(expect.arrayContaining([
+      expect.objectContaining({ payload: expect.objectContaining({ id: stagedPlan.id, provider_id: 'canonical-provider' }) }),
+      expect.objectContaining({ payload: expect.objectContaining({ id: selection.id, provider_id: 'canonical-provider' }) }),
+      expect.objectContaining({ payload: expect.objectContaining({ id: session.id, provider_id: 'canonical-provider' }) }),
+    ]));
   });
 });

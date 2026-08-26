@@ -9,16 +9,19 @@ import {
   type ChargingSession,
   type Provider,
   type ProviderPlanSelection,
+  type SyncPayload,
   type SyncOutbox,
 } from '../../../infra/db';
 import { supabase } from '../../../infra/supabase';
 import {
   createProviderConflictRecoveryReviewVersion,
   type PrepareProviderConflictRecoveryInput,
+  type ProviderConflictRecoveryDescriptor,
   type ProviderConflictRecoveryPreparation,
 } from '../model/providerConflictRecovery';
 import { createCanonicalSerialization } from '../model/canonicalSerialization';
 import { isTypedTerminalProviderNameConflict } from '../model/syncFailure';
+import { runSyncRuntimeExclusive } from './syncRuntime';
 
 const BLOCKED_REASON = 'This provider conflict cannot be recovered safely.';
 const RETRYABLE_REASON = 'Provider conflict verification could not be completed. Please try again.';
@@ -46,6 +49,13 @@ interface RemoteProvider {
   updated_at: string | Date;
   deleted_at?: string | Date | null;
 }
+
+/** User-safe result returned after a confirmation attempt. */
+export type ProviderConflictRecoveryConfirmation =
+  | { status: 'reconciled' }
+  | { status: 'already-reconciled' }
+  | { status: 'blocked'; reason: string }
+  | { status: 'retryable-error'; reason: string };
 
 /**
  * Performs read-only eligibility, graph, authentication, and remote preflight
@@ -161,6 +171,163 @@ export async function prepareProviderConflictRecovery(
   };
 }
 
+/**
+ * Reconciles a reviewed no-reference conflict under sync exclusion and one
+ * local transaction. Broader graphs remain blocked until their explicit
+ * confirmation contracts are implemented.
+ */
+export async function confirmProviderConflictRecovery(
+  descriptor: ProviderConflictRecoveryDescriptor,
+): Promise<ProviderConflictRecoveryConfirmation> {
+  return runSyncRuntimeExclusive(async () => {
+    const refreshed = await prepareProviderConflictRecovery({
+      userId: descriptor.userId,
+      terminalOutboxId: descriptor.terminalOutboxId,
+    });
+    if (refreshed.status === 'already-reconciled') {
+      return refreshed;
+    }
+    if (refreshed.status === 'blocked' || refreshed.status === 'retryable-error') {
+      return refreshed;
+    }
+    if (refreshed.descriptor.reviewVersion !== descriptor.reviewVersion) {
+      return blocked();
+    }
+
+    const canonicalProvider = await getRemoteCanonicalProvider(
+      descriptor.userId,
+      descriptor.canonicalProviderId,
+    );
+    if (!canonicalProvider) {
+      return blocked();
+    }
+    const canonicalPlans = await getRemoteCanonicalPlans(
+      descriptor.userId,
+      descriptor.canonicalProviderId,
+    );
+    if (!canonicalPlans) {
+      return retryable();
+    }
+
+    return db.transaction(
+      'rw',
+      [
+        db.providers,
+        db.charging_plans,
+        db.provider_plan_selections,
+        db.sessions,
+        db.sync_outbox,
+        db.provider_reconciliations,
+      ],
+      async (): Promise<ProviderConflictRecoveryConfirmation> => {
+        const terminalOutbox = await db.sync_outbox.get(descriptor.terminalOutboxId);
+        if (!isTerminalProviderConflict(terminalOutbox, descriptor.userId)
+          || terminalOutbox.payload.id !== descriptor.stagedProviderId) {
+          return blocked();
+        }
+        const stagedProvider = await db.providers.get(descriptor.stagedProviderId);
+        if (!isMatchingStagedProvider(stagedProvider, terminalOutbox.payload, descriptor.userId)) {
+          return blocked();
+        }
+        const [providers, plans, selections, sessions, outbox] = await Promise.all([
+          db.providers.toArray(),
+          db.charging_plans.toArray(),
+          db.provider_plan_selections.toArray(),
+          db.sessions.toArray(),
+          db.sync_outbox.toArray(),
+        ]);
+        const inspection = inspectLocalGraph(
+          { providers, plans, selections, sessions, outbox },
+          stagedProvider,
+          descriptor.userId,
+        );
+        if (!inspection || !matchesConfirmationDescriptor(descriptor, inspection)) {
+          return blocked();
+        }
+
+        const currentReviewVersion = createProviderConflictRecoveryReviewVersion({
+          authenticatedUserId: descriptor.userId,
+          terminalOutbox,
+          stagedProvider,
+          canonicalProvider,
+          local: {
+            plans: sortRows(inspection.plans),
+            selections: sortRows(inspection.selections),
+            sessions: sortRows(inspection.sessions),
+            outbox: sortOutbox(inspection.outbox),
+          },
+          remote: { canonicalPlans: sortRows(canonicalPlans) },
+        });
+        if (currentReviewVersion !== descriptor.reviewVersion) {
+          return blocked();
+        }
+
+        const reboundPlans = inspection.plans.map((plan) => ({
+          ...plan,
+          provider_id: descriptor.canonicalProviderId,
+        }));
+        const reboundSelections = inspection.selections.map((selection) => ({
+          ...selection,
+          provider_id: descriptor.canonicalProviderId,
+        }));
+        const reboundSessions: Array<Extract<ChargingSession, { session_mode: 'plan' }>> = inspection.sessions.map((session) => ({
+          ...session,
+          provider_id: descriptor.canonicalProviderId,
+        } as Extract<ChargingSession, { session_mode: 'plan' }>));
+        const reboundPlansById = new Map(reboundPlans.map((plan) => [plan.id, plan]));
+        const reboundSelectionsById = new Map(reboundSelections.map((selection) => [selection.id, selection]));
+        const reboundSessionsById = new Map(reboundSessions.map((session) => [session.id, session]));
+        const rewrittenOutbox = inspection.outbox.map((item) => ({
+          item,
+          payload: getReboundOutboxPayload(
+            item,
+            reboundPlansById,
+            reboundSelectionsById,
+            reboundSessionsById,
+          ),
+        }));
+        if (rewrittenOutbox.some(({ payload }) => payload === null)) {
+          return blocked();
+        }
+
+        await db.providers.put(toLocalProvider(canonicalProvider));
+        await db.charging_plans.bulkPut(reboundPlans);
+        await db.provider_plan_selections.bulkPut(reboundSelections);
+        await db.sessions.bulkPut(reboundSessions);
+        for (const { item, payload } of rewrittenOutbox) {
+          const rewritten: SyncOutbox = {
+            ...item,
+            payload: payload!,
+          };
+          delete rewritten.retry_count;
+          delete rewritten.last_attempt_at;
+          delete rewritten.next_attempt_at;
+          delete rewritten.last_error;
+          delete rewritten.failure_kind;
+          await db.sync_outbox.put(rewritten);
+        }
+        await db.sync_outbox.delete(descriptor.terminalOutboxId);
+        await db.providers.delete(descriptor.stagedProviderId);
+        await db.provider_reconciliations.add({
+          terminal_outbox_id: descriptor.terminalOutboxId,
+          user_id: descriptor.userId,
+          staged_provider_id: descriptor.stagedProviderId,
+          canonical_provider_id: descriptor.canonicalProviderId,
+          affected_row_ids: {
+            charging_plan_ids: [...descriptor.affectedRowIds.chargingPlanIds],
+            selection_ids: [...descriptor.affectedRowIds.selectionIds],
+            session_ids: [...descriptor.affectedRowIds.sessionIds],
+          },
+          affected_outbox_ids: [...descriptor.affectedOutboxIds],
+          review_serialization: descriptor.reviewVersion,
+          completed_at: new Date(),
+        });
+        return { status: 'reconciled' };
+      },
+    );
+  });
+}
+
 function isRecoveryInput(input: PrepareProviderConflictRecoveryInput): boolean {
   return input.userId.length > 0
     && Number.isSafeInteger(input.terminalOutboxId)
@@ -173,6 +340,66 @@ async function getAuthenticatedUserId(): Promise<string | null> {
     return error || typeof data.user?.id !== 'string' ? null : data.user.id;
   } catch {
     return null;
+  }
+}
+
+async function getRemoteCanonicalProvider(userId: string, providerId: string): Promise<RemoteProvider | null> {
+  const result = await supabase
+    .from('providers')
+    .select(PROVIDER_SELECT)
+    .eq('id', providerId)
+    .is('deleted_at', null) as unknown as { data: unknown; error: unknown };
+  if (await getAuthenticatedUserId() !== userId || result.error || !Array.isArray(result.data)) {
+    return null;
+  }
+  const matches = result.data.filter(isRemoteProvider)
+    .filter((provider) => provider.id === providerId && provider.user_id === userId && !provider.deleted_at);
+  return matches.length === 1 ? matches[0] : null;
+}
+
+async function getRemoteCanonicalPlans(userId: string, providerId: string): Promise<ChargingPlan[] | null> {
+  const result = await supabase
+    .from('charging_plans')
+    .select(CHARGING_PLAN_SELECT)
+    .eq('provider_id', providerId) as unknown as { data: unknown; error: unknown };
+  if (await getAuthenticatedUserId() !== userId || result.error) {
+    return null;
+  }
+  return toRemoteChargingPlans(result.data, userId, providerId);
+}
+
+function matchesConfirmationDescriptor(
+  descriptor: ProviderConflictRecoveryDescriptor,
+  inspection: LocalGraph,
+): boolean {
+  const equalIds = (left: readonly string[] | readonly number[], right: readonly string[] | readonly number[]) => (
+    left.length === right.length && left.every((value, index) => value === right[index])
+  );
+  const planIds = inspection.plans.map((plan) => plan.id).sort();
+  const selectionIds = inspection.selections.map((selection) => selection.id).sort();
+  const sessionIds = inspection.sessions.map((session) => session.id).sort();
+  const outboxIds = inspection.outbox.flatMap((item) => item.id == null ? [] : [item.id]).sort((left, right) => left - right);
+  return equalIds(descriptor.affectedRowIds.chargingPlanIds, planIds)
+    && equalIds(descriptor.affectedRowIds.selectionIds, selectionIds)
+    && equalIds(descriptor.affectedRowIds.sessionIds, sessionIds)
+    && equalIds(descriptor.affectedOutboxIds, outboxIds);
+}
+
+function getReboundOutboxPayload(
+  item: SyncOutbox,
+  plans: ReadonlyMap<string, ChargingPlan>,
+  selections: ReadonlyMap<string, ProviderPlanSelection>,
+  sessions: ReadonlyMap<string, Extract<ChargingSession, { session_mode: 'plan' }>>,
+): SyncPayload | null {
+  switch (item.table_name) {
+    case 'charging_plans':
+      return plans.get(item.payload.id) ?? null;
+    case 'provider_plan_selections':
+      return selections.get(item.payload.id) ?? null;
+    case 'sessions':
+      return sessions.get(item.payload.id) ?? null;
+    case 'providers':
+      return null;
   }
 }
 
@@ -267,6 +494,23 @@ function matchesRemoteProvider(local: Provider, remote: RemoteProvider, userId: 
     && (local.deleted_at?.getTime() ?? undefined) === (remoteDeletedAt?.getTime() ?? undefined);
 }
 
+function toLocalProvider(remote: RemoteProvider): Provider {
+  const createdAt = asDate(remote.created_at);
+  const updatedAt = asDate(remote.updated_at);
+  const deletedAt = remote.deleted_at == null ? undefined : asDate(remote.deleted_at);
+  if (!createdAt || !updatedAt || (remote.deleted_at != null && !deletedAt)) {
+    throw new Error('Canonical provider has invalid date metadata');
+  }
+  return {
+    id: remote.id,
+    user_id: remote.user_id,
+    name: remote.name,
+    created_at: createdAt,
+    updated_at: updatedAt,
+    deleted_at: deletedAt ?? undefined,
+  };
+}
+
 function inspectLocalGraph(graph: LocalGraph, staged: Provider, userId: string): LocalGraph | null {
   const plans = graph.plans.filter((plan) => plan.provider_id === staged.id);
   const selections = graph.selections.filter((selection) => selection.provider_id === staged.id);
@@ -275,7 +519,10 @@ function inspectLocalGraph(graph: LocalGraph, staged: Provider, userId: string):
       session.session_mode === 'plan' && session.provider_id === staged.id
     ),
   );
-  const outbox = graph.outbox.filter((item) => referencesProvider(item, staged.id));
+  const outbox = graph.outbox.filter((item) => (
+    referencesProvider(item, staged.id)
+    && !isTypedTerminalProviderNameConflict(item)
+  ));
 
   if ([...plans, ...selections, ...sessions].some((row) => row.user_id !== userId)
     || outbox.some((item) => item.payload.user_id !== userId)) {
@@ -395,10 +642,10 @@ function sortOutbox(rows: readonly SyncOutbox[]): SyncOutbox[] {
   return [...rows].sort((left, right) => (left.id ?? -1) - (right.id ?? -1));
 }
 
-function blocked(): ProviderConflictRecoveryPreparation {
+function blocked(): { status: 'blocked'; reason: string } {
   return { status: 'blocked', reason: BLOCKED_REASON };
 }
 
-function retryable(): ProviderConflictRecoveryPreparation {
+function retryable(): { status: 'retryable-error'; reason: string } {
   return { status: 'retryable-error', reason: RETRYABLE_REASON };
 }
