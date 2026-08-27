@@ -295,8 +295,11 @@ export async function confirmProviderConflictRecovery(
     if (remoteSessions.status === 'blocked') {
       return blocked();
     }
+    if (await getAuthenticatedUserId() !== descriptor.userId) {
+      return blocked();
+    }
 
-    return db.transaction(
+    return await db.transaction(
       'rw',
       [
         db.providers,
@@ -415,7 +418,7 @@ export async function confirmProviderConflictRecovery(
         });
         return { status: 'reconciled' };
       },
-    );
+    ).catch(() => retryable());
   });
 }
 

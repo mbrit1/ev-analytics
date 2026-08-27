@@ -548,6 +548,143 @@ describe('confirmProviderConflictRecovery', () => {
     });
   });
 
+  it('blocks confirmation when the authenticated user changes after the final remote preflight', async () => {
+    // Arrange: a no-reference graph has no affected selection or session read to supply a final auth check.
+    const stagedProvider = buildStagedProvider();
+    await db.providers.add(stagedProvider);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    const preparation = await prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId });
+    expect(preparation).toMatchObject({ status: 'ready' });
+    if (preparation.status !== 'ready') return;
+    const confirm = providerConflictRecoveryService.confirmProviderConflictRecovery;
+    supabaseMock.auth.getUser.mockReset();
+    for (let call = 0; call < 6; call += 1) {
+      supabaseMock.auth.getUser.mockResolvedValueOnce({ data: { user: { id: 'user-1' } }, error: null });
+    }
+    supabaseMock.auth.getUser.mockResolvedValue({ data: { user: { id: 'user-2' } }, error: null });
+
+    // Act: the session changes after the last remote response but before the local write transaction.
+    const result = await confirm(preparation.descriptor);
+
+    // Assert: no write may be committed under an authenticated identity that was not rechecked.
+    expect(result).toMatchObject({ status: 'blocked' });
+    expect(await db.providers.get(stagedProvider.id)).toEqual(stagedProvider);
+    expect(await db.sync_outbox.get(terminalOutboxId)).toMatchObject(buildTerminalOutbox());
+    expect(await db.provider_reconciliations.get(terminalOutboxId)).toBeUndefined();
+  });
+
+  it('returns a safe retryable result and rolls back every write when evidence persistence fails', async () => {
+    // Arrange: inject a late transaction-stage failure after all graph reads and rewrites are ready.
+    const stagedProvider = buildStagedProvider();
+    await db.providers.add(stagedProvider);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    const preparation = await prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId });
+    expect(preparation).toMatchObject({ status: 'ready' });
+    if (preparation.status !== 'ready') return;
+    const before = await Promise.all([
+      db.providers.toArray(),
+      db.charging_plans.toArray(),
+      db.provider_plan_selections.toArray(),
+      db.sessions.toArray(),
+      db.sync_outbox.toArray(),
+      db.provider_reconciliations.toArray(),
+    ]);
+    vi.spyOn(db.provider_reconciliations, 'add').mockRejectedValueOnce(new Error('evidence write failed'));
+
+    // Act: the final local evidence write fails inside the all-table transaction.
+    const result = await providerConflictRecoveryService.confirmProviderConflictRecovery(
+      preparation.descriptor,
+    );
+
+    // Assert: the caller receives no raw storage error and every table returns to its exact prior state.
+    expect(result).toMatchObject({ status: 'retryable-error' });
+    await expect(Promise.all([
+      db.providers.toArray(),
+      db.charging_plans.toArray(),
+      db.provider_plan_selections.toArray(),
+      db.sessions.toArray(),
+      db.sync_outbox.toArray(),
+      db.provider_reconciliations.toArray(),
+    ])).resolves.toEqual(before);
+  });
+
+  it.each([
+    ['canonical provider write', () => vi.spyOn(db.providers, 'put').mockRejectedValueOnce(new Error('provider write failed'))],
+    ['charging-plan write', () => vi.spyOn(db.charging_plans, 'bulkPut').mockRejectedValueOnce(new Error('plan write failed'))],
+    ['selection write', () => vi.spyOn(db.provider_plan_selections, 'bulkPut').mockRejectedValueOnce(new Error('selection write failed'))],
+    ['session write', () => vi.spyOn(db.sessions, 'bulkPut').mockRejectedValueOnce(new Error('session write failed'))],
+    ['terminal outbox delete', () => vi.spyOn(db.sync_outbox, 'delete').mockRejectedValueOnce(new Error('outbox delete failed'))],
+    ['staged provider delete', () => vi.spyOn(db.providers, 'delete').mockRejectedValueOnce(new Error('provider delete failed'))],
+  ])('rolls back every table when %s fails', async (_label, injectFailure) => {
+    // Arrange: every transaction stage must be independently able to abort the same no-reference graph.
+    const stagedProvider = buildStagedProvider();
+    await db.providers.add(stagedProvider);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    const preparation = await prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId });
+    expect(preparation).toMatchObject({ status: 'ready' });
+    if (preparation.status !== 'ready') return;
+    const before = await Promise.all([
+      db.providers.toArray(),
+      db.charging_plans.toArray(),
+      db.provider_plan_selections.toArray(),
+      db.sessions.toArray(),
+      db.sync_outbox.toArray(),
+      db.provider_reconciliations.toArray(),
+    ]);
+    injectFailure();
+
+    // Act and Assert: any stage failure is user-safe and atomically leaves all stores unchanged.
+    await expect(providerConflictRecoveryService.confirmProviderConflictRecovery(preparation.descriptor))
+      .resolves.toMatchObject({ status: 'retryable-error' });
+    await expect(Promise.all([
+      db.providers.toArray(),
+      db.charging_plans.toArray(),
+      db.provider_plan_selections.toArray(),
+      db.sessions.toArray(),
+      db.sync_outbox.toArray(),
+      db.provider_reconciliations.toArray(),
+    ])).resolves.toEqual(before);
+  });
+
+  it('rolls back a tariff graph when rewriting its dependent outbox payload fails', async () => {
+    // Arrange: a dependent plan row makes the per-item outbox rewrite an explicit transaction stage.
+    const stagedProvider = buildStagedProvider();
+    const stagedPlan = buildChargingPlan({ id: 'outbox-rewrite-plan', provider_id: stagedProvider.id });
+    await db.providers.add(stagedProvider);
+    await db.charging_plans.add(stagedPlan);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    await db.sync_outbox.add({
+      table_name: 'charging_plans',
+      action: 'INSERT',
+      payload: stagedPlan,
+      timestamp: new Date('2026-08-25T10:02:00.000Z'),
+    });
+    const preparation = await prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId });
+    expect(preparation).toMatchObject({ status: 'ready' });
+    if (preparation.status !== 'ready') return;
+    const before = await Promise.all([
+      db.providers.toArray(),
+      db.charging_plans.toArray(),
+      db.provider_plan_selections.toArray(),
+      db.sessions.toArray(),
+      db.sync_outbox.toArray(),
+      db.provider_reconciliations.toArray(),
+    ]);
+    vi.spyOn(db.sync_outbox, 'put').mockRejectedValueOnce(new Error('outbox rewrite failed'));
+
+    // Act and Assert: no plan rebind or terminal deletion escapes the failed payload rewrite.
+    await expect(providerConflictRecoveryService.confirmProviderConflictRecovery(preparation.descriptor))
+      .resolves.toMatchObject({ status: 'retryable-error' });
+    await expect(Promise.all([
+      db.providers.toArray(),
+      db.charging_plans.toArray(),
+      db.provider_plan_selections.toArray(),
+      db.sessions.toArray(),
+      db.sync_outbox.toArray(),
+      db.provider_reconciliations.toArray(),
+    ])).resolves.toEqual(before);
+  });
+
   it('rebinds a tariff-only graph and preserves its dependent outbox identity', async () => {
     // Arrange: the staged provider has one tariff and an unsynced tariff insert.
     const stagedProvider = buildStagedProvider();
@@ -604,6 +741,46 @@ describe('confirmProviderConflictRecovery', () => {
     expect(await db.sync_outbox.get(terminalOutboxId)).toBeUndefined();
   });
 
+  it('rebinds a soft-deleted tariff reference without reviving its deletion or queue intent', async () => {
+    // Arrange: recovery must retain soft-delete history and the corresponding DELETE replay action.
+    const stagedProvider = buildStagedProvider();
+    const deletedAt = new Date('2026-08-25T10:02:00.000Z');
+    const stagedPlan = buildChargingPlan({
+      id: 'soft-deleted-plan',
+      provider_id: stagedProvider.id,
+      deleted_at: deletedAt,
+    });
+    await db.providers.add(stagedProvider);
+    await db.charging_plans.add(stagedPlan);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    const planOutboxId = await db.sync_outbox.add({
+      table_name: 'charging_plans',
+      action: 'DELETE',
+      payload: stagedPlan,
+      timestamp: new Date('2026-08-25T10:03:00.000Z'),
+    });
+    const preparation = await prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId });
+    expect(preparation).toMatchObject({ status: 'ready' });
+    if (preparation.status !== 'ready') return;
+
+    // Act: reconcile the reviewed soft-deleted graph.
+    await expect(providerConflictRecoveryService.confirmProviderConflictRecovery(preparation.descriptor))
+      .resolves.toMatchObject({ status: 'reconciled' });
+
+    // Assert: only the provider linkage changes; deletion history and mutation intent remain stable.
+    expect(await db.charging_plans.get(stagedPlan.id)).toEqual({
+      ...stagedPlan,
+      provider_id: 'canonical-provider',
+    });
+    expect(await db.sync_outbox.get(planOutboxId)).toMatchObject({
+      id: planOutboxId,
+      table_name: 'charging_plans',
+      action: 'DELETE',
+      timestamp: new Date('2026-08-25T10:03:00.000Z'),
+      payload: { ...stagedPlan, provider_id: 'canonical-provider' },
+    });
+  });
+
   it('rejects completion evidence when current postconditions no longer prove reconciliation', async () => {
     // Arrange: complete a normal no-reference reconciliation, then corrupt its current postcondition.
     const stagedProvider = buildStagedProvider();
@@ -655,6 +832,24 @@ describe('confirmProviderConflictRecovery', () => {
 
     // Act and Assert: evidence cannot override a current payload mismatch.
     await expect(confirm(preparation.descriptor)).resolves.toMatchObject({ status: 'blocked' });
+  });
+
+  it('verifies durable evidence again after the Dexie connection is recreated', async () => {
+    // Arrange: complete a reconciliation, then recreate the local database connection.
+    const stagedProvider = buildStagedProvider();
+    await db.providers.add(stagedProvider);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    const preparation = await prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId });
+    expect(preparation).toMatchObject({ status: 'ready' });
+    if (preparation.status !== 'ready') return;
+    await expect(providerConflictRecoveryService.confirmProviderConflictRecovery(preparation.descriptor))
+      .resolves.toMatchObject({ status: 'reconciled' });
+    db.close();
+    await db.open();
+
+    // Act and Assert: reload-safe idempotency requires the evidence and its current postconditions.
+    await expect(providerConflictRecoveryService.confirmProviderConflictRecovery(preparation.descriptor))
+      .resolves.toMatchObject({ status: 'already-reconciled' });
   });
 
   it('rebinds selections and plan-mode sessions without changing snapshots or stable IDs', async () => {
