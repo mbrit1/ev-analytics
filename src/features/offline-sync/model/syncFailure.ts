@@ -26,8 +26,7 @@ export function isTypedTerminalProviderNameConflict(item: SyncOutbox): boolean {
  */
 export function isLegacyTerminalProviderNameConflict(item: SyncOutbox): boolean {
   return isTerminalProviderInsert(item)
-    && item.failure_kind === undefined
-    && item.last_error === PROVIDER_NAME_CONFLICT_ERROR_MESSAGE;
+    && item.failure_kind === undefined;
 }
 
 function isTerminalProviderInsert(item: SyncOutbox): boolean {

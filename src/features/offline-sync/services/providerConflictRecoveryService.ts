@@ -154,7 +154,13 @@ export async function prepareProviderConflictRecovery(
     canonicalPlans,
     input.userId,
   ) || evaluateProviderRebindTariffConflicts({
-    stagedPlans: inspection.plans,
+    stagedPlans: inspection.plans.filter((stagedPlan) => {
+      const canonicalPlan = canonicalPlans.find((plan) => plan.id === stagedPlan.id);
+      return canonicalPlan === undefined || !matchesRemoteChargingPlan(
+        { ...stagedPlan, provider_id: canonicalProvider.id },
+        canonicalPlan,
+      );
+    }),
     canonicalPlans,
   }).kind !== 'safe') {
     return blocked();
@@ -1016,6 +1022,7 @@ function isTariffPriceSnapshot(value: unknown): value is ProviderPlanSelection['
 function isProvider(value: unknown): value is Provider {
   return Boolean(value) && typeof value === 'object'
     && typeof (value as Provider).id === 'string'
+    && (value as Provider).id.length > 0
     && typeof (value as Provider).user_id === 'string'
     && typeof (value as Provider).name === 'string';
 }

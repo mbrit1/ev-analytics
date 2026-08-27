@@ -124,6 +124,7 @@ describe('prepareProviderConflictRecovery', () => {
       });
     expect(await db.sync_outbox.get(terminalOutboxId)).toMatchObject(buildTerminalOutbox());
     expect(await db.providers.get(stagedProvider.id)).toEqual(stagedProvider);
+    expect(await db.provider_reconciliations.count()).toBe(0);
   });
 
   it('recognizes the durable failure kind even when the safe display message changes', async () => {
@@ -151,12 +152,15 @@ describe('prepareProviderConflictRecovery', () => {
     // Act and Assert: recovery remains unavailable until separately approved legacy handling exists.
     await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
       .resolves.toMatchObject({ status: 'blocked' });
+    expect(await db.provider_reconciliations.count()).toBe(0);
   });
 
   it.each([
     ['a non-provider row', { table_name: 'charging_plans' as const }],
     ['a non-insert provider action', { action: 'UPDATE' as const }],
     ['a retryable conflict', { next_attempt_at: new Date('2026-08-25T10:02:00.000Z') }],
+    ['a terminal row without a failed attempt', { retry_count: 0 }],
+    ['a terminal row without an attempt timestamp', { last_attempt_at: undefined }],
     ['an unrecognized terminal error', {
       last_error: 'Unable to sync provider. Please try again.',
       failure_kind: undefined,
@@ -184,6 +188,22 @@ describe('prepareProviderConflictRecovery', () => {
       .resolves.toMatchObject({ status: 'blocked' });
     await expect(prepareProviderConflictRecovery({ userId: 'user-2', terminalOutboxId }))
       .resolves.toMatchObject({ status: 'blocked' });
+  });
+
+  it.each([
+    ['the staged provider is missing', undefined],
+    ['the staged provider payload no longer matches local state', buildStagedProvider({ name: 'Changed locally' })],
+    ['the staged provider was soft-deleted', buildStagedProvider({ deleted_at: new Date('2026-08-25T10:02:00.000Z') })],
+  ])('blocks when %s', async (_label, localStagedProvider) => {
+    // Arrange: terminal metadata must still point to one current active local staged provider.
+    if (localStagedProvider) await db.providers.add(localStagedProvider);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+
+    // Act and Assert: recovery eligibility is revalidated locally before remote state is read.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toMatchObject({ status: 'blocked' });
+    expect(supabaseMock.from).not.toHaveBeenCalled();
+    expect(await db.provider_reconciliations.count()).toBe(0);
   });
 
   it('blocks a malformed graph rather than inferring provider relationships from ad-hoc text', async () => {
@@ -490,6 +510,209 @@ describe('prepareProviderConflictRecovery', () => {
     await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
       .resolves.toMatchObject({ status: 'retryable-error' });
     expect(await db.sync_outbox.get(terminalOutboxId)).toMatchObject(buildTerminalOutbox());
+    expect(await db.provider_reconciliations.count()).toBe(0);
+  });
+
+  it('blocks a malformed remote canonical row without changing local state', async () => {
+    // Arrange: an RLS-visible row missing required canonical identity data is not a usable match.
+    const stagedProvider = buildStagedProvider();
+    await db.providers.add(stagedProvider);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    supabaseMock.from.mockImplementation((table: string) => createRemoteQuery(
+      table === 'providers' ? [{ id: 'canonical-provider', user_id: 'user-1', name: 'Ionity' }] : [],
+    ));
+
+    // Act and Assert: malformed remote values fail closed and create no completion proof.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toMatchObject({ status: 'blocked' });
+    expect(await db.provider_reconciliations.count()).toBe(0);
+  });
+
+  it('blocks an empty staged provider ID even when the local row and payload agree', async () => {
+    // Arrange: a typed failure is not enough when the staged identity is not valid for recovery.
+    const stagedProvider = buildStagedProvider({ id: '' });
+    await db.providers.add(stagedProvider);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox({ payload: stagedProvider }));
+
+    // Act and Assert: malformed staged identity never reaches remote preflight.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toMatchObject({ status: 'blocked' });
+    expect(supabaseMock.from).not.toHaveBeenCalled();
+  });
+
+  it('matches canonical names through trimming, casing, and Unicode normalization', async () => {
+    // Arrange: the canonical helper defines equivalence instead of raw source-text equality.
+    const stagedProvider = buildStagedProvider({ name: '  TÜV Süd  ' });
+    await db.providers.add(stagedProvider);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox({ payload: stagedProvider }));
+    supabaseMock.from.mockImplementation((table: string) => createRemoteQuery(
+      table === 'providers'
+        ? [buildStagedProvider({ id: 'canonical-provider', name: 'tüv süd' })]
+        : [],
+    ));
+
+    // Act and Assert: normalized names yield a reviewable canonical provider.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toMatchObject({ status: 'ready', descriptor: { canonicalProviderId: 'canonical-provider' } });
+  });
+
+  it('blocks unexplained canonical-provider outbox state before creating a review', async () => {
+    // Arrange: an unsynced canonical-provider payload must not be excluded from the reviewed graph.
+    const stagedProvider = buildStagedProvider();
+    const canonicalProvider = buildStagedProvider({ id: 'canonical-provider' });
+    await db.providers.bulkAdd([stagedProvider, canonicalProvider]);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    await db.sync_outbox.add({
+      table_name: 'providers',
+      action: 'UPDATE',
+      payload: canonicalProvider,
+      timestamp: new Date('2026-08-25T10:02:00.000Z'),
+    });
+    supabaseMock.from.mockImplementation((table: string) => createRemoteQuery(
+      table === 'providers' ? [canonicalProvider] : [],
+    ));
+
+    // Act and Assert: canonical local divergence blocks without writing completion evidence.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toMatchObject({ status: 'blocked' });
+    expect(await db.provider_reconciliations.count()).toBe(0);
+  });
+
+  it('accepts a compatible staged plan that already reached the canonical provider remotely', async () => {
+    // Arrange: one plan has the same stable ID and full payload after a prior remote rebind.
+    const stagedProvider = buildStagedProvider();
+    const stagedPlan = buildChargingPlan({ id: 'partial-plan', provider_id: stagedProvider.id });
+    const remotePlan = { ...stagedPlan, provider_id: 'canonical-provider' };
+    await db.providers.add(stagedProvider);
+    await db.charging_plans.add(stagedPlan);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    supabaseMock.from.mockImplementation((table: string) => createRemoteQuery(
+      table === 'providers'
+        ? [buildStagedProvider({ id: 'canonical-provider' })]
+        : [remotePlan],
+    ));
+
+    // Act and Assert: compatible partial prior success is not confused with a duplicate tariff conflict.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toMatchObject({ status: 'ready' });
+  });
+
+  it('blocks rather than retries when authentication changes during canonical-plan preflight', async () => {
+    // Arrange: the identity changes only after the canonical-plan request has started.
+    const stagedProvider = buildStagedProvider();
+    await db.providers.add(stagedProvider);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    supabaseMock.auth.getUser
+      .mockResolvedValueOnce({ data: { user: { id: 'user-1' } }, error: null })
+      .mockResolvedValueOnce({ data: { user: { id: 'user-1' } }, error: null })
+      .mockResolvedValueOnce({ data: { user: { id: 'user-1' } }, error: null })
+      .mockResolvedValueOnce({ data: { user: { id: 'user-2' } }, error: null });
+
+    // Act and Assert: an identity switch is a fail-closed integrity block, not an operational retry.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toMatchObject({ status: 'blocked' });
+    expect(await db.provider_reconciliations.count()).toBe(0);
+  });
+
+  it.each(['selection', 'session'] as const)(
+    'blocks when authentication changes during the affected %s remote request',
+    async (kind) => {
+      // Arrange: force the named remote request to occur after otherwise-valid provider and plan reads.
+      const stagedProvider = buildStagedProvider();
+      const stagedPlan = buildChargingPlan({ id: `${kind}-auth-plan`, provider_id: stagedProvider.id });
+      await db.providers.add(stagedProvider);
+      await db.charging_plans.add(stagedPlan);
+      if (kind === 'selection') {
+        await db.provider_plan_selections.add({
+          id: 'selection-auth',
+          user_id: 'user-1',
+          provider_id: stagedProvider.id,
+          tariff_plan_id: stagedPlan.id,
+          valid_from: new Date('2026-08-25T00:00:00.000Z'),
+          valid_to: null,
+          price_snapshot: { label: 'Ionity', kWhPrice: 79 },
+          created_at: new Date('2026-08-25T10:00:00.000Z'),
+          updated_at: new Date('2026-08-25T10:00:00.000Z'),
+        });
+      } else {
+        await db.sessions.add({
+          id: 'session-auth',
+          user_id: 'user-1',
+          provider_id: stagedProvider.id,
+          provider_name_snapshot: 'Ionity',
+          tariff_plan_id: stagedPlan.id,
+          plan_selection_id: null,
+          charging_plan_name_snapshot: stagedPlan.name,
+          session_timestamp: new Date('2026-08-25T10:00:00.000Z'),
+          charging_type: 'DC',
+          kwh_billed: 10,
+          total_cost: 790,
+          session_mode: 'plan',
+          applied_session_fee: 0,
+          created_at: new Date('2026-08-25T10:00:00.000Z'),
+          updated_at: new Date('2026-08-25T10:00:00.000Z'),
+        } as Extract<ChargingSession, { session_mode: 'plan' }>);
+      }
+      const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+      supabaseMock.auth.getUser
+        .mockResolvedValueOnce({ data: { user: { id: 'user-1' } }, error: null })
+        .mockResolvedValueOnce({ data: { user: { id: 'user-1' } }, error: null })
+        .mockResolvedValueOnce({ data: { user: { id: 'user-1' } }, error: null })
+        .mockResolvedValueOnce({ data: { user: { id: 'user-1' } }, error: null })
+        .mockResolvedValueOnce({ data: { user: { id: 'user-2' } }, error: null });
+
+      // Act and Assert: every remote stage rechecks the authenticated principal.
+      await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+        .resolves.toMatchObject({ status: 'blocked' });
+      expect(await db.provider_reconciliations.count()).toBe(0);
+    },
+  );
+
+  it('inspects soft-deleted plans, selections, sessions, and dependent outbox payloads', async () => {
+    // Arrange: historical rows remain part of the staged graph even though they are no longer active.
+    const deletedAt = new Date('2026-08-25T10:05:00.000Z');
+    const stagedProvider = buildStagedProvider();
+    const plan = buildChargingPlan({ id: 'soft-plan', provider_id: stagedProvider.id, deleted_at: deletedAt });
+    const selection: ProviderPlanSelection = {
+      id: 'soft-selection', user_id: 'user-1', provider_id: stagedProvider.id, tariff_plan_id: plan.id,
+      valid_from: new Date('2026-08-25T00:00:00.000Z'), valid_to: null,
+      price_snapshot: { label: 'Ionity', kWhPrice: 79 }, created_at: deletedAt, updated_at: deletedAt, deleted_at: deletedAt,
+    };
+    const session = {
+      id: 'soft-session', user_id: 'user-1', provider_id: stagedProvider.id, provider_name_snapshot: 'Ionity',
+      tariff_plan_id: plan.id, plan_selection_id: selection.id, charging_plan_name_snapshot: plan.name,
+      session_timestamp: deletedAt, charging_type: 'DC' as const, kwh_billed: 10, total_cost: 790,
+      session_mode: 'plan' as const, applied_session_fee: 0, created_at: deletedAt, updated_at: deletedAt, deleted_at: deletedAt,
+    };
+    await db.providers.add(stagedProvider);
+    await db.charging_plans.add(plan);
+    await db.provider_plan_selections.add(selection);
+    await db.sessions.add(session);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    await db.sync_outbox.bulkAdd([
+      { table_name: 'charging_plans', action: 'DELETE', payload: plan, timestamp: deletedAt },
+      { table_name: 'provider_plan_selections', action: 'DELETE', payload: selection, timestamp: deletedAt },
+      { table_name: 'sessions', action: 'DELETE', payload: session, timestamp: deletedAt },
+    ]);
+
+    // Act and Assert: review counts include relational history without using ad-hoc display text.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toMatchObject({
+        status: 'ready',
+        summary: { chargingPlanCount: 1, selectionCount: 1, sessionCount: 1, outboxCount: 3 },
+      });
+  });
+
+  it('does not create reconciliation evidence when the user abandons a ready review', async () => {
+    // Arrange: preparation is complete but confirmation is deliberately never invoked.
+    const stagedProvider = buildStagedProvider();
+    await db.providers.add(stagedProvider);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+
+    // Act and Assert: cancellation by abandonment leaves only the unresolved terminal state.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toMatchObject({ status: 'ready' });
+    expect(await db.provider_reconciliations.count()).toBe(0);
   });
 });
 
@@ -704,6 +927,7 @@ describe('confirmProviderConflictRecovery', () => {
       last_attempt_at: new Date('2026-08-25T10:03:00.000Z'),
       next_attempt_at: new Date('2026-08-25T10:04:00.000Z'),
       last_error: 'Temporary network error',
+      failure_kind: 'provider-name-conflict',
     });
     const preparation = await prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId });
     expect(preparation).toMatchObject({ status: 'ready' });
@@ -737,6 +961,7 @@ describe('confirmProviderConflictRecovery', () => {
     expect(rewrittenOutbox).not.toHaveProperty('last_attempt_at');
     expect(rewrittenOutbox).not.toHaveProperty('next_attempt_at');
     expect(rewrittenOutbox).not.toHaveProperty('last_error');
+    expect(rewrittenOutbox).not.toHaveProperty('failure_kind');
     expect(await db.providers.get(stagedProvider.id)).toBeUndefined();
     expect(await db.sync_outbox.get(terminalOutboxId)).toBeUndefined();
   });
