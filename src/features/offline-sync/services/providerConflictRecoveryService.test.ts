@@ -10,6 +10,7 @@ import {
 } from '../../../infra/db';
 import type { ProviderConflictRecoveryDescriptor } from '../model/providerConflictRecovery';
 import * as providerConflictRecoveryService from './providerConflictRecoveryService';
+import { startSyncRuntime, type SyncRuntimeDeps } from './syncRuntime';
 
 const { prepareProviderConflictRecovery } = providerConflictRecoveryService;
 
@@ -26,7 +27,10 @@ type TerminalOutboxWithFailureKind = SyncOutbox & {
 };
 
 const createRemoteQuery = (data: unknown, error: unknown = null) => {
-  const result = Promise.resolve({ data, error });
+  return createRemoteQueryFromResult(Promise.resolve({ data, error }));
+};
+
+const createRemoteQueryFromResult = (result: Promise<{ data: unknown; error: unknown }>) => {
   const query = {
     select: vi.fn(() => query),
     eq: vi.fn(() => query),
@@ -35,6 +39,39 @@ const createRemoteQuery = (data: unknown, error: unknown = null) => {
     then: result.then.bind(result),
   };
   return query;
+};
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T | PromiseLike<T>) => void;
+}
+
+const createDeferred = <T>(): Deferred<T> => {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+};
+
+const installQueuedWebLocks = (): void => {
+  const pendingByName = new Map<string, Promise<void>>();
+  Object.defineProperty(globalThis.navigator, 'locks', {
+    configurable: true,
+    value: {
+      request: (
+        name: string,
+        _options: unknown,
+        callback: (lock: unknown) => Promise<unknown>,
+      ): Promise<unknown> => {
+        const run = () => Promise.resolve(callback({}));
+        const previous = pendingByName.get(name);
+        const result = previous ? previous.then(run) : run();
+        pendingByName.set(name, result.then(() => undefined, () => undefined));
+        return result;
+      },
+    },
+  });
 };
 
 const buildStagedProvider = (overrides: Partial<Provider> = {}): Provider => ({
@@ -1006,6 +1043,54 @@ describe('confirmProviderConflictRecovery', () => {
     });
   });
 
+  it('rebinds soft-deleted selections and sessions without reviving snapshots, IDs, or DELETE payloads', async () => {
+    // Arrange: every soft-deleted provider reference remains part of the same atomic graph.
+    const stagedProvider = buildStagedProvider();
+    const deletedAt = new Date('2026-08-25T10:02:00.000Z');
+    const plan = buildChargingPlan({ id: 'soft-graph-plan', provider_id: stagedProvider.id, deleted_at: deletedAt });
+    const selection: ProviderPlanSelection = {
+      id: 'soft-graph-selection', user_id: 'user-1', provider_id: stagedProvider.id,
+      tariff_plan_id: plan.id, valid_from: new Date('2026-08-25T00:00:00.000Z'), valid_to: null,
+      price_snapshot: { label: 'Historical plan', kWhPrice: 79 }, created_at: deletedAt,
+      updated_at: deletedAt, deleted_at: deletedAt,
+    };
+    const session: Extract<ChargingSession, { session_mode: 'plan' }> = {
+      id: 'soft-graph-session', user_id: 'user-1', provider_id: stagedProvider.id,
+      provider_name_snapshot: 'Ionity', tariff_plan_id: plan.id, plan_selection_id: selection.id,
+      charging_plan_name_snapshot: 'Historical plan', session_timestamp: deletedAt, charging_type: 'DC',
+      kwh_billed: 10, total_cost: 790, session_mode: 'plan', applied_session_fee: 0,
+      created_at: deletedAt, updated_at: deletedAt, deleted_at: deletedAt,
+    };
+    await db.providers.add(stagedProvider);
+    await db.charging_plans.add(plan);
+    await db.provider_plan_selections.add(selection);
+    await db.sessions.add(session);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    const [planOutboxId, selectionOutboxId, sessionOutboxId] = await db.sync_outbox.bulkAdd([
+      { table_name: 'charging_plans', action: 'DELETE', payload: plan, timestamp: deletedAt },
+      { table_name: 'provider_plan_selections', action: 'DELETE', payload: selection, timestamp: deletedAt },
+      { table_name: 'sessions', action: 'DELETE', payload: session, timestamp: deletedAt },
+    ], { allKeys: true }) as number[];
+    const preparation = await prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId });
+    expect(preparation).toMatchObject({ status: 'ready' });
+    if (preparation.status !== 'ready') return;
+
+    // Act: confirm the complete soft-deleted graph.
+    await expect(providerConflictRecoveryService.confirmProviderConflictRecovery(preparation.descriptor))
+      .resolves.toMatchObject({ status: 'reconciled' });
+
+    // Assert: only provider IDs move; soft deletion, stable IDs, snapshots, and DELETE intent are exact.
+    const expectedPlan = { ...plan, provider_id: 'canonical-provider' };
+    const expectedSelection = { ...selection, provider_id: 'canonical-provider' };
+    const expectedSession = { ...session, provider_id: 'canonical-provider' };
+    expect(await db.charging_plans.get(plan.id)).toEqual(expectedPlan);
+    expect(await db.provider_plan_selections.get(selection.id)).toEqual(expectedSelection);
+    expect(await db.sessions.get(session.id)).toEqual(expectedSession);
+    expect(await db.sync_outbox.get(planOutboxId)).toMatchObject({ action: 'DELETE', payload: expectedPlan });
+    expect(await db.sync_outbox.get(selectionOutboxId)).toMatchObject({ action: 'DELETE', payload: expectedSelection });
+    expect(await db.sync_outbox.get(sessionOutboxId)).toMatchObject({ action: 'DELETE', payload: expectedSession });
+  });
+
   it('rejects completion evidence when current postconditions no longer prove reconciliation', async () => {
     // Arrange: complete a normal no-reference reconciliation, then corrupt its current postcondition.
     const stagedProvider = buildStagedProvider();
@@ -1059,6 +1144,35 @@ describe('confirmProviderConflictRecovery', () => {
     await expect(confirm(preparation.descriptor)).resolves.toMatchObject({ status: 'blocked' });
   });
 
+  it('rejects completion evidence when an affected canonical payload no longer matches its local row', async () => {
+    // Arrange: completion evidence requires the retained mutation payload to remain an exact local-row snapshot.
+    const stagedProvider = buildStagedProvider();
+    const stagedPlan = buildChargingPlan({ id: 'evidence-payload-plan', provider_id: stagedProvider.id });
+    await db.providers.add(stagedProvider);
+    await db.charging_plans.add(stagedPlan);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    const planOutboxId = await db.sync_outbox.add({
+      table_name: 'charging_plans',
+      action: 'INSERT',
+      payload: stagedPlan,
+      timestamp: new Date('2026-08-25T10:02:00.000Z'),
+    });
+    const preparation = await prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId });
+    expect(preparation).toMatchObject({ status: 'ready' });
+    if (preparation.status !== 'ready') return;
+    await expect(providerConflictRecoveryService.confirmProviderConflictRecovery(preparation.descriptor))
+      .resolves.toMatchObject({ status: 'reconciled' });
+    const canonicalPlan = await db.charging_plans.get(stagedPlan.id);
+    if (!canonicalPlan) return;
+    await db.sync_outbox.update(planOutboxId, {
+      payload: { ...canonicalPlan, name: 'Unexpected stale payload' },
+    });
+
+    // Act and Assert: canonical provider identity alone cannot prove exact durable postconditions.
+    await expect(providerConflictRecoveryService.confirmProviderConflictRecovery(preparation.descriptor))
+      .resolves.toMatchObject({ status: 'blocked' });
+  });
+
   it('verifies durable evidence again after the Dexie connection is recreated', async () => {
     // Arrange: complete a reconciliation, then recreate the local database connection.
     const stagedProvider = buildStagedProvider();
@@ -1075,6 +1189,122 @@ describe('confirmProviderConflictRecovery', () => {
     // Act and Assert: reload-safe idempotency requires the evidence and its current postconditions.
     await expect(providerConflictRecoveryService.confirmProviderConflictRecovery(preparation.descriptor))
       .resolves.toMatchObject({ status: 'already-reconciled' });
+  });
+
+  it('blocks a changed review when the staged provider mutates during a deferred confirm preflight', async () => {
+    // Arrange: hold the refreshed canonical lookup after the original review is issued.
+    const stagedProvider = buildStagedProvider();
+    await db.providers.add(stagedProvider);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    const preparation = await prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId });
+    expect(preparation).toMatchObject({ status: 'ready' });
+    if (preparation.status !== 'ready') return;
+    const before = await Promise.all([
+      db.providers.toArray(), db.charging_plans.toArray(), db.provider_plan_selections.toArray(),
+      db.sessions.toArray(), db.sync_outbox.toArray(), db.provider_reconciliations.toArray(),
+    ]);
+    const canonicalLookup = createDeferred<{ data: unknown; error: unknown }>();
+    supabaseMock.from
+      .mockImplementationOnce(() => createRemoteQueryFromResult(canonicalLookup.promise))
+      .mockImplementation((table: string) => createRemoteQuery(
+        table === 'providers' ? [buildStagedProvider({ id: 'canonical-provider' })] : [],
+      ));
+
+    // Act: a concurrent staged-provider edit invalidates the reviewed serialization before commit.
+    const confirmation = providerConflictRecoveryService.confirmProviderConflictRecovery(preparation.descriptor);
+    await Promise.resolve();
+    await db.providers.update(stagedProvider.id, { updated_at: new Date('2026-08-25T10:05:00.000Z') });
+    canonicalLookup.resolve({ data: [buildStagedProvider({ id: 'canonical-provider' })], error: null });
+
+    // Assert: the deferred race is deterministic and no stale review can write any table.
+    await expect(confirmation).resolves.toMatchObject({ status: 'blocked' });
+    await expect(Promise.all([
+      db.providers.toArray(), db.charging_plans.toArray(), db.provider_plan_selections.toArray(),
+      db.sessions.toArray(), db.sync_outbox.toArray(), db.provider_reconciliations.toArray(),
+    ])).resolves.toEqual([
+      [{ ...stagedProvider, updated_at: new Date('2026-08-25T10:05:00.000Z') }],
+      ...before.slice(1),
+    ]);
+  });
+
+  it('blocks durable evidence alone when no terminal trigger and postcondition exist', async () => {
+    // Arrange: completion evidence is proof only when its exact durable state also exists.
+    const terminalOutboxId = 999;
+    await db.provider_reconciliations.add({
+      terminal_outbox_id: terminalOutboxId,
+      user_id: 'user-1',
+      staged_provider_id: 'staged-provider',
+      canonical_provider_id: 'canonical-provider',
+      affected_row_ids: { charging_plan_ids: [], selection_ids: [], session_ids: [] },
+      affected_outbox_ids: [],
+      review_serialization: 'review',
+      completed_at: new Date('2026-08-25T10:05:00.000Z'),
+    });
+
+    // Act and Assert: a record cannot substitute for the missing terminal/current graph proof.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toMatchObject({ status: 'blocked' });
+  });
+
+  it('keeps reconnect and outbox-triggered stale deletion outside deferred confirmation exclusivity through logout', async () => {
+    // Arrange: confirmation holds the shared lock at a deferred preflight while another runtime queues work.
+    installQueuedWebLocks();
+    const stagedProvider = buildStagedProvider();
+    await db.providers.add(stagedProvider);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    const preparation = await prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId });
+    expect(preparation).toMatchObject({ status: 'ready' });
+    if (preparation.status !== 'ready') return;
+    const enteredPreflight = createDeferred<void>();
+    const releasePreflight = createDeferred<{ data: unknown; error: unknown }>();
+    supabaseMock.from
+      .mockImplementationOnce(() => {
+        enteredPreflight.resolve();
+        return createRemoteQueryFromResult(releasePreflight.promise);
+      })
+      .mockImplementation((table: string) => createRemoteQuery(
+        table === 'providers' ? [buildStagedProvider({ id: 'canonical-provider' })] : [],
+      ));
+    let triggerReconnect: (() => void) | undefined;
+    let triggerOutboxCreate: (() => void) | undefined;
+    const deletionAttempts = vi.fn(async () => {
+      await db.sync_outbox.delete(terminalOutboxId);
+    });
+    const runtimeDeps: SyncRuntimeDeps = {
+      loadSyncEngine: vi.fn(async () => ({
+        initialSync: vi.fn(async () => ({
+          providers: { status: 'ready' as const },
+          charging_plans: { status: 'ready' as const },
+          sessions: { status: 'ready' as const },
+        })),
+        processOutbox: deletionAttempts,
+      })),
+      addOnlineListener: (listener) => {
+        triggerReconnect = listener;
+        return () => undefined;
+      },
+      subscribeOutboxCreates: (listener) => {
+        triggerOutboxCreate = listener;
+        return () => undefined;
+      },
+      logger: { error: vi.fn() },
+    };
+
+    // Act: once confirmation owns the lock, queue both runtime triggers and dispose before release.
+    const confirmation = providerConflictRecoveryService.confirmProviderConflictRecovery(preparation.descriptor);
+    await enteredPreflight.promise;
+    const dispose = startSyncRuntime({ isAuthenticated: true }, runtimeDeps);
+    triggerReconnect?.();
+    triggerOutboxCreate?.();
+    const logout = dispose();
+
+    // Assert: no queued pass may upload or delete the same terminal item during confirmation.
+    expect(deletionAttempts).not.toHaveBeenCalled();
+    expect(await db.sync_outbox.get(terminalOutboxId)).toMatchObject(buildTerminalOutbox());
+    releasePreflight.resolve({ data: [buildStagedProvider({ id: 'canonical-provider' })], error: null });
+    await expect(confirmation).resolves.toMatchObject({ status: 'reconciled' });
+    await logout;
+    expect(deletionAttempts).not.toHaveBeenCalled();
   });
 
   it('rebinds selections and plan-mode sessions without changing snapshots or stable IDs', async () => {

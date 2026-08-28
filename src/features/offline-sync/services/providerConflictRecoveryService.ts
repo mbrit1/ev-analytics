@@ -613,29 +613,48 @@ async function hasVerifiedCompletedReconciliation(evidence: ProviderReconciliati
     && sessions.every((session) => session?.user_id === evidence.user_id
       && session.session_mode === 'plan'
       && session.provider_id === evidence.canonical_provider_id)
-    && outbox.every((item) => hasCanonicalEvidenceOutboxPayload(item, evidence))
+    && outbox.every((item) => hasCanonicalEvidenceOutboxPayload(
+      item,
+      evidence,
+      plans,
+      selections,
+      sessions,
+    ))
     && !outbox.some((item) => referencesProvider(item, evidence.staged_provider_id));
 }
 
 function hasCanonicalEvidenceOutboxPayload(
   item: SyncOutbox,
   evidence: ProviderReconciliation,
+  plans: readonly (ChargingPlan | undefined)[],
+  selections: readonly (ProviderPlanSelection | undefined)[],
+  sessions: readonly (ChargingSession | undefined)[],
 ): boolean {
   if (!evidence.affected_outbox_ids.includes(item.id ?? Number.NaN)) {
     return true;
   }
 
   switch (item.table_name) {
-    case 'charging_plans':
+    case 'charging_plans': {
+      const plan = plans.find((candidate) => candidate?.id === item.payload.id);
       return evidence.affected_row_ids.charging_plan_ids.includes(item.payload.id)
-        && (item.payload as ChargingPlan).provider_id === evidence.canonical_provider_id;
-    case 'provider_plan_selections':
+        && plan !== undefined
+        && createCanonicalSerialization(item.payload) === createCanonicalSerialization(plan);
+    }
+    case 'provider_plan_selections': {
+      const selection = selections.find((candidate) => candidate?.id === item.payload.id);
       return evidence.affected_row_ids.selection_ids.includes(item.payload.id)
-        && (item.payload as ProviderPlanSelection).provider_id === evidence.canonical_provider_id;
-    case 'sessions':
+        && selection !== undefined
+        && createCanonicalSerialization(item.payload) === createCanonicalSerialization(selection);
+    }
+    case 'sessions': {
+      const payload = item.payload as ChargingSession;
+      const session = sessions.find((candidate) => candidate?.id === item.payload.id);
       return evidence.affected_row_ids.session_ids.includes(item.payload.id)
-        && (item.payload as ChargingSession).session_mode === 'plan'
-        && (item.payload as Extract<ChargingSession, { session_mode: 'plan' }>).provider_id === evidence.canonical_provider_id;
+        && payload.session_mode === 'plan'
+        && session?.session_mode === 'plan'
+        && createCanonicalSerialization(payload) === createCanonicalSerialization(session);
+    }
     case 'providers':
       return false;
   }
