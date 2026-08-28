@@ -14,6 +14,7 @@ import {
   updateCurrentTariffVersion,
   updateLogicalTariffDetails,
 } from './planService'
+import { ProviderReferenceUnavailableError } from './providerService'
 import 'fake-indexeddb/auto'
 
 const utc = (date: string): Date => new Date(`${date}T00:00:00.000Z`)
@@ -1254,6 +1255,66 @@ describe('planService', () => {
     expect(selection?.provider_id).toBe('provider-2')
     const outbox = await db.sync_outbox.toArray()
     expect(outbox.some((entry) => entry.table_name === 'provider_plan_selections' && entry.action === 'UPDATE')).toBe(true)
+  })
+
+  it('rejects a stale logical-tariff move after reconciliation removes its destination provider without recreating references', async () => {
+    // Arrange: A stale editor has source plans and an active selection pointing at a staged destination provider.
+    const stagedProvider: Provider = {
+      id: 'staged-provider',
+      user_id: 'user-1',
+      name: 'Staged provider',
+      created_at: utc('2026-01-01'),
+      updated_at: utc('2026-01-01'),
+    }
+    await db.providers.add(stagedProvider)
+    await db.charging_plans.bulkAdd([
+      buildPlan({ id: 'stale-base', provider_id: 'provider-1', name: 'Lidl', valid_from: utc('2026-01-01'), valid_to: utc('2026-08-15') }),
+      buildPlan({ id: 'stale-next', provider_id: 'provider-1', name: 'Lidl', valid_from: utc('2026-08-15'), valid_to: null }),
+    ])
+    await db.provider_plan_selections.add({
+      id: 'stale-selection',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      tariff_plan_id: 'stale-base',
+      valid_from: utc('2026-01-01'),
+      valid_to: null,
+      price_snapshot: { label: 'Lidl', kWhPrice: 49 },
+      created_at: utc('2026-01-01'),
+      updated_at: utc('2026-01-01'),
+    })
+    const snapshot = async (): Promise<string> => JSON.stringify({
+      chargingPlans: await db.charging_plans.orderBy('id').toArray(),
+      providerPlanSelections: await db.provider_plan_selections.orderBy('id').toArray(),
+      syncOutbox: await db.sync_outbox.orderBy('id').toArray(),
+    })
+    const before = await snapshot()
+
+    const reconciliationRuntime = new EVAnalyticsDB()
+    await reconciliationRuntime.providers.delete(stagedProvider.id)
+    reconciliationRuntime.close()
+
+    // Act/Assert: The stale move must fail before it can mutate local rows or queue orphaning payloads.
+    await expect(updateLogicalTariffDetails({
+      userId: 'user-1',
+      providerId: 'provider-1',
+      name: 'Lidl',
+      nextProviderId: stagedProvider.id,
+      nextName: 'Lidl Plus',
+    })).rejects.toBeInstanceOf(ProviderReferenceUnavailableError)
+
+    // Assert: Every persisted row and queue entry remains byte-for-byte unchanged.
+    expect(await snapshot()).toBe(before)
+    const outbox = await db.sync_outbox.toArray()
+    expect(outbox.some((entry) => (
+      entry.table_name === 'charging_plans'
+      && 'provider_id' in entry.payload
+      && entry.payload.provider_id === stagedProvider.id
+    ))).toBe(false)
+    expect(outbox.some((entry) => (
+      entry.table_name === 'provider_plan_selections'
+      && 'provider_id' in entry.payload
+      && entry.payload.provider_id === stagedProvider.id
+    ))).toBe(false)
   })
 
   it('soft-deletes provider plan selections that point at a deleted logical tariff', async () => {

@@ -889,7 +889,9 @@ export async function createSuccessorTariffVersion(
 export async function updateLogicalTariffDetails(
   input: UpdateLogicalTariffDetailsInput
 ): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.provider_plan_selections, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.provider_plan_selections, db.sync_outbox, async () => {
+    await assertOwnedProviderReference(input.userId, input.nextProviderId);
+
     const sourceVersions = await loadLogicalVersionsFromTable(
       db.charging_plans,
       input.userId,
