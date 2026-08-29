@@ -135,8 +135,11 @@ function isEarlierOutboxItem(candidate: SyncOutbox, item: SyncOutbox): boolean {
   return (candidate.id ?? Number.POSITIVE_INFINITY) < (item.id ?? Number.NEGATIVE_INFINITY);
 }
 
-async function removeSupersededBlockedEntries(item: SyncOutbox): Promise<void> {
-  const blockedEntries = (await db.sync_outbox.toArray()).filter((candidate) => (
+async function removeSupersededBlockedEntries(
+  item: SyncOutbox,
+  blockedEntries: SyncOutbox[],
+): Promise<SyncOutbox[]> {
+  const supersededEntries = blockedEntries.filter((candidate) => (
     candidate.id !== item.id
     && candidate.table_name === item.table_name
     && candidate.payload.id === item.payload.id
@@ -144,8 +147,76 @@ async function removeSupersededBlockedEntries(item: SyncOutbox): Promise<void> {
     && isBlockedChargingPlanOverlap(candidate)
   ));
 
-  await db.sync_outbox.bulkDelete(blockedEntries.flatMap((candidate) => candidate.id ?? []));
+  await db.sync_outbox.bulkDelete(supersededEntries.flatMap((candidate) => candidate.id ?? []));
+  return supersededEntries;
 }
+type OutboxDependency = {
+  tableName: SyncOutbox['table_name'];
+  id: string;
+};
+
+function getOutboxRecordValue(item: SyncOutbox, field: string): unknown {
+  return (item.payload as unknown as Record<string, unknown>)[field];
+}
+
+function getOutboxDependency(tableName: SyncOutbox['table_name'], id: unknown): OutboxDependency | undefined {
+  return typeof id === 'string' && id.length > 0
+    ? { tableName, id }
+    : undefined;
+}
+
+function getOutboxDependencies(item: SyncOutbox): OutboxDependency[] {
+  const dependencies: OutboxDependency[] = [];
+  const addDependency = (tableName: SyncOutbox['table_name'], id: unknown): void => {
+    const dependency = getOutboxDependency(tableName, id);
+    if (dependency) dependencies.push(dependency);
+  };
+
+  switch (item.table_name) {
+    case 'charging_plans':
+      addDependency('providers', getOutboxRecordValue(item, 'provider_id'));
+      break;
+    case 'provider_plan_selections':
+      addDependency('providers', getOutboxRecordValue(item, 'provider_id'));
+      addDependency('charging_plans', getOutboxRecordValue(item, 'tariff_plan_id'));
+      break;
+    case 'sessions':
+      if (getOutboxRecordValue(item, 'session_mode') === 'plan') {
+        addDependency('providers', getOutboxRecordValue(item, 'provider_id'));
+        addDependency('charging_plans', getOutboxRecordValue(item, 'tariff_plan_id'));
+        addDependency('provider_plan_selections', getOutboxRecordValue(item, 'plan_selection_id'));
+      }
+      break;
+    case 'providers':
+      break;
+    default: {
+      const unhandledTable: never = item.table_name;
+      void unhandledTable;
+    }
+  }
+
+  return dependencies;
+}
+
+function getOutboxIdentityKey(dependency: OutboxDependency): string {
+  return `${dependency.tableName}:${dependency.id}`;
+}
+
+function getOutboxIdentity(item: SyncOutbox): OutboxDependency | undefined {
+  return getOutboxDependency(item.table_name, getOutboxRecordValue(item, 'id'));
+}
+
+function isTerminalOutboxItem(item: SyncOutbox): boolean {
+  return isBlockedProviderNameConflict(item)
+    || isBlockedChargingPlanOverlap(item)
+    || (
+      (item.retry_count ?? 0) > 0
+      && item.last_attempt_at !== undefined
+      && item.next_attempt_at === undefined
+      && item.last_error !== undefined
+    );
+}
+
 
 type RemoteProviderPayload = Pick<
   Provider,
@@ -548,29 +619,74 @@ function getInitialSyncSelectColumns(tableName: 'providers' | 'charging_plans' |
 export async function processOutbox(options: ProcessOutboxOptions = {}): Promise<void> {
   const now = options.now ?? (() => new Date());
   const items = await db.sync_outbox.orderBy('timestamp').toArray();
-  const pendingProviderInsertIds = new Set(
-    items
-      .filter((item) => item.table_name === 'providers' && item.action === 'INSERT')
-      .map((item) => item.payload.id)
-  );
   if (options.signal?.aborted) {
     return;
   }
 
+  const pendingParentInsertCounts = new Map<string, number>();
+  const pendingDescendantIdentityKeys = new Set<string>();
+  const legacyProviderInsertIdentityKeys = new Set<string>();
+  const blockedChargingPlanEntriesByIdentity = new Map<string, Set<SyncOutbox>>();
   for (const item of items) {
+    for (const dependency of getOutboxDependencies(item)) {
+      pendingDescendantIdentityKeys.add(getOutboxIdentityKey(dependency));
+    }
+    const identity = getOutboxIdentity(item);
+    if (identity && isBlockedChargingPlanOverlap(item)) {
+      const key = getOutboxIdentityKey(identity);
+      const blockedEntries = blockedChargingPlanEntriesByIdentity.get(key) ?? new Set<SyncOutbox>();
+      blockedEntries.add(item);
+      blockedChargingPlanEntriesByIdentity.set(key, blockedEntries);
+    }
+    if (item.action !== 'INSERT' || !identity) continue;
+    const key = getOutboxIdentityKey(identity);
+    pendingParentInsertCounts.set(key, (pendingParentInsertCounts.get(key) ?? 0) + 1);
+    if (item.table_name === 'providers' && isLegacyTerminalProviderNameConflict(item)) {
+      legacyProviderInsertIdentityKeys.add(key);
+    }
+  }
+
+  const worklist = [...items];
+  const queuedItems = new Set(items);
+  const finishedItems = new Set<SyncOutbox>();
+  const waitersByIdentity = new Map<string, Set<SyncOutbox>>();
+  const releaseInsertedIdentity = (insertedItem: SyncOutbox): void => {
+    if (insertedItem.action !== 'INSERT') return;
+    const identity = getOutboxIdentity(insertedItem);
+    if (!identity) return;
+    const key = getOutboxIdentityKey(identity);
+    const count = pendingParentInsertCounts.get(key);
+    if (count === undefined) return;
+    if (count > 1) {
+      pendingParentInsertCounts.set(key, count - 1);
+      return;
+    }
+
+    pendingParentInsertCounts.delete(key);
+    const waiters = waitersByIdentity.get(key);
+    waitersByIdentity.delete(key);
+    if (!waiters) return;
+    for (const waiter of waiters) {
+      if (!finishedItems.has(waiter) && !queuedItems.has(waiter)) {
+        worklist.push(waiter);
+        queuedItems.add(waiter);
+      }
+    }
+  };
+  let worklistIndex = 0;
+
+  while (worklistIndex < worklist.length) {
     if (options.signal?.aborted) {
       return;
     }
 
-    if (isBlockedProviderNameConflict(item)) {
-      // Keep the terminal provider conflict for diagnosis. Its id remains in
-      // the pending set so only charging plans that depend on it stay blocked.
-      continue;
-    }
+    const item = worklist[worklistIndex++];
+    queuedItems.delete(item);
 
-    if (isBlockedChargingPlanOverlap(item)) {
-      // A user-visible overlap conflict is terminal for this exact payload.
-      // A later same-row repair can still upload and remove this stale entry.
+    if (isTerminalOutboxItem(item)) {
+      // Keep terminal failures for diagnosis. Their identities remain in the
+      // dependency counts so descendants cannot be uploaded without repair.
+      finishedItems.add(item);
       continue;
     }
 
@@ -578,16 +694,36 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
     if (item.next_attempt_at && item.next_attempt_at > currentTime) {
       // Skip delayed items but continue scanning so later ready items do not
       // starve behind an older future-retry entry.
+      finishedItems.add(item);
       continue;
     }
 
+    const identity = getOutboxIdentity(item);
+    const identityKey = identity ? getOutboxIdentityKey(identity) : undefined;
+    const blockedDependencyKeys = new Set<string>();
     if (
-      item.table_name === 'charging_plans'
-      && item.action === 'INSERT'
-      && pendingProviderInsertIds.has((item.payload as ChargingPlan).provider_id)
+      item.action !== 'INSERT'
+      && identityKey !== undefined
+      && (pendingParentInsertCounts.get(identityKey) ?? 0) > 0
+      && pendingDescendantIdentityKeys.has(identityKey)
+      && !legacyProviderInsertIdentityKeys.has(identityKey)
     ) {
-      // The provider must reach Supabase before its first tariff. Leave the
-      // dependent tariff untouched until that provider insert succeeds.
+      blockedDependencyKeys.add(identityKey);
+    }
+    for (const dependency of getOutboxDependencies(item)) {
+      const dependencyKey = getOutboxIdentityKey(dependency);
+      if ((pendingParentInsertCounts.get(dependencyKey) ?? 0) > 0) {
+        blockedDependencyKeys.add(dependencyKey);
+      }
+    }
+    if (blockedDependencyKeys.size > 0) {
+      // Leave dependent entries untouched until every parent INSERT for each
+      // referenced identity has been accepted or repaired.
+      for (const dependencyKey of blockedDependencyKeys) {
+        const waiters = waitersByIdentity.get(dependencyKey) ?? new Set<SyncOutbox>();
+        waiters.add(item);
+        waitersByIdentity.set(dependencyKey, waiters);
+      }
       continue;
     }
 
@@ -597,6 +733,7 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
     }
 
     const applied = await applySyncResult(item, result, currentTime);
+    finishedItems.add(item);
     if (!applied) {
       // Another writer changed or removed this row while the remote call was
       // pending, so this acknowledgement cannot safely affect local state.
@@ -604,19 +741,41 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
     }
 
     if (result.success) {
-      await removeSupersededBlockedEntries(item);
-      if (item.table_name === 'providers' && item.action === 'INSERT') {
-        pendingProviderInsertIds.delete(item.payload.id);
+      const itemIdentity = getOutboxIdentity(item);
+      const itemIdentityKey = itemIdentity ? getOutboxIdentityKey(itemIdentity) : undefined;
+      const blockedEntries = itemIdentityKey
+        ? [...(blockedChargingPlanEntriesByIdentity.get(itemIdentityKey) ?? [])]
+        : [];
+      const supersededItems = await removeSupersededBlockedEntries(item, blockedEntries);
+      if (itemIdentityKey && supersededItems.length > 0) {
+        const remainingBlockedEntries = blockedChargingPlanEntriesByIdentity.get(itemIdentityKey);
+        if (remainingBlockedEntries) {
+          for (const supersededItem of supersededItems) {
+            remainingBlockedEntries.delete(supersededItem);
+          }
+          if (remainingBlockedEntries.size === 0) {
+            blockedChargingPlanEntriesByIdentity.delete(itemIdentityKey);
+          }
+        }
+      }
+      releaseInsertedIdentity(item);
+      for (const supersededItem of supersededItems) {
+        releaseInsertedIdentity(supersededItem);
+      }
+    } else if (shouldContinueAfterFailure(item, result)) {
+      if (item.table_name === 'charging_plans' && result.isOverlapConflict) {
+        const failedIdentity = getOutboxIdentity(item);
+        if (failedIdentity) {
+          const key = getOutboxIdentityKey(failedIdentity);
+          const blockedEntries = blockedChargingPlanEntriesByIdentity.get(key) ?? new Set<SyncOutbox>();
+          blockedEntries.add(item);
+          blockedChargingPlanEntriesByIdentity.set(key, blockedEntries);
+        }
       }
     } else {
-      if (shouldContinueAfterFailure(item, result)) {
-        // These conflicts are terminal and item-local. Keep the failed row for
-        // user resolution while allowing unrelated ready rows to sync.
-        continue;
-      }
-
-      // Later writes may depend on earlier ones, so stop at retryable or other
-      // failures rather than skipping ahead and risking out-of-order state.
+      // Later writes may depend on earlier ones, so stop at retryable or
+      // other failures rather than skipping ahead and risking out-of-order
+      // state.
       break;
     }
   }

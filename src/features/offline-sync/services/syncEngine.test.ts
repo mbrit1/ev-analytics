@@ -801,6 +801,500 @@ describe('syncEngine', () => {
     expect(uploadOrder).toEqual(['providers', 'charging_plans'])
     expect(await db.sync_outbox.count()).toBe(0)
   })
+  it.each([
+    {
+      description: 'a provider insert blocks a charging-plan INSERT',
+      parentTable: 'providers' as const,
+      parentPayload: () => buildProvider({ id: 'pending-provider' }),
+      childTable: 'charging_plans' as const,
+      childAction: 'INSERT' as const,
+      childPayload: () => buildChargingPlan({
+        id: 'pending-provider-plan',
+        provider_id: 'pending-provider',
+      }),
+    },
+    {
+      description: 'a provider insert blocks a selection UPDATE',
+      parentTable: 'providers' as const,
+      parentPayload: () => buildProvider({ id: 'pending-provider' }),
+      childTable: 'provider_plan_selections' as const,
+      childAction: 'UPDATE' as const,
+      childPayload: () => buildProviderPlanSelection({
+        id: 'pending-provider-selection',
+        provider_id: 'pending-provider',
+      }),
+    },
+    {
+      description: 'a provider insert blocks a session soft-delete',
+      parentTable: 'providers' as const,
+      parentPayload: () => buildProvider({ id: 'pending-provider' }),
+      childTable: 'sessions' as const,
+      childAction: 'DELETE' as const,
+      childPayload: () => buildChargingSession({
+        id: 'pending-provider-session',
+        provider_id: 'pending-provider',
+      }),
+    },
+    {
+      description: 'a charging-plan insert blocks a selection INSERT',
+      parentTable: 'charging_plans' as const,
+      parentPayload: () => buildChargingPlan({ id: 'pending-plan' }),
+      childTable: 'provider_plan_selections' as const,
+      childAction: 'INSERT' as const,
+      childPayload: () => buildProviderPlanSelection({
+        id: 'pending-plan-selection',
+        tariff_plan_id: 'pending-plan',
+      }),
+    },
+    {
+      description: 'a charging-plan insert blocks a session UPDATE',
+      parentTable: 'charging_plans' as const,
+      parentPayload: () => buildChargingPlan({ id: 'pending-plan' }),
+      childTable: 'sessions' as const,
+      childAction: 'UPDATE' as const,
+      childPayload: () => buildChargingSession({
+        id: 'pending-plan-session',
+        tariff_plan_id: 'pending-plan',
+        plan_selection_id: null,
+      }),
+    },
+    {
+      description: 'a selection insert blocks a session soft-delete',
+      parentTable: 'provider_plan_selections' as const,
+      parentPayload: () => buildProviderPlanSelection({ id: 'pending-selection' }),
+      childTable: 'sessions' as const,
+      childAction: 'DELETE' as const,
+      childPayload: () => buildChargingSession({
+        id: 'pending-selection-session',
+        plan_selection_id: 'pending-selection',
+      }),
+    },
+  ])('$description while the parent is retry-delayed', async ({
+    parentTable,
+    parentPayload,
+    childTable,
+    childAction,
+    childPayload,
+  }) => {
+    // Arrange: Leave the parent pending and give the child existing retry metadata.
+    const parent = parentPayload()
+    const child = childPayload()
+    const childRetryMetadata = {
+      retry_count: 4,
+      last_attempt_at: new Date('2026-05-21T11:55:00.000Z'),
+      last_error: 'Previous child failure',
+    }
+    const childOutboxId = await db.sync_outbox.add({
+      table_name: childTable,
+      action: childAction,
+      payload: child,
+      timestamp: new Date('2026-05-21T11:00:00.000Z'),
+      ...childRetryMetadata,
+    })
+    await db.sync_outbox.add({
+      table_name: parentTable,
+      action: 'INSERT',
+      payload: parent,
+      timestamp: new Date('2026-05-21T11:01:00.000Z'),
+      retry_count: 1,
+      last_attempt_at: new Date('2026-05-21T11:59:00.000Z'),
+      next_attempt_at: new Date('2026-05-21T12:05:00.000Z'),
+      last_error: 'Parent retry is not ready',
+    })
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({
+      upsert: mockUpsert,
+    } as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Process with the parent still outside its retry window.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+
+    // Assert: The child is untouched, including all retry metadata.
+    expect(mockUpsert).not.toHaveBeenCalledWith(expect.objectContaining({ id: child.id }))
+    await expect(db.sync_outbox.get(childOutboxId)).resolves.toMatchObject(childRetryMetadata)
+  })
+
+  it.each([
+    {
+      description: 'a provider insert blocks a selection INSERT',
+      parentTable: 'providers' as const,
+      parentPayload: () => buildProvider({ id: 'terminal-provider' }),
+      childTable: 'provider_plan_selections' as const,
+      childAction: 'INSERT' as const,
+      childPayload: () => buildProviderPlanSelection({
+        id: 'terminal-provider-selection',
+        provider_id: 'terminal-provider',
+      }),
+      parentFailure: {
+        last_error: 'Provider name already exists remotely (active, case-insensitive)',
+        failure_kind: 'provider-name-conflict' as const,
+      },
+    },
+    {
+      description: 'a charging-plan insert blocks a session UPDATE',
+      parentTable: 'charging_plans' as const,
+      parentPayload: () => buildChargingPlan({ id: 'terminal-plan' }),
+      childTable: 'sessions' as const,
+      childAction: 'UPDATE' as const,
+      childPayload: () => buildChargingSession({
+        id: 'terminal-plan-session',
+        tariff_plan_id: 'terminal-plan',
+        plan_selection_id: null,
+      }),
+      parentFailure: {
+        last_error: 'Tariff validity overlaps with an existing active version for this provider and name',
+      },
+    },
+    {
+      description: 'a selection insert blocks a session soft-delete',
+      parentTable: 'provider_plan_selections' as const,
+      parentPayload: () => buildProviderPlanSelection({ id: 'terminal-selection' }),
+      childTable: 'sessions' as const,
+      childAction: 'DELETE' as const,
+      childPayload: () => buildChargingSession({
+        id: 'terminal-selection-session',
+        plan_selection_id: 'terminal-selection',
+      }),
+      parentFailure: {
+        last_error: 'Permanent selection failure',
+      },
+    },
+  ])('$description while the parent is terminal', async ({
+    parentTable,
+    parentPayload,
+    childTable,
+    childAction,
+    childPayload,
+    parentFailure,
+  }) => {
+    // Arrange: Persist a terminal parent insert before its dependent mutation.
+    const parent = parentPayload()
+    const child = childPayload()
+    const childOutboxId = await db.sync_outbox.add({
+      table_name: childTable,
+      action: childAction,
+      payload: child,
+      timestamp: new Date('2026-05-21T11:00:00.000Z'),
+      retry_count: 3,
+      last_attempt_at: new Date('2026-05-21T11:55:00.000Z'),
+      last_error: 'Previous child failure',
+    })
+    await db.sync_outbox.add({
+      table_name: parentTable,
+      action: 'INSERT',
+      payload: parent,
+      timestamp: new Date('2026-05-21T11:01:00.000Z'),
+      retry_count: 1,
+      last_attempt_at: new Date('2026-05-21T11:59:00.000Z'),
+      ...parentFailure,
+    } as SyncOutbox)
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({
+      upsert: mockUpsert,
+    } as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Process a queue whose parent cannot be retried automatically.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+
+    // Assert: Neither the terminal parent nor its dependent child is uploaded.
+    expect(mockUpsert).not.toHaveBeenCalled()
+    await expect(db.sync_outbox.get(childOutboxId)).resolves.toMatchObject({
+      retry_count: 3,
+      last_error: 'Previous child failure',
+    })
+  })
+
+  it('blocks a selected session on a pending selection but uploads an unselected session whose plan is ready', async () => {
+    // Arrange: Keep only the selection pending; both sessions reference the same ready plan.
+    const selectedSession = buildChargingSession({
+      id: 'selection-dependent-session',
+      plan_selection_id: 'selection-pending',
+    })
+    const unselectedSession = buildChargingSession({
+      id: 'plan-only-session',
+      plan_selection_id: null,
+    })
+    const selectedOutboxId = await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'INSERT',
+      payload: selectedSession,
+      timestamp: new Date('2026-05-21T11:00:00.000Z'),
+      retry_count: 2,
+      last_attempt_at: new Date('2026-05-21T11:55:00.000Z'),
+      last_error: 'Previous selected-session failure',
+    })
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'provider_plan_selections',
+        action: 'INSERT',
+        payload: buildProviderPlanSelection({ id: 'selection-pending' }),
+        timestamp: new Date('2026-05-21T11:01:00.000Z'),
+        retry_count: 1,
+        last_attempt_at: new Date('2026-05-21T11:59:00.000Z'),
+        next_attempt_at: new Date('2026-05-21T12:05:00.000Z'),
+        last_error: 'Selection retry is not ready',
+      },
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: unselectedSession,
+        timestamp: new Date('2026-05-21T11:02:00.000Z'),
+      },
+    ])
+    const uploadIds: string[] = []
+    const mockUpsert = vi.fn((payload: { id: string }) => {
+      uploadIds.push(payload.id)
+      return Promise.resolve({ error: null })
+    })
+    vi.mocked(supabase.from).mockReturnValue({
+      upsert: mockUpsert,
+    } as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Process while the selection insert remains delayed.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+
+    // Assert: Only the plan-only session uploads and the selected session remains unchanged.
+    expect(uploadIds).toEqual(['plan-only-session'])
+    await expect(db.sync_outbox.get(selectedOutboxId)).resolves.toMatchObject({
+      retry_count: 2,
+      last_error: 'Previous selected-session failure',
+    })
+  })
+
+  it('retains a dependency count when one duplicate parent insert succeeds while another remains pending', async () => {
+    // Arrange: Queue duplicate provider inserts followed by a plan insert.
+    const provider = buildProvider({ id: 'duplicate-provider' })
+    const childPlan = buildChargingPlan({
+      id: 'duplicate-provider-plan',
+      provider_id: provider.id,
+    })
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'providers',
+        action: 'INSERT',
+        payload: provider,
+        timestamp: new Date('2026-05-21T11:00:00.000Z'),
+      },
+      {
+        table_name: 'providers',
+        action: 'INSERT',
+        payload: provider,
+        timestamp: new Date('2026-05-21T11:01:00.000Z'),
+        retry_count: 1,
+        last_attempt_at: new Date('2026-05-21T11:59:00.000Z'),
+        next_attempt_at: new Date('2026-05-21T12:05:00.000Z'),
+        last_error: 'Duplicate provider insert is delayed',
+      },
+      {
+        table_name: 'charging_plans',
+        action: 'INSERT',
+        payload: childPlan,
+        timestamp: new Date('2026-05-21T11:02:00.000Z'),
+      },
+    ])
+    const uploadIds: string[] = []
+    const mockUpsert = vi.fn((payload: { id: string }) => {
+      uploadIds.push(payload.id)
+      return Promise.resolve({ error: null })
+    })
+    vi.mocked(supabase.from).mockReturnValue({
+      upsert: mockUpsert,
+    } as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Let the ready duplicate succeed while the second remains delayed.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+
+    // Assert: The unresolved duplicate continues to block its child.
+    expect(uploadIds).toEqual(['duplicate-provider'])
+    expect(await db.sync_outbox.where('table_name').equals('charging_plans').count()).toBe(1)
+  })
+
+  it('keeps a superseded parent insert blocking descendants despite a later parent update', async () => {
+    // Arrange: A terminal plan insert remains ahead of a same-ID update and selection.
+    const plan = buildChargingPlan({ id: 'superseded-plan' })
+    const selection = buildProviderPlanSelection({
+      id: 'superseded-plan-selection',
+      tariff_plan_id: plan.id,
+    })
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'charging_plans',
+        action: 'INSERT',
+        payload: plan,
+        timestamp: new Date('2026-05-21T11:00:00.000Z'),
+        retry_count: 1,
+        last_attempt_at: new Date('2026-05-21T11:59:00.000Z'),
+        last_error: 'Tariff validity overlaps with an existing active version for this provider and name',
+      },
+      {
+        table_name: 'charging_plans',
+        action: 'UPDATE',
+        payload: plan,
+        timestamp: new Date('2026-05-21T11:01:00.000Z'),
+      },
+      {
+        table_name: 'provider_plan_selections',
+        action: 'INSERT',
+        payload: selection,
+        timestamp: new Date('2026-05-21T11:02:00.000Z'),
+      },
+    ])
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({
+      upsert: mockUpsert,
+    } as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Process the terminal insert and its newer mutations.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+
+    // Assert: The terminal insert keeps both descendants blocked.
+    expect(mockUpsert).not.toHaveBeenCalled()
+  })
+
+  it('replays a reversed and tied plan graph to a fixed point in foreign-key order', async () => {
+    // Arrange: Queue session, selection, and plan in reverse order with tied timestamps.
+    const timestamp = new Date('2026-05-21T11:00:00.000Z')
+    const plan = buildChargingPlan({ id: 'fixed-point-plan' })
+    const selection = buildProviderPlanSelection({
+      id: 'fixed-point-selection',
+      tariff_plan_id: plan.id,
+    })
+    const session = buildChargingSession({
+      id: 'fixed-point-session',
+      tariff_plan_id: plan.id,
+      plan_selection_id: selection.id,
+    })
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: session,
+        timestamp,
+      },
+      {
+        table_name: 'provider_plan_selections',
+        action: 'INSERT',
+        payload: selection,
+        timestamp,
+      },
+      {
+        table_name: 'charging_plans',
+        action: 'INSERT',
+        payload: plan,
+        timestamp,
+      },
+    ])
+    const uploadTables: string[] = []
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      upsert: vi.fn((payload: { id: string }) => {
+        uploadTables.push(`${tableName}:${payload.id}`)
+        return Promise.resolve({ error: null })
+      }),
+    }) as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Run one replay pass.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+
+    // Assert: Deferred children are reconsidered until the graph drains in dependency order.
+    expect(uploadTables).toEqual([
+      'charging_plans:fixed-point-plan',
+      'provider_plan_selections:fixed-point-selection',
+      'charging_sessions:fixed-point-session',
+    ])
+    expect(await db.sync_outbox.count()).toBe(0)
+  })
+
+  it('reconstructs pending dependency state from the durable outbox on a later pass', async () => {
+    // Arrange: Persist a delayed plan and its ready selection.
+    const plan = buildChargingPlan({ id: 'reload-plan' })
+    const selection = buildProviderPlanSelection({
+      id: 'reload-selection',
+      tariff_plan_id: plan.id,
+    })
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'charging_plans',
+        action: 'INSERT',
+        payload: plan,
+        timestamp: new Date('2026-05-21T11:01:00.000Z'),
+        retry_count: 1,
+        last_attempt_at: new Date('2026-05-21T11:59:00.000Z'),
+        next_attempt_at: new Date('2026-05-21T12:05:00.000Z'),
+        last_error: 'Plan retry is not ready',
+      },
+      {
+        table_name: 'provider_plan_selections',
+        action: 'INSERT',
+        payload: selection,
+        timestamp: new Date('2026-05-21T11:02:00.000Z'),
+      },
+    ])
+    const uploadIds: string[] = []
+    const mockUpsert = vi.fn((payload: { id: string }) => {
+      uploadIds.push(payload.id)
+      return Promise.resolve({ error: null })
+    })
+    vi.mocked(supabase.from).mockReturnValue({
+      upsert: mockUpsert,
+    } as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: First pass sees no progress; releasing the parent simulates a reloaded runtime.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+    const [parent] = await db.sync_outbox.where('table_name').equals('charging_plans').toArray()
+    await db.sync_outbox.update(parent.id!, {
+      retry_count: 0,
+      last_attempt_at: undefined,
+      next_attempt_at: undefined,
+      last_error: undefined,
+    })
+    await processOutbox({ now: () => new Date('2026-05-21T12:06:00.000Z') })
+
+    // Assert: The first pass did not touch the child and the second pass drains both.
+    expect(uploadIds).toEqual(['reload-plan', 'reload-selection'])
+    expect(await db.sync_outbox.count()).toBe(0)
+  })
+
+  it('terminates a no-progress pass without retrying terminal parents or descendants', async () => {
+    // Arrange: The terminal selection and dependent session cannot make progress.
+    const session = buildChargingSession({
+      id: 'no-progress-session',
+      plan_selection_id: 'no-progress-selection',
+    })
+    const sessionOutboxId = await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'INSERT',
+      payload: session,
+      timestamp: new Date('2026-05-21T11:01:00.000Z'),
+      retry_count: 5,
+      last_attempt_at: new Date('2026-05-21T11:55:00.000Z'),
+      last_error: 'Previous session failure',
+    })
+    await db.sync_outbox.add({
+      table_name: 'provider_plan_selections',
+      action: 'INSERT',
+      payload: buildProviderPlanSelection({ id: 'no-progress-selection' }),
+      timestamp: new Date('2026-05-21T11:00:00.000Z'),
+      retry_count: 1,
+      last_attempt_at: new Date('2026-05-21T11:59:00.000Z'),
+      last_error: 'Terminal selection failure',
+    })
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({
+      upsert: mockUpsert,
+    } as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Run repeated passes; a fixed point must terminate deterministically.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+    await processOutbox({ now: () => new Date('2026-05-21T12:01:00.000Z') })
+
+    // Assert: No item is retried and the child metadata remains unchanged.
+    expect(mockUpsert).not.toHaveBeenCalled()
+    await expect(db.sync_outbox.get(sessionOutboxId)).resolves.toMatchObject({
+      retry_count: 5,
+      last_error: 'Previous session failure',
+    })
+  })
+
 
   it('should retain a provider-name conflict, block its tariff, and sync unrelated ready work', async () => {
     // Arrange: Reject the provider with the named remote uniqueness constraint.
