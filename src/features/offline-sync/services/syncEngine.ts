@@ -217,6 +217,30 @@ function isTerminalOutboxItem(item: SyncOutbox): boolean {
     );
 }
 
+function canContinuePastTerminalOutboxItem(item: SyncOutbox): boolean {
+  return isBlockedProviderNameConflict(item) || isBlockedChargingPlanOverlap(item);
+}
+
+interface TerminalOverlapInsertSummary {
+  count: number;
+  latestItem: SyncOutbox;
+}
+
+function canSupersedeOwnChargingPlanInsert(
+  item: SyncOutbox,
+  identityKey: string,
+  pendingParentInsertCounts: ReadonlyMap<string, number>,
+  terminalOverlapInsertSummaries: ReadonlyMap<string, TerminalOverlapInsertSummary>,
+): boolean {
+  if (item.table_name !== 'charging_plans' || item.action !== 'UPDATE') return false;
+
+  const pendingInsertCount = pendingParentInsertCounts.get(identityKey) ?? 0;
+  const summary = terminalOverlapInsertSummaries.get(identityKey);
+  return summary !== undefined
+    && summary.count === pendingInsertCount
+    && isEarlierOutboxItem(summary.latestItem, item);
+}
+
 
 type RemoteProviderPayload = Pick<
   Provider,
@@ -627,6 +651,34 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
   const pendingDescendantIdentityKeys = new Set<string>();
   const legacyProviderInsertIdentityKeys = new Set<string>();
   const blockedChargingPlanEntriesByIdentity = new Map<string, Set<SyncOutbox>>();
+  const terminalOverlapInsertSummaries = new Map<string, TerminalOverlapInsertSummary>();
+  const recordTerminalOverlapInsert = (item: SyncOutbox): void => {
+    if (item.table_name !== 'charging_plans' || item.action !== 'INSERT') return;
+    const identity = getOutboxIdentity(item);
+    if (!identity) return;
+    const key = getOutboxIdentityKey(identity);
+    const summary = terminalOverlapInsertSummaries.get(key);
+    terminalOverlapInsertSummaries.set(key, {
+      count: (summary?.count ?? 0) + 1,
+      latestItem: !summary || isEarlierOutboxItem(summary.latestItem, item) ? item : summary.latestItem,
+    });
+  };
+  const removeTerminalOverlapInsert = (item: SyncOutbox): void => {
+    if (item.table_name !== 'charging_plans' || item.action !== 'INSERT') return;
+    const identity = getOutboxIdentity(item);
+    if (!identity) return;
+    const key = getOutboxIdentityKey(identity);
+    const summary = terminalOverlapInsertSummaries.get(key);
+    if (!summary) return;
+    if (summary.count === 1) {
+      terminalOverlapInsertSummaries.delete(key);
+      return;
+    }
+    terminalOverlapInsertSummaries.set(key, {
+      count: summary.count - 1,
+      latestItem: summary.latestItem,
+    });
+  };
   for (const item of items) {
     for (const dependency of getOutboxDependencies(item)) {
       pendingDescendantIdentityKeys.add(getOutboxIdentityKey(dependency));
@@ -641,6 +693,9 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
     if (item.action !== 'INSERT' || !identity) continue;
     const key = getOutboxIdentityKey(identity);
     pendingParentInsertCounts.set(key, (pendingParentInsertCounts.get(key) ?? 0) + 1);
+    if (isBlockedChargingPlanOverlap(item)) {
+      recordTerminalOverlapInsert(item);
+    }
     if (item.table_name === 'providers' && isLegacyTerminalProviderNameConflict(item)) {
       legacyProviderInsertIdentityKeys.add(key);
     }
@@ -683,30 +738,30 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
     const item = worklist[worklistIndex++];
     queuedItems.delete(item);
 
-    if (isTerminalOutboxItem(item)) {
-      // Keep terminal failures for diagnosis. Their identities remain in the
-      // dependency counts so descendants cannot be uploaded without repair.
-      finishedItems.add(item);
-      continue;
-    }
-
     const currentTime = now();
-    if (item.next_attempt_at && item.next_attempt_at > currentTime) {
-      // Skip delayed items but continue scanning so later ready items do not
-      // starve behind an older future-retry entry.
+    if (isTerminalOutboxItem(item) && !canContinuePastTerminalOutboxItem(item)) {
+      // Generic terminal rows keep their ordering boundary even if they also
+      // reference a delayed parent, so unrelated later work cannot pass them.
       finishedItems.add(item);
-      continue;
+      break;
     }
-
     const identity = getOutboxIdentity(item);
     const identityKey = identity ? getOutboxIdentityKey(identity) : undefined;
     const blockedDependencyKeys = new Set<string>();
+    const canBypassOwnParentInsert = identityKey !== undefined
+      && canSupersedeOwnChargingPlanInsert(
+        item,
+        identityKey,
+        pendingParentInsertCounts,
+        terminalOverlapInsertSummaries,
+      );
     if (
       item.action !== 'INSERT'
       && identityKey !== undefined
       && (pendingParentInsertCounts.get(identityKey) ?? 0) > 0
       && pendingDescendantIdentityKeys.has(identityKey)
       && !legacyProviderInsertIdentityKeys.has(identityKey)
+      && !canBypassOwnParentInsert
     ) {
       blockedDependencyKeys.add(identityKey);
     }
@@ -724,6 +779,23 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
         waiters.add(item);
         waitersByIdentity.set(dependencyKey, waiters);
       }
+      continue;
+    }
+
+    if (isTerminalOutboxItem(item)) {
+      // Keep terminal failures for diagnosis. Their identities remain in the
+      // dependency counts so descendants cannot be uploaded without repair.
+      finishedItems.add(item);
+      if (!canContinuePastTerminalOutboxItem(item)) {
+        break;
+      }
+      continue;
+    }
+
+    if (item.next_attempt_at && item.next_attempt_at > currentTime) {
+      // Skip delayed items but continue scanning so later ready items do not
+      // starve behind an older future-retry entry.
+      finishedItems.add(item);
       continue;
     }
 
@@ -752,6 +824,7 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
         if (remainingBlockedEntries) {
           for (const supersededItem of supersededItems) {
             remainingBlockedEntries.delete(supersededItem);
+            removeTerminalOverlapInsert(supersededItem);
           }
           if (remainingBlockedEntries.size === 0) {
             blockedChargingPlanEntriesByIdentity.delete(itemIdentityKey);
@@ -770,6 +843,7 @@ export async function processOutbox(options: ProcessOutboxOptions = {}): Promise
           const blockedEntries = blockedChargingPlanEntriesByIdentity.get(key) ?? new Set<SyncOutbox>();
           blockedEntries.add(item);
           blockedChargingPlanEntriesByIdentity.set(key, blockedEntries);
+          recordTerminalOverlapInsert(item);
         }
       }
     } else {

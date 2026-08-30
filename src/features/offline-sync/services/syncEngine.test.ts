@@ -882,6 +882,7 @@ describe('syncEngine', () => {
     const childRetryMetadata = {
       retry_count: 4,
       last_attempt_at: new Date('2026-05-21T11:55:00.000Z'),
+      next_attempt_at: new Date('2026-05-21T12:05:00.000Z'),
       last_error: 'Previous child failure',
     }
     const childOutboxId = await db.sync_outbox.add({
@@ -977,6 +978,7 @@ describe('syncEngine', () => {
       timestamp: new Date('2026-05-21T11:00:00.000Z'),
       retry_count: 3,
       last_attempt_at: new Date('2026-05-21T11:55:00.000Z'),
+      next_attempt_at: new Date('2026-05-21T12:05:00.000Z'),
       last_error: 'Previous child failure',
     })
     await db.sync_outbox.add({
@@ -1021,6 +1023,7 @@ describe('syncEngine', () => {
       timestamp: new Date('2026-05-21T11:00:00.000Z'),
       retry_count: 2,
       last_attempt_at: new Date('2026-05-21T11:55:00.000Z'),
+      next_attempt_at: new Date('2026-05-21T12:05:00.000Z'),
       last_error: 'Previous selected-session failure',
     })
     await db.sync_outbox.bulkAdd([
@@ -1109,9 +1112,13 @@ describe('syncEngine', () => {
     expect(await db.sync_outbox.where('table_name').equals('charging_plans').count()).toBe(1)
   })
 
-  it('keeps a superseded parent insert blocking descendants despite a later parent update', async () => {
-    // Arrange: A terminal plan insert remains ahead of a same-ID update and selection.
+  it('replays a newer plan repair, retires its terminal insert, and releases the dependent selection', async () => {
+    // Arrange: A terminal plan insert is followed by a same-ID repair and dependent selection.
     const plan = buildChargingPlan({ id: 'superseded-plan' })
+    const repairedPlan = buildChargingPlan({
+      id: plan.id,
+      name: 'Repaired superseded plan',
+    })
     const selection = buildProviderPlanSelection({
       id: 'superseded-plan-selection',
       tariff_plan_id: plan.id,
@@ -1129,7 +1136,7 @@ describe('syncEngine', () => {
       {
         table_name: 'charging_plans',
         action: 'UPDATE',
-        payload: plan,
+        payload: repairedPlan,
         timestamp: new Date('2026-05-21T11:01:00.000Z'),
       },
       {
@@ -1139,16 +1146,351 @@ describe('syncEngine', () => {
         timestamp: new Date('2026-05-21T11:02:00.000Z'),
       },
     ])
+    const uploads: string[] = []
+    const uploadedPlanNames: string[] = []
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      upsert: vi.fn((payload: { id: string; name?: string }) => {
+        uploads.push(`${tableName}:${payload.id}`)
+        if (tableName === 'charging_plans') uploadedPlanNames.push(payload.name ?? '')
+        return Promise.resolve({ error: null })
+      }),
+    }) as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Process the terminal insert, repair, and dependent mutation in one pass.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+
+    // Assert: The repair replaces the terminal insert before its selection uploads.
+    expect(uploads).toEqual([
+      'charging_plans:superseded-plan',
+      'provider_plan_selections:superseded-plan-selection',
+    ])
+    expect(uploadedPlanNames).toEqual(['Repaired superseded plan'])
+    expect(await db.sync_outbox.count()).toBe(0)
+  })
+
+  it('stops at a persisted generic plan terminal failure before unrelated ready work', async () => {
+    // Arrange: Persist a non-overlap terminal plan failure ahead of a ready unrelated session.
+    const unrelatedRetryMetadata = {
+      retry_count: 2,
+      last_attempt_at: new Date('2026-05-21T11:55:00.000Z'),
+      next_attempt_at: new Date('2026-05-21T11:59:00.000Z'),
+      last_error: 'Previous unrelated session failure',
+    }
+    await db.sync_outbox.add({
+      table_name: 'charging_plans',
+      action: 'INSERT',
+      payload: buildChargingPlan({ id: 'generic-terminal-plan' }),
+      timestamp: new Date('2026-05-21T11:00:00.000Z'),
+      retry_count: 1,
+      last_attempt_at: new Date('2026-05-21T11:50:00.000Z'),
+      last_error: 'Validation failed for charging_plans: generic constraint',
+    })
+    const unrelatedOutboxId = await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'INSERT',
+      payload: buildChargingSession({ id: 'unrelated-after-generic-terminal' }),
+      timestamp: new Date('2026-05-21T11:01:00.000Z'),
+      ...unrelatedRetryMetadata,
+    })
+    const planUpsert = vi.fn(() => Promise.resolve({
+      error: { code: '23514', message: 'generic charging-plan constraint' },
+    }))
+    const sessionUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      upsert: tableName === 'charging_plans' ? planUpsert : sessionUpsert,
+    }) as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Process the persisted generic terminal state and following ready row.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+
+    // Assert: Generic terminal failures retain the stop policy and do not touch later work.
+    expect(planUpsert).not.toHaveBeenCalled()
+    expect(sessionUpsert).not.toHaveBeenCalled()
+    await expect(db.sync_outbox.get(unrelatedOutboxId)).resolves.toMatchObject(unrelatedRetryMetadata)
+  })
+
+  it('stops at a generic terminal plan even when its provider insert is retry-delayed', async () => {
+    // Arrange: Queue a delayed provider, its generic terminal plan, and unrelated ad-hoc work.
+    const provider = buildProvider({ id: 'delayed-generic-terminal-provider' })
+    const terminalPlan = buildChargingPlan({
+      id: 'generic-terminal-plan-with-delayed-provider',
+      provider_id: provider.id,
+    })
+    const unrelatedSession = buildAdHocChargingSession({
+      id: 'unrelated-ad-hoc-after-generic-terminal',
+    })
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'providers',
+        action: 'INSERT',
+        payload: provider,
+        timestamp: new Date('2026-05-21T11:00:00.000Z'),
+        retry_count: 1,
+        last_attempt_at: new Date('2026-05-21T11:55:00.000Z'),
+        next_attempt_at: new Date('2026-05-21T12:05:00.000Z'),
+        last_error: 'Provider retry is not ready',
+      },
+      {
+        table_name: 'charging_plans',
+        action: 'INSERT',
+        payload: terminalPlan,
+        timestamp: new Date('2026-05-21T11:01:00.000Z'),
+        retry_count: 1,
+        last_attempt_at: new Date('2026-05-21T11:56:00.000Z'),
+        last_error: 'Validation failed for charging_plans: generic constraint',
+      },
+      {
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: unrelatedSession,
+        timestamp: new Date('2026-05-21T11:02:00.000Z'),
+      },
+    ])
+    const rowsBefore = await db.sync_outbox.toArray()
     const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
     vi.mocked(supabase.from).mockReturnValue({
       upsert: mockUpsert,
     } as unknown as ReturnType<typeof supabase.from>)
 
-    // Act: Process the terminal insert and its newer mutations.
+    // Act: Process the delayed-parent queue containing a generic terminal row.
     await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
 
-    // Assert: The terminal insert keeps both descendants blocked.
+    // Assert: The generic terminal stops replay and leaves every persisted row unchanged.
     expect(mockUpsert).not.toHaveBeenCalled()
+    expect(await db.sync_outbox.toArray()).toEqual(rowsBefore)
+  })
+
+  it('replays a repair after two terminal overlap inserts and releases its selection', async () => {
+    // Arrange: Queue two terminal versions of one plan before a repaired update and selection.
+    const firstTerminalPlan = buildChargingPlan({ id: 'duplicate-terminal-plan', name: 'First overlap' })
+    const secondTerminalPlan = buildChargingPlan({ id: firstTerminalPlan.id, name: 'Second overlap' })
+    const repairedPlan = buildChargingPlan({ id: firstTerminalPlan.id, name: 'Repaired duplicate plan' })
+    const selection = buildProviderPlanSelection({
+      id: 'duplicate-terminal-plan-selection',
+      tariff_plan_id: firstTerminalPlan.id,
+    })
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'charging_plans',
+        action: 'INSERT',
+        payload: firstTerminalPlan,
+        timestamp: new Date('2026-05-21T11:00:00.000Z'),
+        retry_count: 1,
+        last_attempt_at: new Date('2026-05-21T11:55:00.000Z'),
+        last_error: 'Tariff validity overlaps with an existing active version for this provider and name',
+      },
+      {
+        table_name: 'charging_plans',
+        action: 'INSERT',
+        payload: secondTerminalPlan,
+        timestamp: new Date('2026-05-21T11:01:00.000Z'),
+        retry_count: 1,
+        last_attempt_at: new Date('2026-05-21T11:56:00.000Z'),
+        last_error: 'Tariff validity overlaps with an existing active version for this provider and name',
+      },
+      {
+        table_name: 'charging_plans',
+        action: 'UPDATE',
+        payload: repairedPlan,
+        timestamp: new Date('2026-05-21T11:02:00.000Z'),
+      },
+      {
+        table_name: 'provider_plan_selections',
+        action: 'INSERT',
+        payload: selection,
+        timestamp: new Date('2026-05-21T11:03:00.000Z'),
+      },
+    ])
+    const uploads: Array<{ tableName: string; id: string; name?: string }> = []
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      upsert: vi.fn((payload: { id: string; name?: string }) => {
+        uploads.push({ tableName, id: payload.id, name: payload.name })
+        return Promise.resolve({ error: null })
+      }),
+    }) as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Process the duplicate terminal inserts and newer repair.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+
+    // Assert: Only the repaired plan and then its selection upload, draining all rows.
+    expect(uploads).toEqual([
+      { tableName: 'charging_plans', id: 'duplicate-terminal-plan', name: 'Repaired duplicate plan' },
+      { tableName: 'provider_plan_selections', id: 'duplicate-terminal-plan-selection', name: undefined },
+    ])
+    expect(await db.sync_outbox.count()).toBe(0)
+  })
+
+  it('keeps a repair blocked when a same-ID insert remains retry-delayed', async () => {
+    // Arrange: Queue one terminal overlap and one retry-delayed insert before a repair and selection.
+    const terminalPlan = buildChargingPlan({ id: 'mixed-terminal-delayed-plan', name: 'Terminal overlap' })
+    const delayedPlan = buildChargingPlan({ id: terminalPlan.id, name: 'Retry-delayed overlap' })
+    const repairedPlan = buildChargingPlan({ id: terminalPlan.id, name: 'Blocked mixed repair' })
+    const selection = buildProviderPlanSelection({
+      id: 'mixed-terminal-delayed-selection',
+      tariff_plan_id: terminalPlan.id,
+    })
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'charging_plans',
+        action: 'INSERT',
+        payload: terminalPlan,
+        timestamp: new Date('2026-05-21T11:00:00.000Z'),
+        retry_count: 1,
+        last_attempt_at: new Date('2026-05-21T11:55:00.000Z'),
+        last_error: 'Tariff validity overlaps with an existing active version for this provider and name',
+      },
+      {
+        table_name: 'charging_plans',
+        action: 'INSERT',
+        payload: delayedPlan,
+        timestamp: new Date('2026-05-21T11:01:00.000Z'),
+        retry_count: 1,
+        last_attempt_at: new Date('2026-05-21T11:56:00.000Z'),
+        next_attempt_at: new Date('2026-05-21T12:05:00.000Z'),
+        last_error: 'Retry-delayed insert',
+      },
+      {
+        table_name: 'charging_plans',
+        action: 'UPDATE',
+        payload: repairedPlan,
+        timestamp: new Date('2026-05-21T11:02:00.000Z'),
+      },
+      {
+        table_name: 'provider_plan_selections',
+        action: 'INSERT',
+        payload: selection,
+        timestamp: new Date('2026-05-21T11:03:00.000Z'),
+      },
+    ])
+    const rowsBefore = await db.sync_outbox.toArray()
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({
+      upsert: mockUpsert,
+    } as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Process a queue whose terminal parent cannot retire every same-ID insert.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+
+    // Assert: The mixed parent state blocks the repair and preserves every outbox payload and retry field.
+    expect(mockUpsert).not.toHaveBeenCalled()
+    expect(await db.sync_outbox.toArray()).toEqual(rowsBefore)
+  })
+
+  it.each([
+    {
+      description: 'replays when the terminal insert has the lower tied timestamp ID',
+      terminalBeforeRepair: true,
+      shouldReplay: true,
+    },
+    {
+      description: 'blocks when the terminal insert has the higher tied timestamp ID',
+      terminalBeforeRepair: false,
+      shouldReplay: false,
+    },
+  ])('$description', async ({ terminalBeforeRepair, shouldReplay }) => {
+    // Arrange: Tie timestamps so Dexie outbox IDs are the only supersession ordering boundary.
+    const timestamp = new Date('2026-05-21T11:00:00.000Z')
+    const terminalPlan = buildChargingPlan({ id: 'tied-supersession-plan', name: 'Terminal tied plan' })
+    const repairedPlan = buildChargingPlan({ id: terminalPlan.id, name: 'Repaired tied plan' })
+    const selection = buildProviderPlanSelection({
+      id: 'tied-supersession-selection',
+      tariff_plan_id: terminalPlan.id,
+    })
+    const terminalInsert: SyncOutbox = {
+      table_name: 'charging_plans',
+      action: 'INSERT',
+      payload: terminalPlan,
+      timestamp,
+      retry_count: 1,
+      last_attempt_at: new Date('2026-05-21T11:55:00.000Z'),
+      last_error: 'Tariff validity overlaps with an existing active version for this provider and name',
+    }
+    const repairUpdate: SyncOutbox = {
+      table_name: 'charging_plans',
+      action: 'UPDATE',
+      payload: repairedPlan,
+      timestamp,
+    }
+    const dependentSelection: SyncOutbox = {
+      table_name: 'provider_plan_selections',
+      action: 'INSERT',
+      payload: selection,
+      timestamp,
+    }
+    await db.sync_outbox.bulkAdd(
+      terminalBeforeRepair
+        ? [terminalInsert, repairUpdate, dependentSelection]
+        : [repairUpdate, terminalInsert, dependentSelection],
+    )
+    const rowsBefore = await db.sync_outbox.toArray()
+    const uploads: Array<{ tableName: string; id: string; name?: string }> = []
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      upsert: vi.fn((payload: { id: string; name?: string }) => {
+        uploads.push({ tableName, id: payload.id, name: payload.name })
+        return Promise.resolve({ error: null })
+      }),
+    }) as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Process the tied graph once.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+
+    // Assert: Only the higher-ID repair may supersede the lower-ID terminal insert.
+    if (shouldReplay) {
+      expect(uploads).toEqual([
+        { tableName: 'charging_plans', id: 'tied-supersession-plan', name: 'Repaired tied plan' },
+        { tableName: 'provider_plan_selections', id: 'tied-supersession-selection', name: undefined },
+      ])
+      expect(await db.sync_outbox.toArray()).toEqual([])
+      return
+    }
+
+    expect(uploads).toEqual([])
+    expect(await db.sync_outbox.toArray()).toEqual(rowsBefore)
+  })
+
+  it('does not let an earlier plan update supersede a later terminal insert', async () => {
+    // Arrange: Place a repair before, rather than after, the terminal insert it would need to supersede.
+    const terminalPlan = buildChargingPlan({ id: 'later-terminal-plan', name: 'Later terminal plan' })
+    const earlyRepair = buildChargingPlan({ id: terminalPlan.id, name: 'Too early repair' })
+    const selection = buildProviderPlanSelection({
+      id: 'later-terminal-plan-selection',
+      tariff_plan_id: terminalPlan.id,
+    })
+    await db.sync_outbox.bulkAdd([
+      {
+        table_name: 'charging_plans',
+        action: 'UPDATE',
+        payload: earlyRepair,
+        timestamp: new Date('2026-05-21T11:00:00.000Z'),
+      },
+      {
+        table_name: 'charging_plans',
+        action: 'INSERT',
+        payload: terminalPlan,
+        timestamp: new Date('2026-05-21T11:01:00.000Z'),
+        retry_count: 1,
+        last_attempt_at: new Date('2026-05-21T11:55:00.000Z'),
+        last_error: 'Tariff validity overlaps with an existing active version for this provider and name',
+      },
+      {
+        table_name: 'provider_plan_selections',
+        action: 'INSERT',
+        payload: selection,
+        timestamp: new Date('2026-05-21T11:02:00.000Z'),
+      },
+    ])
+    const rowsBefore = await db.sync_outbox.toArray()
+    const mockUpsert = vi.fn(() => Promise.resolve({ error: null }))
+    vi.mocked(supabase.from).mockReturnValue({
+      upsert: mockUpsert,
+    } as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Process the update that precedes its terminal parent insert.
+    await processOutbox({ now: () => new Date('2026-05-21T12:00:00.000Z') })
+
+    // Assert: The later terminal insert remains a boundary and releases nothing.
+    expect(mockUpsert).not.toHaveBeenCalled()
+    expect(await db.sync_outbox.toArray()).toEqual(rowsBefore)
   })
 
   it('replays a reversed and tied plan graph to a fixed point in foreign-key order', async () => {
@@ -1267,6 +1609,7 @@ describe('syncEngine', () => {
       timestamp: new Date('2026-05-21T11:01:00.000Z'),
       retry_count: 5,
       last_attempt_at: new Date('2026-05-21T11:55:00.000Z'),
+      next_attempt_at: new Date('2026-05-21T12:05:00.000Z'),
       last_error: 'Previous session failure',
     })
     await db.sync_outbox.add({
