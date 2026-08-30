@@ -7,6 +7,12 @@ import App from './App';
 import { useAuth } from '../features/auth';
 import { retryActiveSyncRuntime, useSyncStatus } from '../features/offline-sync';
 
+type ProviderConflictSyncStatus = ReturnType<typeof useSyncStatus> & {
+  blockingOutboxId?: number;
+  blockingFailureKind?: 'provider-name-conflict';
+  blockingProviderId?: string;
+};
+
 vi.mock('../features/auth', () => ({
   useAuth: vi.fn(),
   LoginForm: () => <div data-testid="login-form">Login Form</div>,
@@ -405,11 +411,11 @@ describe('App auth gating', () => {
     expect(alert).toHaveTextContent('Unsupported sync table: provider_plan_selections');
     expect(alert).toHaveTextContent('Data is saved locally and will retry automatically.');
     expect(alert).not.toHaveTextContent('Sync paused');
+    expect(screen.queryByRole('button', { name: 'Resolve provider conflict' })).not.toBeInTheDocument();
   });
 
-  it('shows a terminal provider conflict as paused from the tariffs tab', async () => {
-    // Arrange: Authenticated user with a terminal provider-name conflict.
-    const user = userEvent.setup();
+  it('shows a typed terminal provider conflict with a global resolve action', async () => {
+    // Arrange: Authenticate a user with complete typed provider-conflict recovery metadata.
     vi.mocked(useAuth).mockReturnValue({
       user: {
         id: 'user-1',
@@ -424,13 +430,16 @@ describe('App auth gating', () => {
       signIn: vi.fn(),
       signOut: mockSignOut,
     });
-    vi.mocked(useSyncStatus).mockReturnValue({
+    const syncStatus: ProviderConflictSyncStatus = {
       queueLength: 2,
       hasPendingSync: true,
       pendingByTable: { providers: 1, charging_plans: 1, sessions: 0, provider_plan_selections: 0 },
       hasBlockingSyncError: true,
       blockingErrorKind: 'terminal',
       blockingErrorMessage: 'Provider name already exists remotely (active, case-insensitive)',
+      blockingOutboxId: 42,
+      blockingFailureKind: 'provider-name-conflict',
+      blockingProviderId: 'provider-staged-conflict',
       retryCount: 1,
       nextRetryAt: undefined,
       oldestPendingAt: new Date('2026-05-30T10:00:00.000Z'),
@@ -443,13 +452,13 @@ describe('App auth gating', () => {
       isHydrating: false,
       displayState: 'sync-issue',
       isLoading: false,
-    });
+    };
+    vi.mocked(useSyncStatus).mockReturnValue(syncStatus);
 
-    // Act: Navigate to the tariffs tab where the provider workflow lives.
+    // Act: Render the app while the global blocking alert is visible.
     render(<App />);
-    await user.click(screen.getByRole('button', { name: 'Tariffs Tab' }));
 
-    // Assert: Terminal copy remains visible and makes no automatic-retry claim.
+    // Assert: Terminal copy remains visible and the global alert offers typed conflict resolution.
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Sync paused');
     expect(alert).toHaveTextContent(
@@ -460,6 +469,103 @@ describe('App auth gating', () => {
     );
     expect(alert).not.toHaveTextContent('will retry automatically');
     expect(alert).not.toHaveTextContent('Next retry after');
+    expect(screen.getByRole('button', { name: 'Resolve provider conflict' })).toBeInTheDocument();
+  });
+
+  it('does not show the provider-conflict action when typed recovery metadata is incomplete', () => {
+    // Arrange: Authenticate a user with a typed terminal conflict but no stable outbox identity.
+    vi.mocked(useAuth).mockReturnValue({
+      user: {
+        id: 'user-1',
+        email: 'driver@example.com',
+        app_metadata: {},
+        user_metadata: {},
+        aud: 'authenticated',
+        created_at: new Date().toISOString(),
+      },
+      session: null,
+      loading: false,
+      signIn: vi.fn(),
+      signOut: mockSignOut,
+    });
+    const syncStatus: ProviderConflictSyncStatus = {
+      queueLength: 1,
+      hasPendingSync: true,
+      pendingByTable: { providers: 1, charging_plans: 0, sessions: 0, provider_plan_selections: 0 },
+      hasBlockingSyncError: true,
+      blockingErrorKind: 'terminal',
+      blockingErrorMessage: 'Provider name already exists remotely (active, case-insensitive)',
+      blockingFailureKind: 'provider-name-conflict',
+      blockingProviderId: 'provider-staged-conflict',
+      retryCount: 1,
+      nextRetryAt: undefined,
+      oldestPendingAt: new Date('2026-05-30T10:00:00.000Z'),
+      hydration: {
+        providers: { status: 'ready' },
+        charging_plans: { status: 'ready' },
+        sessions: { status: 'ready' },
+      },
+      hasHydrationFailure: false,
+      isHydrating: false,
+      displayState: 'sync-issue',
+      isLoading: false,
+    };
+    vi.mocked(useSyncStatus).mockReturnValue(syncStatus);
+
+    // Act: Render the app while the typed conflict lacks a stable outbox ID.
+    render(<App />);
+
+    // Assert: Generic terminal copy remains, but recovery cannot start without both identities.
+    expect(screen.getByRole('alert')).toHaveTextContent('Sync paused');
+    expect(screen.queryByRole('button', { name: 'Resolve provider conflict' })).not.toBeInTheDocument();
+  });
+
+  it('does not show the provider-conflict action when typed recovery lacks a staged provider ID', () => {
+    // Arrange: Authenticate a user with a typed terminal conflict but no staged provider identity.
+    vi.mocked(useAuth).mockReturnValue({
+      user: {
+        id: 'user-1',
+        email: 'driver@example.com',
+        app_metadata: {},
+        user_metadata: {},
+        aud: 'authenticated',
+        created_at: new Date().toISOString(),
+      },
+      session: null,
+      loading: false,
+      signIn: vi.fn(),
+      signOut: mockSignOut,
+    });
+    const syncStatus: ProviderConflictSyncStatus = {
+      queueLength: 1,
+      hasPendingSync: true,
+      pendingByTable: { providers: 1, charging_plans: 0, sessions: 0, provider_plan_selections: 0 },
+      hasBlockingSyncError: true,
+      blockingErrorKind: 'terminal',
+      blockingErrorMessage: 'Provider name already exists remotely (active, case-insensitive)',
+      blockingOutboxId: 42,
+      blockingFailureKind: 'provider-name-conflict',
+      retryCount: 1,
+      nextRetryAt: undefined,
+      oldestPendingAt: new Date('2026-05-30T10:00:00.000Z'),
+      hydration: {
+        providers: { status: 'ready' },
+        charging_plans: { status: 'ready' },
+        sessions: { status: 'ready' },
+      },
+      hasHydrationFailure: false,
+      isHydrating: false,
+      displayState: 'sync-issue',
+      isLoading: false,
+    };
+    vi.mocked(useSyncStatus).mockReturnValue(syncStatus);
+
+    // Act: Render the app while the typed conflict lacks a staged provider ID.
+    render(<App />);
+
+    // Assert: Generic terminal copy remains, but recovery cannot start without both identities.
+    expect(screen.getByRole('alert')).toHaveTextContent('Sync paused');
+    expect(screen.queryByRole('button', { name: 'Resolve provider conflict' })).not.toBeInTheDocument();
   });
 
   it('does not show sync issue alert for first-failure sync state', () => {
