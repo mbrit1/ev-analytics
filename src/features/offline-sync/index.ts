@@ -1,5 +1,7 @@
 export * from './components/SyncStatusIndicator'
 export * from './hooks/useSyncStatus'
+export * from './hooks/useProviderConflictRecovery'
+export * from './components/ProviderConflictRecoveryDialog'
 export * from './services/syncRuntime'
 export * from './services/syncExclusion'
 export * from './services/providerConflictRecoveryService'

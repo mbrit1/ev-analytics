@@ -275,12 +275,12 @@ describe('prepareProviderConflictRecovery', () => {
   });
 
   it.each([
-    ['zero', []],
+    ['zero', [], 'no-canonical-match'],
     ['multiple', [
       buildStagedProvider({ id: 'canonical-provider-a' }),
       buildStagedProvider({ id: 'canonical-provider-b' }),
-    ]],
-  ])('blocks %s active normalized-name canonical matches', async (_label, providerRows) => {
+    ], 'multiple-canonical-matches'],
+  ] as const)('returns a distinct blocked reason for %s active normalized-name canonical matches', async (_label, providerRows, reason) => {
     // Arrange: RLS-visible data must contain exactly one canonical provider, never zero or many.
     const stagedProvider = buildStagedProvider();
     await db.providers.add(stagedProvider);
@@ -289,10 +289,81 @@ describe('prepareProviderConflictRecovery', () => {
       table === 'providers' ? providerRows : [],
     ));
 
-    // Act and Assert: ambiguity is blocked without local mutation.
+    // Act and Assert: each canonical lookup failure remains safely blocked with actionable identity.
     await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
-      .resolves.toMatchObject({ status: 'blocked' });
+      .resolves.toEqual({ status: 'blocked', reason });
     expect(await db.providers.get(stagedProvider.id)).toEqual(stagedProvider);
+  });
+
+  it('treats a same-name soft-deleted remote provider as no active canonical match', async () => {
+    // Arrange: the only matching remote provider is retired and cannot be selected for recovery.
+    const stagedProvider = buildStagedProvider();
+    await db.providers.add(stagedProvider);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    supabaseMock.from.mockImplementation((table: string) => createRemoteQuery(
+      table === 'providers'
+        ? [buildStagedProvider({
+          id: 'deleted-canonical-provider',
+          deleted_at: new Date('2026-08-25T10:02:00.000Z'),
+        })]
+        : [],
+    ));
+
+    // Act and Assert: retired records do not masquerade as malformed active canonical state.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toEqual({ status: 'blocked', reason: 'no-canonical-match' });
+  });
+
+  it('returns a tariff-ambiguity block when the post-rebind tariff timelines overlap', async () => {
+    // Arrange: a staged tariff would overlap the canonical provider's existing logical tariff after rebinding.
+    const stagedProvider = buildStagedProvider();
+    const stagedPlan = buildChargingPlan({
+      id: 'staged-overlapping-plan',
+      provider_id: stagedProvider.id,
+      name: 'Ionity Flex',
+      valid_from: new Date('2026-02-01T00:00:00.000Z'),
+    });
+    const canonicalPlan = buildChargingPlan({
+      id: 'canonical-overlapping-plan',
+      provider_id: 'canonical-provider',
+      name: 'Ionity Flex',
+      valid_to: new Date('2026-03-01T00:00:00.000Z'),
+    });
+    await db.providers.add(stagedProvider);
+    await db.charging_plans.add(stagedPlan);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    supabaseMock.from.mockImplementation((table: string) => createRemoteQuery(
+      table === 'providers'
+        ? [buildStagedProvider({ id: 'canonical-provider' })]
+        : [canonicalPlan],
+    ));
+
+    // Act and Assert: tariff repair remains separate from generic graph corruption.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toEqual({ status: 'blocked', reason: 'tariff-ambiguity' });
+  });
+
+  it('returns a malformed-graph block when a staged selection references no staged tariff', async () => {
+    // Arrange: a related row exists but its required local tariff relationship is missing.
+    const stagedProvider = buildStagedProvider();
+    await db.providers.add(stagedProvider);
+    await db.provider_plan_selections.add({
+      id: 'orphaned-staged-selection',
+      user_id: 'user-1',
+      provider_id: stagedProvider.id,
+      tariff_plan_id: 'missing-staged-plan',
+      valid_from: new Date('2026-08-25T00:00:00.000Z'),
+      valid_to: null,
+      price_snapshot: { label: 'Ionity', kWhPrice: 79 },
+      created_at: new Date('2026-08-25T10:00:00.000Z'),
+      updated_at: new Date('2026-08-25T10:00:00.000Z'),
+    });
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+
+    // Act and Assert: malformed relational data fails closed without a remote recovery attempt.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toEqual({ status: 'blocked', reason: 'malformed-graph' });
+    expect(supabaseMock.from).not.toHaveBeenCalled();
   });
 
   it('blocks provider names rejected by the canonical validation helper', async () => {
@@ -732,11 +803,18 @@ describe('prepareProviderConflictRecovery', () => {
       { table_name: 'sessions', action: 'DELETE', payload: session, timestamp: deletedAt },
     ]);
 
-    // Act and Assert: review counts include relational history without using ad-hoc display text.
+    // Act and Assert: the UI-safe review includes both provider names and relational history counts.
     await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
       .resolves.toMatchObject({
         status: 'ready',
-        summary: { chargingPlanCount: 1, selectionCount: 1, sessionCount: 1, outboxCount: 3 },
+        summary: {
+          stagedProviderName: 'Ionity',
+          canonicalProviderName: 'Ionity',
+          chargingPlanCount: 1,
+          selectionCount: 1,
+          sessionCount: 1,
+          outboxCount: 3,
+        },
       });
   });
 

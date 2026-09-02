@@ -1,5 +1,5 @@
 import { BatteryCharging, Loader2, LogOut, Plus } from 'lucide-react'
-import { useState, useEffect, lazy, Suspense, useRef } from 'react'
+import { useState, useEffect, lazy, Suspense, useCallback, useRef } from 'react'
 import { useAuth, LoginForm } from '../features/auth'
 import {
   ChargingHistory,
@@ -13,7 +13,9 @@ import {
 import {
   retryActiveSyncRuntime,
   startSyncRuntime,
+  ProviderConflictRecoveryDialog,
   SyncStatusIndicator,
+  useProviderConflictRecovery,
   useSyncStatus,
 } from '../features/offline-sync'
 import { type ChargingSession } from '../infra/db'
@@ -54,6 +56,13 @@ type TariffRestoreRequest =
 function App() {
   const { user, loading, signOut } = useAuth()
   const syncStatus = useSyncStatus()
+  const handleRecoveryCommitted = useCallback(() => {
+    retryActiveSyncRuntime()
+  }, [])
+  const providerConflictRecovery = useProviderConflictRecovery({
+    userId: user?.id,
+    onRecoveryCommitted: handleRecoveryCommitted,
+  })
   const [activeTab, setActiveTab] = useState<NavigationTab>('sessions')
   const [sessionFormState, setSessionFormState] = useState<SessionFormState>({ mode: 'closed' })
   const [historyRestoreRequest, setHistoryRestoreRequest] = useState<HistoryRestoreRequest | null>(null)
@@ -216,6 +225,9 @@ function App() {
   const blockingSyncRetryText = syncStatus.nextRetryAt != null
     ? syncStatus.nextRetryAt.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })
     : null;
+  const canResolveProviderConflict = syncStatus.blockingFailureKind === 'provider-name-conflict'
+    && syncStatus.blockingOutboxId != null
+    && syncStatus.blockingProviderId != null
   const isMobileContextActionVisible =
     (activeTab === 'sessions' && !isSessionFormOpen) ||
     (activeTab === 'tariffs' && !isTariffFormVisible && !isTariffFormOpen)
@@ -314,7 +326,21 @@ function App() {
                   </p>
                   <p>{syncStatus.blockingErrorMessage || 'A sync error occurred.'}</p>
                   {syncStatus.blockingErrorKind === 'terminal' ? (
-                    <p>Data is saved locally. Resolve this conflict before sync can continue.</p>
+                    <>
+                      <p>Data is saved locally. Resolve this conflict before sync can continue.</p>
+                      {canResolveProviderConflict && (
+                        <button
+                          type="button"
+                          onClick={() => providerConflictRecovery.open({
+                            terminalOutboxId: syncStatus.blockingOutboxId!,
+                            stagedProviderId: syncStatus.blockingProviderId!,
+                          })}
+                          className="mt-3 min-h-[44px] rounded-xl bg-accent px-4 py-2 font-bold text-white"
+                        >
+                          Resolve provider conflict
+                        </button>
+                      )}
+                    </>
                   ) : (
                     <>
                       <p>Data is saved locally and will retry automatically.</p>
@@ -383,6 +409,15 @@ function App() {
               )}
             </div>
           </main>
+          {providerConflictRecovery.isOpen && providerConflictRecovery.state.kind !== 'closed' && (
+            <ProviderConflictRecoveryDialog
+              state={providerConflictRecovery.state}
+              isPending={providerConflictRecovery.isPending}
+              onCancel={providerConflictRecovery.cancel}
+              onConfirm={() => void providerConflictRecovery.confirm()}
+              onAcknowledge={providerConflictRecovery.acknowledge}
+            />
+          )}
         </div>
       </div>
     </div>

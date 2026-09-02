@@ -196,6 +196,15 @@ vi.mock('../shared/ui', () => ({
 }));
 vi.mock('../features/offline-sync', () => ({
   SyncStatusIndicator: () => <div>Sync Status</div>,
+  useProviderConflictRecovery: vi.fn(() => ({
+    state: { kind: 'closed' },
+    isOpen: false,
+    isPending: false,
+    open: vi.fn(),
+    cancel: vi.fn(),
+    confirm: vi.fn(async () => undefined),
+    acknowledge: vi.fn(),
+  })),
   useSyncStatus: vi.fn(() => ({
     queueLength: 0,
     hasPendingSync: false,

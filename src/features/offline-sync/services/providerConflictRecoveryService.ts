@@ -17,6 +17,7 @@ import { supabase } from '../../../infra/supabase';
 import {
   createProviderConflictRecoveryReviewVersion,
   type PrepareProviderConflictRecoveryInput,
+  type ProviderConflictBlockReason,
   type ProviderConflictRecoveryDescriptor,
   type ProviderConflictRecoveryPreparation,
 } from '../model/providerConflictRecovery';
@@ -24,7 +25,6 @@ import { createCanonicalSerialization } from '../model/canonicalSerialization';
 import { isTypedTerminalProviderNameConflict } from '../model/syncFailure';
 import { runSyncRuntimeExclusive } from './syncRuntime';
 
-const BLOCKED_REASON = 'This provider conflict cannot be recovered safely.';
 const RETRYABLE_REASON = 'Provider conflict verification could not be completed. Please try again.';
 const PROVIDER_SELECT = 'id, user_id, name, created_at, updated_at, deleted_at';
 const CHARGING_PLAN_SELECT = [
@@ -79,7 +79,7 @@ type RemoteAffectedRows<T> =
 export type ProviderConflictRecoveryConfirmation =
   | { status: 'reconciled' }
   | { status: 'already-reconciled' }
-  | { status: 'blocked'; reason: string }
+  | { status: 'blocked'; reason: ProviderConflictBlockReason }
   | { status: 'retryable-error'; reason: string };
 
 /**
@@ -127,10 +127,11 @@ export async function prepareProviderConflictRecovery(
     return retryable();
   }
 
-  const canonicalProvider = findCanonicalProvider(providerResult.data, stagedProvider, input.userId);
-  if (!canonicalProvider) {
-    return blocked();
+  const canonicalLookup = findCanonicalProvider(providerResult.data, stagedProvider, input.userId);
+  if (canonicalLookup.status === 'blocked') {
+    return blocked(canonicalLookup.reason);
   }
+  const canonicalProvider = canonicalLookup.provider;
 
   if (await getAuthenticatedUserId() !== input.userId) {
     return blocked();
@@ -153,7 +154,10 @@ export async function prepareProviderConflictRecovery(
     canonicalProvider,
     canonicalPlans,
     input.userId,
-  ) || evaluateProviderRebindTariffConflicts({
+  )) {
+    return blocked();
+  }
+  const tariffConflict = evaluateProviderRebindTariffConflicts({
     stagedPlans: inspection.plans.filter((stagedPlan) => {
       const canonicalPlan = canonicalPlans.find((plan) => plan.id === stagedPlan.id);
       return canonicalPlan === undefined || !matchesRemoteChargingPlan(
@@ -162,8 +166,9 @@ export async function prepareProviderConflictRecovery(
       );
     }),
     canonicalPlans,
-  }).kind !== 'safe') {
-    return blocked();
+  });
+  if (tariffConflict.kind !== 'safe') {
+    return blocked('tariff-ambiguity');
   }
   const remoteSelections = await getRemoteAffectedSelections(
     input.userId,
@@ -222,6 +227,8 @@ export async function prepareProviderConflictRecovery(
       reviewVersion,
     },
     summary: {
+      stagedProviderName: stagedProvider.name,
+      canonicalProviderName: canonicalProvider.name,
       chargingPlanCount: inspection.plans.length,
       selectionCount: inspection.selections.length,
       sessionCount: inspection.sessions.length,
@@ -796,17 +803,30 @@ function referencesProvider(item: SyncOutbox, providerId: string): boolean {
   }
 }
 
-function findCanonicalProvider(data: unknown, staged: Provider, userId: string): RemoteProvider | null {
-  if (!Array.isArray(data) || getProviderNameValidationError(staged.name)) return null;
-  const candidates = data.filter(isRemoteProvider)
-    .filter((provider) => provider.user_id === userId && !provider.deleted_at)
+function findCanonicalProvider(
+  data: unknown,
+  staged: Provider,
+  userId: string,
+): { status: 'ready'; provider: RemoteProvider } | { status: 'blocked'; reason: ProviderConflictBlockReason } {
+  if (!Array.isArray(data) || getProviderNameValidationError(staged.name) || data.some((row) => !isRemoteProvider(row))) {
+    return { status: 'blocked', reason: 'malformed-graph' };
+  }
+  const normalizedStagedName = normalizedProviderName(staged.name);
+  const matchingRows = data
     .filter((provider) => !getProviderNameValidationError(provider.name))
-    .filter((provider) => normalizedProviderName(provider.name) === normalizedProviderName(staged.name));
+    .filter((provider) => normalizedProviderName(provider.name) === normalizedStagedName);
+  if (matchingRows.some((provider) => provider.user_id !== userId)) {
+    return { status: 'blocked', reason: 'malformed-graph' };
+  }
+  const candidates = matchingRows.filter((provider) => !provider.deleted_at);
   const distinct = new Map(candidates.map((provider) => [provider.id, provider]));
-  if (distinct.size !== 1) return null;
+  if (distinct.size === 0) return { status: 'blocked', reason: 'no-canonical-match' };
+  if (distinct.size > 1) return { status: 'blocked', reason: 'multiple-canonical-matches' };
 
   const canonical = distinct.values().next().value as RemoteProvider;
-  return canonical.id === staged.id ? null : canonical;
+  return canonical.id === staged.id
+    ? { status: 'blocked', reason: 'malformed-graph' }
+    : { status: 'ready', provider: canonical };
 }
 
 function isRemoteProvider(value: unknown): value is RemoteProvider {
@@ -1064,8 +1084,8 @@ function sortOutbox(rows: readonly SyncOutbox[]): SyncOutbox[] {
   return [...rows].sort((left, right) => (left.id ?? -1) - (right.id ?? -1));
 }
 
-function blocked(): { status: 'blocked'; reason: string } {
-  return { status: 'blocked', reason: BLOCKED_REASON };
+function blocked(reason: ProviderConflictBlockReason = 'malformed-graph'): { status: 'blocked'; reason: ProviderConflictBlockReason } {
+  return { status: 'blocked', reason };
 }
 
 function retryable(): { status: 'retryable-error'; reason: string } {
