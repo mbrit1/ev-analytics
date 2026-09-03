@@ -13,6 +13,7 @@ This app replaces spreadsheet workflows with structured EV charging session trac
 
 - Offline-first charging session entry and editing
 - Local persistence with Dexie and queued sync via the outbox pattern
+- User-triggered recovery for duplicate provider-name sync conflicts
 - Private, single-user Supabase backend with default-deny RLS
 - Tariff, provider, and charging plan modeling
 - Monthly charging-session spend and provider-billed energy analytics
@@ -127,5 +128,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for development conventions, architectu
 - [AGENTS.md](./AGENTS.md): repository-wide instructions for coding agents
 - [Infrastructure runbook](./docs/infrastructure-runbook.md): local setup, Supabase provisioning, and Cloudflare deployment
 - [Current architecture](./docs/architecture.md): implemented layers, data flow, persistence, synchronization, and analytics semantics
+- [Provider-conflict recovery requirements](https://github.com/mbrit1/ev-analytics/issues/177): canonical acceptance criteria
+- [Provider-conflict recovery ADR](./docs/adr/010-provider-conflict-reconciliation.md): rationale, safety boundaries, and rollback posture
 - [docs/adr/](./docs/adr/): architecture decision records
 - [UI design governance](./docs/design/): current design-system baseline and UI review checklist

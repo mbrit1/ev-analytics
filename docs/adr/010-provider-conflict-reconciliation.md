@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted for phased implementation; current production behavior remains ADR 005.
+Accepted and implemented.
 
 ## Date
 
-2026-08-23; amended 2026-08-26
+2026-08-23; amended 2026-08-26 and 2026-09-03
 
 ## Context
 
@@ -18,10 +18,11 @@ by charging plans, provider-plan selections, plan-mode sessions, and queued
 mutations. An active sync pass or a stale local writer could otherwise upload or
 recreate a staged reference while reconciliation is running.
 
-The approved contract is [the provider-conflict reconciliation
-specification](../specs/issue-177-provider-conflict-reconciliation.md). It
-requires authenticated RLS-protected reads and explicitly forbids Supabase
-schema, RLS, RPC, migration, service-role, or production-data changes.
+The canonical requirements and acceptance criteria live in [GitHub issue
+#177](https://github.com/mbrit1/ev-analytics/issues/177). This ADR records the
+architectural rationale and implemented boundaries. The capability requires
+authenticated RLS-protected reads and forbids Supabase schema, RLS, RPC,
+migration, service-role, or production-data changes.
 
 The original terminal-outbox contract retained only user-facing `last_error`
 copy. That is insufficient to recognize recovery after reload without treating
@@ -30,8 +31,7 @@ constraint are otherwise discarded at the sync boundary.
 
 ## Decision
 
-The offline-sync feature will own an explicit, user-triggered two-step recovery
-flow:
+The offline-sync feature owns an explicit, user-triggered two-step recovery flow:
 
 1. **Prepare** validates the terminal provider-insert conflict, reads the full
    owner-scoped local graph, performs fresh authenticated canonical-provider
@@ -40,10 +40,11 @@ flow:
    rejects stale review state, and atomically rewrites the safe local graph in
    one Dexie transaction.
 
-The existing local `sync_outbox` row gains an optional, non-indexed
-`failure_kind: 'provider-name-conflict'` data property. No new Dexie version,
-migration, index, table, dependency, or remote change is introduced. The sync
-boundary assigns the discriminator only when the live Supabase error has both
+The existing local `sync_outbox` row has an optional, non-indexed
+`failure_kind: 'provider-name-conflict'` data property. Dexie version 6 adds the
+local-only `provider_reconciliations` evidence store; no remote schema, RLS,
+RPC, service-role, or production-data change is used. The sync boundary assigns
+the discriminator only when the live Supabase error has both
 PostgreSQL code `23505` and constraint
 `providers_user_name_active_unique`, then persists it with the existing safe
 terminal message and retry metadata. The shared typed predicate requires the
@@ -96,7 +97,7 @@ verifies the evidence together with current graph postconditions before
 returning `already-reconciled`. It is completion proof only: unresolved,
 cancelled, blocked, retryable, and stale failures never write it.
 
-Outbox replay will derive parent dependencies from durable queue state: plan
+Outbox replay derives parent dependencies from durable queue state: plan
 mutations wait for provider inserts; selection mutations wait for plan inserts;
 and plan-mode sessions wait for their plan and, when present, selection inserts.
 Terminal parents continue to block descendants while unrelated ready work may
@@ -140,6 +141,7 @@ are required for safe retry and reload behavior.
   remote convergence remains eventual through the existing outbox.
 - Ambiguous tariffs, malformed references, authentication changes, remote
   mismatches, and stale confirmations fail closed with typed user-safe guidance.
-- ADR 005 remains the current outbox decision until the implementation lands;
-  after the feature ships, it must be updated to describe the implemented
-  reconciliation, cross-runtime exclusion, and descendant replay rules.
+- [ADR 005](./005-outbox-sync-strategy.md) records the current outbox and
+  runtime behavior; this ADR remains the rationale for the narrow recovery
+  exception, while the approved specification remains the canonical
+  requirements document.
