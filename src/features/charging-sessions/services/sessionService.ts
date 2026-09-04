@@ -530,6 +530,13 @@ async function persistSessionRequest(
         if (session.session_mode !== 'plan') {
           throw new Error('Plan selection changes require a plan session');
         }
+        if (
+          request.planSelectionChange.userId !== session.user_id
+          || request.planSelectionChange.providerId !== session.provider_id
+          || request.planSelectionChange.tariffPlanId !== session.tariff_plan_id
+        ) {
+          throw new Error('Plan selection change must match the session');
+        }
         planSelectionMutation = await buildPlanSelectionMutationWithinSessionTransaction(request.planSelectionChange);
         session = {
           ...session,

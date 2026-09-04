@@ -103,6 +103,27 @@ describe('useProviderConflictRecovery', () => {
     expect(result.current.isPending).toBe(false);
   });
 
+  it('settles a completed preparation when mounted under StrictMode', async () => {
+    // Arrange: Render the controller through React's development lifecycle replay.
+    vi.mocked(prepareProviderConflictRecovery).mockResolvedValue(readyPreparation);
+    const { result } = renderHook(() => useProviderConflictRecovery({
+      userId: 'user-1',
+      onRecoveryCommitted: vi.fn(),
+    }), { reactStrictMode: true });
+
+    // Act: Open the provider-conflict recovery workflow.
+    act(() => result.current.open(openInput));
+
+    // Assert: StrictMode cleanup/setup does not discard the completed review.
+    await waitFor(() => expect(result.current.state).toEqual({
+      kind: 'ready',
+      stagedProviderName: 'Staged provider',
+      canonicalProviderName: 'Canonical provider',
+      summary: readyPreparation.summary,
+    }));
+    expect(result.current.isPending).toBe(false);
+  });
+
   it('cancels a pending review without confirming and ignores its late result', async () => {
     // Arrange: Start a preparation that remains unresolved during cancellation.
     const preparation = createDeferred<ProviderConflictRecoveryPreparation>();

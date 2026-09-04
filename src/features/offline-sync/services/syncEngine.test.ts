@@ -2680,6 +2680,35 @@ describe('syncEngine', () => {
     expect(localProviders[0].name).toBe('Ionity')
   })
 
+  it('should normalize remote provider timestamps before storing them locally', async () => {
+    // Arrange: Supabase returns JSON timestamps as ISO strings, including a soft-delete timestamp.
+    const remoteProvider = {
+      ...buildProvider({ id: 'provider-date-normalization', user_id: 'u1' }),
+      created_at: '2026-06-03T08:20:00.000Z',
+      updated_at: '2026-06-03T08:25:00.000Z',
+      deleted_at: '2026-06-03T08:30:00.000Z',
+    }
+
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      select: () => Promise.resolve({
+        data: tableName === 'providers' ? [remoteProvider] : [],
+        error: null,
+      })
+    }) as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Hydrate the remote provider into Dexie.
+    await initialSync()
+
+    // Assert: Local domain timestamps satisfy the Date-based provider contract.
+    const localProvider = await db.providers.get('provider-date-normalization')
+    expect(localProvider?.created_at).toBeInstanceOf(Date)
+    expect(localProvider?.updated_at).toBeInstanceOf(Date)
+    expect(localProvider?.deleted_at).toBeInstanceOf(Date)
+    expect(localProvider?.created_at.toISOString()).toBe('2026-06-03T08:20:00.000Z')
+    expect(localProvider?.updated_at.toISOString()).toBe('2026-06-03T08:25:00.000Z')
+    expect(localProvider?.deleted_at?.toISOString()).toBe('2026-06-03T08:30:00.000Z')
+  })
+
   it('does not repopulate local user tables when hydration resolves after logout cleanup', async () => {
     // Arrange: Seed every local user table and defer the first hydration response.
     const existingProvider = buildProvider({ id: 'existing-provider' })
@@ -2870,6 +2899,41 @@ describe('syncEngine', () => {
     // Assert: Local charging plans keep only writable domain fields.
     const localChargingPlan = await db.charging_plans.get('cp-generated')
     expect(localChargingPlan).not.toHaveProperty('valid_period')
+  })
+
+  it('should normalize remote charging plan timestamps before storing them locally', async () => {
+    // Arrange: Supabase returns JSON timestamps as ISO strings, including nullable lifecycle timestamps.
+    const remoteChargingPlan = {
+      ...buildChargingPlan({ id: 'plan-date-normalization', user_id: 'u1' }),
+      valid_from: '2026-06-01T00:00:00.000Z',
+      valid_to: '2026-06-30T23:59:59.999Z',
+      created_at: '2026-06-01T08:20:00.000Z',
+      updated_at: '2026-06-02T08:25:00.000Z',
+      deleted_at: '2026-06-03T08:30:00.000Z',
+    }
+
+    vi.mocked(supabase.from).mockImplementation((tableName: string) => ({
+      select: () => Promise.resolve({
+        data: tableName === 'charging_plans' ? [remoteChargingPlan] : [],
+        error: null,
+      })
+    }) as unknown as ReturnType<typeof supabase.from>)
+
+    // Act: Hydrate the remote charging plan into Dexie.
+    await initialSync()
+
+    // Assert: Local domain timestamps satisfy the Date-based charging-plan contract.
+    const localChargingPlan = await db.charging_plans.get('plan-date-normalization')
+    expect(localChargingPlan?.valid_from).toBeInstanceOf(Date)
+    expect(localChargingPlan?.valid_to).toBeInstanceOf(Date)
+    expect(localChargingPlan?.created_at).toBeInstanceOf(Date)
+    expect(localChargingPlan?.updated_at).toBeInstanceOf(Date)
+    expect(localChargingPlan?.deleted_at).toBeInstanceOf(Date)
+    expect(localChargingPlan?.valid_from.toISOString()).toBe('2026-06-01T00:00:00.000Z')
+    expect(localChargingPlan?.valid_to?.toISOString()).toBe('2026-06-30T23:59:59.999Z')
+    expect(localChargingPlan?.created_at.toISOString()).toBe('2026-06-01T08:20:00.000Z')
+    expect(localChargingPlan?.updated_at.toISOString()).toBe('2026-06-02T08:25:00.000Z')
+    expect(localChargingPlan?.deleted_at?.toISOString()).toBe('2026-06-03T08:30:00.000Z')
   })
 
   it('should normalize remote charging session timestamps before storing them locally', async () => {

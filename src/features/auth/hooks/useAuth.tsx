@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { User, Session, AuthError } from '@supabase/supabase-js';
 import { supabase } from '../../../infra/supabase';
 import { isMockMode } from '../../../infra/mocks';
+import { MOCK_AUTH_CREDENTIALS, MOCK_AUTH_SESSION, MOCK_AUTH_USER } from '../../../infra/mocks/mockAuth';
 import { clearLocalUserData } from '../../../infra/db';
 import { disposeActiveSyncRuntime } from '../../offline-sync';
 
@@ -34,14 +35,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Mock mode represents a signed-in user from the first render, avoiding a
     // loading flash in local/offline development.
     if (isMockMode()) {
-      return {
-        id: 'mock-user-id',
-        email: 'tester@local.dev',
-        app_metadata: {},
-        user_metadata: {},
-        aud: 'authenticated',
-        created_at: new Date().toISOString(),
-      } as User;
+      return MOCK_AUTH_USER;
     }
     return null;
   });
@@ -50,20 +44,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Supabase's Session shape is preserved here so downstream code can rely on
     // the same fields in mock and live modes.
     if (isMockMode()) {
-      return {
-        access_token: 'mock-token',
-        token_type: 'bearer',
-        expires_in: 3600,
-        refresh_token: 'mock-refresh-token',
-        user: {
-          id: 'mock-user-id',
-          email: 'tester@local.dev',
-          app_metadata: {},
-          user_metadata: {},
-          aud: 'authenticated',
-          created_at: new Date().toISOString(),
-        } as User,
-      } as Session;
+      return MOCK_AUTH_SESSION;
     }
     return null;
   });
@@ -109,7 +90,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
-    if (isMockMode()) return;
+    if (isMockMode()) {
+      // Security-sensitive mock-mode flows use getUser(), so mirror the local
+      // context identity into the shared client rather than only React state.
+      void supabase.auth.setSession(MOCK_AUTH_CREDENTIALS);
+      return;
+    }
 
     // Hydrate persisted auth state before rendering protected application
     // content. Supabase may restore this from browser storage.

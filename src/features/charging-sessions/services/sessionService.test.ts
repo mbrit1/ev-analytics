@@ -1352,6 +1352,58 @@ describe('sessionService', () => {
     );
   });
 
+  it('rejects plan-selection saves whose ownership, provider, or tariff differs from the session', async () => {
+    // Arrange: each selection is internally referentially valid but belongs to a different session context.
+    const session = buildSessionFixture({
+      id: 'session-selection-mismatch-save',
+      provider_id: 'provider-1',
+      tariff_plan_id: 'plan-1',
+    });
+    await sharedDb.providers.bulkAdd([
+      {
+        id: 'provider-2',
+        user_id: 'user-456',
+        name: 'Other provider',
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+      },
+      {
+        id: 'foreign-provider',
+        user_id: 'user-999',
+        name: 'Foreign provider',
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+      },
+    ]);
+    await sharedDb.charging_plans.bulkAdd([
+      { ...mockChargingPlan, id: 'plan-1', user_id: 'user-456', provider_id: 'provider-1' },
+      { ...mockChargingPlan, id: 'plan-2', user_id: 'user-456', provider_id: 'provider-2' },
+      { ...mockChargingPlan, id: 'foreign-plan', user_id: 'user-999', provider_id: 'foreign-provider' },
+    ]);
+    const invalidChanges = [
+      { userId: 'user-999', providerId: 'foreign-provider', tariffPlanId: 'foreign-plan' },
+      { userId: 'user-456', providerId: 'provider-2', tariffPlanId: 'plan-2' },
+      { userId: 'user-456', providerId: 'provider-1', tariffPlanId: 'plan-2' },
+    ];
+
+    // Act/Assert: a composed selection cannot independently change ownership, provider, or tariff.
+    for (const change of invalidChanges) {
+      await expect(saveSessionWithPlanSelection({
+        session,
+        planSelectionChange: {
+          ...change,
+          validFrom: utc('2026-06-01'),
+          priceSnapshot: { label: 'Selection', kWhPrice: 40, sessionFee: 0 },
+        },
+      })).rejects.toThrow('Plan selection change must match the session');
+
+      // Assert: a rejected composed save is fully atomic.
+      expect(await sharedDb.sessions.get(session.id)).toBeUndefined();
+      expect(await sharedDb.provider_plan_selections.count()).toBe(0);
+      expect(await sharedDb.sync_outbox.count()).toBe(0);
+    }
+  });
+
   it('rolls back a plan-linked update when the session row is missing after selection writes', async () => {
     // Arrange: build an update request whose session id is not present locally.
     const session = buildSessionFixture({
@@ -1380,6 +1432,60 @@ describe('sessionService', () => {
     expect(await sharedDb.sessions.get('session-selection-rollback')).toBeUndefined();
     expect(await sharedDb.provider_plan_selections.count()).toBe(0);
     expect(await sharedDb.sync_outbox.count()).toBe(0);
+  });
+
+  it('rejects plan-selection updates whose ownership, provider, or tariff differs from the session', async () => {
+    // Arrange: preserve an existing plan session while composing invalid selection changes.
+    const existing = buildSessionFixture({
+      id: 'session-selection-mismatch-update',
+      provider_id: 'provider-1',
+      tariff_plan_id: 'plan-1',
+      notes: 'Original note',
+    });
+    await sharedDb.sessions.add(existing);
+    await sharedDb.providers.bulkAdd([
+      {
+        id: 'provider-2',
+        user_id: 'user-456',
+        name: 'Other provider',
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+      },
+      {
+        id: 'foreign-provider',
+        user_id: 'user-999',
+        name: 'Foreign provider',
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+      },
+    ]);
+    await sharedDb.charging_plans.bulkAdd([
+      { ...mockChargingPlan, id: 'plan-1', user_id: 'user-456', provider_id: 'provider-1' },
+      { ...mockChargingPlan, id: 'plan-2', user_id: 'user-456', provider_id: 'provider-2' },
+      { ...mockChargingPlan, id: 'foreign-plan', user_id: 'user-999', provider_id: 'foreign-provider' },
+    ]);
+    const invalidChanges = [
+      { userId: 'user-999', providerId: 'foreign-provider', tariffPlanId: 'foreign-plan' },
+      { userId: 'user-456', providerId: 'provider-2', tariffPlanId: 'plan-2' },
+      { userId: 'user-456', providerId: 'provider-1', tariffPlanId: 'plan-2' },
+    ];
+
+    // Act/Assert: updates cannot attach a selection from another session context.
+    for (const change of invalidChanges) {
+      await expect(updateSessionWithPlanSelection({
+        session: { ...existing, notes: 'Attempted change' },
+        planSelectionChange: {
+          ...change,
+          validFrom: utc('2026-06-01'),
+          priceSnapshot: { label: 'Selection', kWhPrice: 40, sessionFee: 0 },
+        },
+      })).rejects.toThrow('Plan selection change must match the session');
+
+      // Assert: no session, selection, or outbox mutation survives the rejection.
+      expect(await sharedDb.sessions.get(existing.id)).toEqual(existing);
+      expect(await sharedDb.provider_plan_selections.count()).toBe(0);
+      expect(await sharedDb.sync_outbox.count()).toBe(0);
+    }
   });
 
   it('updates only an existing row and preserves stored immutable fields', async () => {

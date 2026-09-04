@@ -238,9 +238,10 @@ export async function prepareProviderConflictRecovery(
 }
 
 /**
- * Reconciles a reviewed no-reference conflict under sync exclusion and one
- * local transaction. Broader graphs remain blocked until their explicit
- * confirmation contracts are implemented.
+ * Reconciles the full reviewed provider-conflict graph, including related
+ * charging plans, plan selections, plan-mode sessions, and outbox rows. The
+ * graph is revalidated under sync exclusion, then rebound atomically in one
+ * local transaction.
  */
 export async function confirmProviderConflictRecovery(
   descriptor: ProviderConflictRecoveryDescriptor,

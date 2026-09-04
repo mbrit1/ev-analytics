@@ -246,6 +246,11 @@ type RemoteProviderPayload = Pick<
   Provider,
   'id' | 'user_id' | 'name' | 'created_at' | 'updated_at' | 'deleted_at'
 >;
+interface RemoteProvider extends Record<string, unknown> {
+  created_at: Date | string;
+  updated_at: Date | string;
+  deleted_at?: Date | string | null;
+}
 type RemoteProviderPlanSelectionPayload = Pick<
   ProviderPlanSelection,
   | 'id'
@@ -280,9 +285,17 @@ type RemoteChargingPlanPayload = Pick<
   | 'updated_at'
   | 'deleted_at'
 >;
-type RemoteChargingPlan = ChargingPlan & {
+interface RemoteChargingPlan extends Omit<
+  ChargingPlan,
+  'valid_from' | 'valid_to' | 'created_at' | 'updated_at' | 'deleted_at'
+> {
+  valid_from: Date | string;
+  valid_to?: Date | string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+  deleted_at?: Date | string | null;
   valid_period?: unknown;
-};
+}
 interface RemoteChargingSession extends Record<string, unknown> {
   session_timestamp: Date | string;
   provider_id: string | null;
@@ -473,7 +486,18 @@ function toRemoteChargingPlanPayload(plan: ChargingPlan): RemoteChargingPlanPayl
 function normalizeRemoteChargingPlan(plan: RemoteChargingPlan): ChargingPlan {
   const localPlan = { ...plan };
   delete localPlan.valid_period;
-  return localPlan;
+  return {
+    ...localPlan,
+    valid_from: parseRemoteDate(plan.valid_from, 'valid_from', 'charging plan'),
+    valid_to: plan.valid_to == null
+      ? null
+      : parseRemoteDate(plan.valid_to, 'valid_to', 'charging plan'),
+    created_at: parseRemoteDate(plan.created_at, 'created_at', 'charging plan'),
+    updated_at: parseRemoteDate(plan.updated_at, 'updated_at', 'charging plan'),
+    deleted_at: plan.deleted_at == null
+      ? undefined
+      : parseRemoteDate(plan.deleted_at, 'deleted_at', 'charging plan'),
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -527,17 +551,28 @@ function getAdHocPricingSnapshotError(value: Record<string, unknown>): string | 
   }
 }
 
-function parseRemoteDate(value: unknown, fieldName: string): Date {
+function parseRemoteDate(value: unknown, fieldName: string, recordName = 'charging session'): Date {
   if (!(typeof value === 'string' || value instanceof Date)) {
-    throw new Error(`Invalid charging session ${fieldName}`);
+    throw new Error(`Invalid ${recordName} ${fieldName}`);
   }
 
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) {
-    throw new Error(`Invalid charging session ${fieldName}`);
+    throw new Error(`Invalid ${recordName} ${fieldName}`);
   }
 
   return parsed;
+}
+
+function normalizeRemoteProvider(provider: RemoteProvider): Provider {
+  return {
+    ...provider,
+    created_at: parseRemoteDate(provider.created_at, 'created_at', 'provider'),
+    updated_at: parseRemoteDate(provider.updated_at, 'updated_at', 'provider'),
+    deleted_at: provider.deleted_at == null
+      ? undefined
+      : parseRemoteDate(provider.deleted_at, 'deleted_at', 'provider'),
+  } as Provider;
 }
 
 function parseRemoteChargingSession(value: unknown): RemoteChargingSession {
@@ -999,7 +1034,9 @@ export async function initialSync(options: InitialSyncOptions = {}): Promise<Ini
 
       if (data && data.length > 0) {
         try {
-          if (tableName === 'providers') await db.providers.bulkPut(data as Provider[]);
+          if (tableName === 'providers') {
+            await db.providers.bulkPut((data as RemoteProvider[]).map(normalizeRemoteProvider));
+          }
           if (tableName === 'charging_plans') {
             await db.charging_plans.bulkPut((data as RemoteChargingPlan[]).map(normalizeRemoteChargingPlan));
           }
