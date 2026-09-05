@@ -216,6 +216,7 @@ export async function prepareProviderConflictRecovery(
     input.userId,
     inspection.selections,
     canonicalProvider.id,
+    inspection.outbox,
   );
   if (remoteSelections.status === 'retryable-error') {
     return retryable();
@@ -227,6 +228,7 @@ export async function prepareProviderConflictRecovery(
     input.userId,
     inspection.sessions,
     canonicalProvider.id,
+    inspection.outbox,
   );
   if (remoteSessions.status === 'retryable-error') {
     return retryable();
@@ -317,9 +319,11 @@ export async function confirmProviderConflictRecovery(
     if (!canonicalPlans) {
       return retryable();
     }
-    const reviewedSelections = await db.provider_plan_selections.bulkGet(
-      [...descriptor.affectedRowIds.selectionIds],
-    );
+    const [reviewedSelections, reviewedSessions, reviewedOutbox] = await Promise.all([
+      db.provider_plan_selections.bulkGet([...descriptor.affectedRowIds.selectionIds]),
+      db.sessions.bulkGet([...descriptor.affectedRowIds.sessionIds]),
+      db.sync_outbox.toArray(),
+    ]);
     if (reviewedSelections.some((selection) => selection === undefined)) {
       return blocked();
     }
@@ -327,6 +331,7 @@ export async function confirmProviderConflictRecovery(
       descriptor.userId,
       reviewedSelections as ProviderPlanSelection[],
       descriptor.canonicalProviderId,
+      reviewedOutbox,
     );
     if (remoteSelections.status === 'retryable-error') {
       return retryable();
@@ -334,9 +339,6 @@ export async function confirmProviderConflictRecovery(
     if (remoteSelections.status === 'blocked') {
       return blocked();
     }
-    const reviewedSessions = await db.sessions.bulkGet([
-      ...descriptor.affectedRowIds.sessionIds,
-    ]);
     if (reviewedSessions.some((session) => session?.session_mode !== 'plan')) {
       return blocked();
     }
@@ -344,6 +346,7 @@ export async function confirmProviderConflictRecovery(
       descriptor.userId,
       reviewedSessions as Array<Extract<ChargingSession, { session_mode: 'plan' }>>,
       descriptor.canonicalProviderId,
+      reviewedOutbox,
     );
     if (remoteSessions.status === 'retryable-error') {
       return retryable();
@@ -388,6 +391,20 @@ export async function confirmProviderConflictRecovery(
           descriptor.userId,
         );
         if (!inspection || !matchesConfirmationDescriptor(descriptor, inspection)) {
+          return blocked();
+        }
+
+        if (!areCompatibleRemoteSelections(
+          inspection.selections,
+          remoteSelections.rows,
+          descriptor.canonicalProviderId,
+          getDurableOutboxCoverage(inspection.selections, inspection.outbox, 'provider_plan_selections'),
+        ) || !areCompatibleRemoteSessions(
+          inspection.sessions,
+          remoteSessions.rows,
+          descriptor.canonicalProviderId,
+          getDurableOutboxCoverage(inspection.sessions, inspection.outbox, 'sessions'),
+        )) {
           return blocked();
         }
 
@@ -522,6 +539,7 @@ async function getRemoteAffectedSelections(
   userId: string,
   selections: readonly ProviderPlanSelection[],
   canonicalProviderId: string,
+  outbox: readonly SyncOutbox[],
 ): Promise<RemoteAffectedRows<ProviderPlanSelection>> {
   if (selections.length === 0) {
     return { status: 'ready', rows: [] };
@@ -544,6 +562,7 @@ async function getRemoteAffectedSelections(
     selections,
     remoteSelections,
     canonicalProviderId,
+    getDurableOutboxCoverage(selections, outbox, 'provider_plan_selections'),
   )) {
     return { status: 'blocked' };
   }
@@ -554,6 +573,7 @@ async function getRemoteAffectedSessions(
   userId: string,
   sessions: readonly Extract<ChargingSession, { session_mode: 'plan' }>[],
   canonicalProviderId: string,
+  outbox: readonly SyncOutbox[],
 ): Promise<RemoteAffectedRows<Extract<ChargingSession, { session_mode: 'plan' }>>> {
   if (sessions.length === 0) {
     return { status: 'ready', rows: [] };
@@ -576,10 +596,31 @@ async function getRemoteAffectedSessions(
     sessions,
     remoteSessions,
     canonicalProviderId,
+    getDurableOutboxCoverage(sessions, outbox, 'sessions'),
   )) {
     return { status: 'blocked' };
   }
   return { status: 'ready', rows: remoteSessions };
+}
+
+function getDurableOutboxCoverage<T extends { id: string; user_id: string }>(
+  rows: readonly T[],
+  outbox: readonly SyncOutbox[],
+  tableName: 'provider_plan_selections' | 'sessions',
+): ReadonlySet<string> {
+  const coveredIds = new Set<string>();
+  for (const row of rows) {
+    if (outbox.some((item) => (
+      Number.isSafeInteger(item.id)
+      && item.table_name === tableName
+      && item.payload.id === row.id
+      && item.payload.user_id === row.user_id
+      && createCanonicalSerialization(item.payload) === createCanonicalSerialization(row)
+    ))) {
+      coveredIds.add(row.id);
+    }
+  }
+  return coveredIds;
 }
 
 function matchesConfirmationDescriptor(

@@ -482,6 +482,78 @@ describe('prepareProviderConflictRecovery', () => {
       .resolves.toMatchObject({ status: 'ready' });
   });
 
+  it('blocks an affected selection absent remotely without durable replay coverage', async () => {
+    // Arrange: the local selection is still unsynced, but no exact outbox payload can replay it.
+    const stagedProvider = buildStagedProvider();
+    const stagedPlan = buildChargingPlan({ id: 'missing-selection-plan', provider_id: stagedProvider.id });
+    const selection: ProviderPlanSelection = {
+      id: 'missing-selection',
+      user_id: 'user-1',
+      provider_id: stagedProvider.id,
+      tariff_plan_id: stagedPlan.id,
+      valid_from: new Date('2026-08-25T00:00:00.000Z'),
+      valid_to: null,
+      price_snapshot: { label: 'Ionity', kWhPrice: 79 },
+      created_at: new Date('2026-08-25T10:00:00.000Z'),
+      updated_at: new Date('2026-08-25T10:00:00.000Z'),
+    };
+    await db.providers.add(stagedProvider);
+    await db.charging_plans.add(stagedPlan);
+    await db.provider_plan_selections.add(selection);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    const before = await Promise.all([
+      db.providers.toArray(), db.charging_plans.toArray(), db.provider_plan_selections.toArray(),
+      db.sessions.toArray(), db.sync_outbox.toArray(), db.provider_reconciliations.toArray(),
+    ]);
+    supabaseMock.from.mockImplementation((table: string) => createRemoteQuery(
+      table === 'providers' ? [buildStagedProvider({ id: 'canonical-provider' })] : [],
+    ));
+
+    // Act: remote selection absence is evaluated as part of recovery preparation.
+    const result = await prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId });
+
+    // Assert: recovery cannot delete the staged provider or create evidence for an uncovered row.
+    expect(result).toMatchObject({ status: 'blocked' });
+    await expect(Promise.all([
+      db.providers.toArray(), db.charging_plans.toArray(), db.provider_plan_selections.toArray(),
+      db.sessions.toArray(), db.sync_outbox.toArray(), db.provider_reconciliations.toArray(),
+    ])).resolves.toEqual(before);
+  });
+
+  it('does not treat a mismatched selection outbox payload as durable replay coverage', async () => {
+    // Arrange: a same-row outbox entry exists, but its full payload is stale.
+    const stagedProvider = buildStagedProvider();
+    const stagedPlan = buildChargingPlan({ id: 'stale-selection-plan', provider_id: stagedProvider.id });
+    const selection: ProviderPlanSelection = {
+      id: 'stale-selection',
+      user_id: 'user-1',
+      provider_id: stagedProvider.id,
+      tariff_plan_id: stagedPlan.id,
+      valid_from: new Date('2026-08-25T00:00:00.000Z'),
+      valid_to: null,
+      price_snapshot: { label: 'Ionity', kWhPrice: 79 },
+      created_at: new Date('2026-08-25T10:00:00.000Z'),
+      updated_at: new Date('2026-08-25T10:00:00.000Z'),
+    };
+    await db.providers.add(stagedProvider);
+    await db.charging_plans.add(stagedPlan);
+    await db.provider_plan_selections.add(selection);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    await db.sync_outbox.add({
+      table_name: 'provider_plan_selections',
+      action: 'INSERT',
+      payload: { ...selection, price_snapshot: { ...selection.price_snapshot, kWhPrice: 80 } },
+      timestamp: new Date('2026-08-25T10:02:00.000Z'),
+    });
+    supabaseMock.from.mockImplementation((table: string) => createRemoteQuery(
+      table === 'providers' ? [buildStagedProvider({ id: 'canonical-provider' })] : [],
+    ));
+
+    // Act and Assert: a stale replay payload does not allow a local-only row through recovery.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toMatchObject({ status: 'blocked' });
+  });
+
   it('blocks an incompatible remotely persisted plan-mode session before rebinding its local graph', async () => {
     // Arrange: a partially synced plan-mode session must be verified before its provider ID moves.
     const stagedProvider = buildStagedProvider();
@@ -563,6 +635,47 @@ describe('prepareProviderConflictRecovery', () => {
     // Act and Assert: a canonical remote prior write is included rather than treated as divergence.
     await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
       .resolves.toMatchObject({ status: 'ready' });
+  });
+
+  it('blocks a partial remote plan-mode session response when the omitted row has no replay coverage', async () => {
+    // Arrange: two local sessions are affected, but only one has a compatible remote counterpart.
+    const stagedProvider = buildStagedProvider();
+    const stagedPlan = buildChargingPlan({ id: 'partial-session-plan', provider_id: stagedProvider.id });
+    const buildSession = (id: string): Extract<ChargingSession, { session_mode: 'plan' }> => ({
+      id,
+      user_id: 'user-1',
+      provider_id: stagedProvider.id,
+      provider_name_snapshot: 'Ionity',
+      tariff_plan_id: stagedPlan.id,
+      plan_selection_id: null,
+      charging_plan_name_snapshot: 'Ionity plan',
+      session_timestamp: new Date('2026-08-25T10:00:00.000Z'),
+      charging_type: 'DC',
+      kwh_billed: 10,
+      total_cost: 790,
+      session_mode: 'plan',
+      applied_session_fee: 0,
+      created_at: new Date('2026-08-25T10:00:00.000Z'),
+      updated_at: new Date('2026-08-25T10:00:00.000Z'),
+    });
+    const persistedSession = buildSession('persisted-session');
+    const missingSession = buildSession('missing-session');
+    await db.providers.add(stagedProvider);
+    await db.charging_plans.add(stagedPlan);
+    await db.sessions.bulkAdd([persistedSession, missingSession]);
+    const terminalOutboxId = await db.sync_outbox.add(buildTerminalOutbox());
+    supabaseMock.from.mockImplementation((table: string) => createRemoteQuery(
+      table === 'providers'
+        ? [buildStagedProvider({ id: 'canonical-provider' })]
+        : table === 'charging_sessions'
+          ? [{ ...persistedSession, provider_id: 'canonical-provider' }]
+          : [],
+    ));
+
+    // Act and Assert: one compatible response cannot cover a different local session ID.
+    await expect(prepareProviderConflictRecovery({ userId: 'user-1', terminalOutboxId }))
+      .resolves.toMatchObject({ status: 'blocked' });
+    expect(await db.sessions.toArray()).toEqual(expect.arrayContaining([persistedSession, missingSession]));
   });
 
   it('fails closed when the authenticated principal changes during remote preflight', async () => {

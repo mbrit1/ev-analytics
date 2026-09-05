@@ -41,17 +41,15 @@ export function areCompatibleRemoteSelections(
   localSelections: readonly ProviderPlanSelection[],
   remoteSelections: readonly ProviderPlanSelection[],
   canonicalProviderId: string,
+  coveredLocalIds: ReadonlySet<string> = new Set(),
 ): boolean {
-  const localById = new Map(localSelections.map((selection) => [selection.id, selection]));
-  return remoteSelections.every((remote) => {
-    const local = localById.get(remote.id);
-    return local !== undefined
-      && remote.provider_id === canonicalProviderId
-      && createCanonicalSerialization(toCanonicalRemoteSelectionShape({
-        ...local,
-        provider_id: canonicalProviderId,
-      })) === createCanonicalSerialization(toCanonicalRemoteSelectionShape(remote));
-  });
+  return areCompatibleRemoteRows(
+    localSelections,
+    remoteSelections,
+    canonicalProviderId,
+    coveredLocalIds,
+    toCanonicalRemoteSelectionShape,
+  );
 }
 
 function toCanonicalRemoteSelectionShape(selection: ProviderPlanSelection): Record<string, unknown> {
@@ -120,17 +118,43 @@ export function areCompatibleRemoteSessions(
   localSessions: readonly Extract<ChargingSession, { session_mode: 'plan' }>[],
   remoteSessions: readonly Extract<ChargingSession, { session_mode: 'plan' }>[],
   canonicalProviderId: string,
+  coveredLocalIds: ReadonlySet<string> = new Set(),
 ): boolean {
-  const localById = new Map(localSessions.map((session) => [session.id, session]));
-  return remoteSessions.every((remote) => {
+  return areCompatibleRemoteRows(
+    localSessions,
+    remoteSessions,
+    canonicalProviderId,
+    coveredLocalIds,
+    toCanonicalRemoteSessionShape,
+  );
+}
+
+function areCompatibleRemoteRows<T extends { id: string; provider_id: string }>(
+  localRows: readonly T[],
+  remoteRows: readonly T[],
+  canonicalProviderId: string,
+  coveredLocalIds: ReadonlySet<string>,
+  toCanonicalShape: (row: T) => Record<string, unknown>,
+): boolean {
+  const localById = new Map(localRows.map((row) => [row.id, row]));
+  const remoteById = new Map<string, T>();
+  for (const remote of remoteRows) {
+    if (remoteById.has(remote.id)) return false;
+    remoteById.set(remote.id, remote);
+  }
+
+  const compatibleRemoteRows = remoteRows.every((remote) => {
     const local = localById.get(remote.id);
     return local !== undefined
       && remote.provider_id === canonicalProviderId
-      && createCanonicalSerialization(toCanonicalRemoteSessionShape({
+      && createCanonicalSerialization(toCanonicalShape({
         ...local,
         provider_id: canonicalProviderId,
-      })) === createCanonicalSerialization(toCanonicalRemoteSessionShape(remote));
+      })) === createCanonicalSerialization(toCanonicalShape(remote));
   });
+  if (!compatibleRemoteRows) return false;
+
+  return localRows.every((local) => remoteById.has(local.id) || coveredLocalIds.has(local.id));
 }
 
 function toCanonicalRemoteSessionShape(
