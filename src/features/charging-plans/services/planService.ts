@@ -399,9 +399,10 @@ export async function saveChargingPlan(plan: ChargingPlan): Promise<void> {
 export async function switchActivePaidTariff(
   input: SwitchActivePaidTariffInput,
 ): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.sync_outbox, async () => {
     const candidate = hydrateChargingPlanDates(input.candidate);
     validatePlan(candidate);
+    await assertOwnedProviderReference(candidate.user_id, candidate.provider_id);
 
     if (candidate.deleted_at || candidate.monthly_base_fee <= 0) {
       throw new Error('Paid tariff switch requires a positive monthly base fee candidate');
@@ -565,7 +566,8 @@ function assertLogicalTariffIsMutable(versions: ChargingPlan[]): void {
  * Retires one user-owned logical tariff without altering selections, sessions, or unrelated plans.
  */
 export async function retireLogicalTariff(input: RetireLogicalTariffInput): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.sync_outbox, async () => {
+    await assertOwnedProviderReference(input.userId, input.providerId);
     const versions = await loadLogicalVersionsFromTable(
       db.charging_plans,
       input.userId,
@@ -640,7 +642,8 @@ export async function retireLogicalTariff(input: RetireLogicalTariffInput): Prom
 export async function scheduleTemporaryPromotion(
   input: ScheduleTemporaryPromotionInput
 ): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.sync_outbox, async () => {
+    await assertOwnedProviderReference(input.userId, input.providerId);
     if (input.promoEndInclusive.getTime() < input.promoStart.getTime()) {
       throw new Error('promoEndInclusive must be on or after promoStart');
     }
@@ -718,7 +721,8 @@ export async function scheduleTemporaryPromotion(
 export async function updateCurrentTariffVersion(
   input: UpdateCurrentTariffVersionInput
 ): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.sync_outbox, async () => {
+    await assertOwnedProviderReference(input.userId, input.providerId);
     const sourceVersions = await loadLogicalVersionsFromTable(
       db.charging_plans,
       input.userId,
@@ -800,7 +804,8 @@ export async function updateCurrentTariffVersion(
 export async function createSuccessorTariffVersion(
   input: CreateSuccessorTariffVersionInput
 ): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.sync_outbox, async () => {
+    await assertOwnedProviderReference(input.userId, input.providerId);
     const versions = await loadLogicalVersionsFromTable(
       db.charging_plans,
       input.userId,
@@ -970,7 +975,7 @@ export async function updateLogicalTariffDetails(
 }
 
 export async function deleteLogicalTariff(input: LogicalTariffIdentityInput): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.provider_plan_selections, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.provider_plan_selections, db.sync_outbox, async () => {
     const versions = await loadLogicalVersionsFromTable(
       db.charging_plans,
       input.userId,
@@ -981,6 +986,8 @@ export async function deleteLogicalTariff(input: LogicalTariffIdentityInput): Pr
     if (versions.length === 0) {
       return;
     }
+
+    await assertOwnedProviderReference(input.userId, input.providerId);
 
     const now = new Date();
     const sourceVersionIds = versions.map((version) => version.id);

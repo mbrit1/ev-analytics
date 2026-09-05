@@ -2486,6 +2486,22 @@ describe('syncEngine', () => {
 
   it('replays the June Lidl promo and SWM successor rows in deterministic timestamp order', async () => {
     // Arrange: Seed the same pre-June baselines locally and remotely.
+    await db.providers.bulkAdd([
+      {
+        id: 'provider-lidl',
+        user_id: 'user-1',
+        name: 'Lidl',
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+      },
+      {
+        id: 'provider-swm',
+        user_id: 'user-1',
+        name: 'SWM',
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+      },
+    ])
     const remotePlans: ChargingPlan[] = [
       buildChargingPlan({
         id: 'lidl-baseline',
