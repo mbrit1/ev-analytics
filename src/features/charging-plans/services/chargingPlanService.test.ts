@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { db, type ChargingPlan, type ChargingSession } from '../../../infra/db'
+import {
+  EVAnalyticsDB,
+  db,
+  type ChargingPlan,
+  type ChargingSession,
+  type Provider,
+  type ProviderPlanSelection,
+} from '../../../infra/db'
 import {
   deleteLogicalTariff,
   getChargingPlanHistory,
@@ -14,6 +21,7 @@ import {
   updateCurrentTariffVersion,
   updateLogicalTariffDetails,
 } from './planService'
+import { ProviderReferenceUnavailableError } from './providerService'
 import 'fake-indexeddb/auto'
 
 const utc = (date: string): Date => new Date(`${date}T00:00:00.000Z`)
@@ -160,6 +168,111 @@ const buildRetirementInput = (
   ...overrides,
 })
 
+type PlanMutationKind =
+  | 'switchActivePaidTariff'
+  | 'retireLogicalTariff'
+  | 'scheduleTemporaryPromotion'
+  | 'updateCurrentTariffVersion'
+  | 'createSuccessorTariffVersion'
+  | 'deleteLogicalTariff'
+
+const planMutationKinds: PlanMutationKind[] = [
+  'switchActivePaidTariff',
+  'retireLogicalTariff',
+  'scheduleTemporaryPromotion',
+  'updateCurrentTariffVersion',
+  'createSuccessorTariffVersion',
+  'deleteLogicalTariff',
+]
+
+const unavailableProviderStates = ['missing', 'foreign', 'soft-deleted'] as const
+const unavailableProviderMutationCases = planMutationKinds.flatMap((kind) => (
+  unavailableProviderStates.map((state) => [kind, state] as const)
+))
+
+const buildPlanMutation = async (kind: PlanMutationKind): Promise<(() => Promise<void>)> => {
+  switch (kind) {
+    case 'switchActivePaidTariff': {
+      const incumbent = buildPlan({
+        id: 'guard-paid-incumbent',
+        name: 'Old paid tariff',
+        monthly_base_fee: 499,
+      })
+      const candidate = buildPlan({
+        id: 'guard-paid-replacement',
+        name: 'New paid tariff',
+        valid_from: utc('2026-08-01'),
+        monthly_base_fee: 999,
+      })
+      await db.charging_plans.add(incumbent)
+      return () => switchActivePaidTariff({ candidate, incumbentId: incumbent.id })
+    }
+    case 'retireLogicalTariff': {
+      const current = buildPlan({ id: 'guard-retirement-current' })
+      await db.charging_plans.add(current)
+      const input = buildRetirementInput([current])
+      return () => withSystemTime('2026-08-16T12:00:00.000Z', () => retireLogicalTariff(input))
+    }
+    case 'scheduleTemporaryPromotion':
+      await seedOpenBaseline({ id: 'guard-promotion-baseline' })
+      return () => scheduleTemporaryPromotion({
+        userId: 'user-1',
+        providerId: 'provider-1',
+        name: 'Lidl',
+        promoStart: utc('2026-08-01'),
+        promoEndInclusive: utc('2026-08-02'),
+        prices: buildPrices({ ac_price_per_kwh: 39 }),
+      })
+    case 'updateCurrentTariffVersion': {
+      const current = buildPlan({ id: 'guard-current-version' })
+      await db.charging_plans.add(current)
+      return () => updateCurrentTariffVersion({
+        userId: 'user-1',
+        providerId: 'provider-1',
+        name: 'Lidl',
+        currentVersionId: current.id,
+        validFrom: current.valid_from,
+        nextName: 'Lidl Corrected',
+        prices: buildPrices({ ac_price_per_kwh: 55 }),
+      })
+    }
+    case 'createSuccessorTariffVersion':
+      await seedOpenBaseline({ id: 'guard-successor-baseline' })
+      return () => createSuccessorTariffVersion({
+        userId: 'user-1',
+        providerId: 'provider-1',
+        name: 'Lidl',
+        nextName: 'Lidl Plus',
+        effectiveFrom: utc('2026-08-15'),
+        prices: buildPrices({ ac_price_per_kwh: 35 }),
+      })
+    case 'deleteLogicalTariff': {
+      const current = buildPlan({ id: 'guard-delete-version' })
+      const selection: ProviderPlanSelection = {
+        id: 'guard-delete-selection',
+        user_id: 'user-1',
+        provider_id: 'provider-1',
+        tariff_plan_id: current.id,
+        valid_from: current.valid_from,
+        valid_to: null,
+        price_snapshot: { label: 'Lidl', kWhPrice: 49 },
+        created_at: current.created_at,
+        updated_at: current.updated_at,
+      }
+      await db.charging_plans.add(current)
+      await db.provider_plan_selections.add(selection)
+      return () => deleteLogicalTariff({ userId: 'user-1', providerId: 'provider-1', name: 'Lidl' })
+    }
+  }
+}
+
+const snapshotPlanMutationState = async (): Promise<unknown[]> => Promise.all([
+  db.providers.toArray(),
+  db.charging_plans.toArray(),
+  db.provider_plan_selections.toArray(),
+  db.sync_outbox.toArray(),
+])
+
 /**
  * Test suite for charging-plan persistence and logical tariff-version services.
  *
@@ -170,10 +283,90 @@ const buildRetirementInput = (
 describe('planService', () => {
   beforeEach(async () => {
     // Keep local charging-plan and outbox state isolated between fake IndexedDB tests.
+    await db.providers.clear()
     await db.charging_plans.clear()
     await db.provider_plan_selections.clear()
     await db.sessions.clear()
     await db.sync_outbox.clear()
+    await db.providers.bulkAdd([
+      {
+        id: 'provider-1',
+        user_id: 'user-1',
+        name: 'Provider one',
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+      },
+      {
+        id: 'provider-2',
+        user_id: 'user-1',
+        name: 'Provider two',
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+      },
+    ])
+  })
+
+  it('rejects stale plan creates and updates after another runtime removes the provider', async () => {
+    // Arrange: a stale editor still holds a provider reference that recovery removed elsewhere.
+    const provider: Provider = {
+      id: 'staged-provider',
+      user_id: 'user-1',
+      name: 'Staged provider',
+      created_at: utc('2026-01-01'),
+      updated_at: utc('2026-01-01'),
+    }
+    const existing = buildPlan({ id: 'stale-plan-update', provider_id: provider.id })
+    const staleCreate = buildPlan({ id: 'stale-plan-create', provider_id: provider.id })
+    await db.providers.add(provider)
+    await db.charging_plans.add(existing)
+
+    const reconciliationRuntime = new EVAnalyticsDB()
+    await reconciliationRuntime.providers.delete(provider.id)
+    reconciliationRuntime.close()
+
+    // Act and Assert: neither stale mutation recreates the removed provider reference or queues sync.
+    await expect(saveChargingPlan(staleCreate)).rejects.toThrow('Provider reference is unavailable')
+    await expect(saveChargingPlan({ ...existing, notes: 'Edited after removal' }))
+      .rejects.toThrow('Provider reference is unavailable')
+    expect(await db.charging_plans.toArray()).toEqual([existing])
+    expect(await db.sync_outbox.count()).toBe(0)
+  })
+
+  it.each(unavailableProviderMutationCases)(
+    'rejects %s when the referenced provider is %s before any local mutation',
+    async (kind, state) => {
+      // Arrange: prepare an otherwise-valid mutation, then make its provider unavailable.
+      const mutate = await buildPlanMutation(kind)
+      let reconciliationRuntime: EVAnalyticsDB | undefined
+      if (state === 'missing') {
+        reconciliationRuntime = new EVAnalyticsDB()
+        await reconciliationRuntime.providers.delete('provider-1')
+      } else if (state === 'foreign') {
+        await db.providers.update('provider-1', { user_id: 'user-2' })
+      } else {
+        await db.providers.update('provider-1', { deleted_at: utc('2026-08-16') })
+      }
+      const before = await snapshotPlanMutationState()
+
+      try {
+        // Act and Assert: every provider-referencing workflow fails closed atomically.
+        await expect(mutate()).rejects.toBeInstanceOf(ProviderReferenceUnavailableError)
+        expect(await snapshotPlanMutationState()).toEqual(before)
+      } finally {
+        reconciliationRuntime?.close()
+      }
+    },
+  )
+
+  it('keeps deleting a missing logical tariff idempotent', async () => {
+    // Arrange: the requested logical tariff is absent and its provider was removed concurrently.
+    await db.providers.delete('provider-1')
+    const before = await snapshotPlanMutationState()
+
+    // Act and Assert: an absent logical tariff remains a safe no-op without requiring a provider.
+    await expect(deleteLogicalTariff({ userId: 'user-1', providerId: 'provider-1', name: 'Lidl' }))
+      .resolves.toBeUndefined()
+    expect(await snapshotPlanMutationState()).toEqual(before)
   })
 
   it('returns an empty charging-plan history for no referenced plan ids', async () => {
@@ -316,6 +509,22 @@ describe('planService', () => {
 
   it('reproduces the June Lidl promo and SWM successor sequence without local overlap conflicts', async () => {
     // Arrange: Seed the prod-shaped Lidl and SWM baselines that existed before June 2026.
+    await db.providers.bulkAdd([
+      {
+        id: 'provider-lidl',
+        user_id: 'user-1',
+        name: 'Lidl',
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+      },
+      {
+        id: 'provider-swm',
+        user_id: 'user-1',
+        name: 'SWM',
+        created_at: utc('2026-01-01'),
+        updated_at: utc('2026-01-01'),
+      },
+    ])
     await db.charging_plans.bulkAdd([
       buildPlan({
         id: 'lidl-baseline',
@@ -1211,6 +1420,66 @@ describe('planService', () => {
     expect(selection?.provider_id).toBe('provider-2')
     const outbox = await db.sync_outbox.toArray()
     expect(outbox.some((entry) => entry.table_name === 'provider_plan_selections' && entry.action === 'UPDATE')).toBe(true)
+  })
+
+  it('rejects a stale logical-tariff move after reconciliation removes its destination provider without recreating references', async () => {
+    // Arrange: A stale editor has source plans and an active selection pointing at a staged destination provider.
+    const stagedProvider: Provider = {
+      id: 'staged-provider',
+      user_id: 'user-1',
+      name: 'Staged provider',
+      created_at: utc('2026-01-01'),
+      updated_at: utc('2026-01-01'),
+    }
+    await db.providers.add(stagedProvider)
+    await db.charging_plans.bulkAdd([
+      buildPlan({ id: 'stale-base', provider_id: 'provider-1', name: 'Lidl', valid_from: utc('2026-01-01'), valid_to: utc('2026-08-15') }),
+      buildPlan({ id: 'stale-next', provider_id: 'provider-1', name: 'Lidl', valid_from: utc('2026-08-15'), valid_to: null }),
+    ])
+    await db.provider_plan_selections.add({
+      id: 'stale-selection',
+      user_id: 'user-1',
+      provider_id: 'provider-1',
+      tariff_plan_id: 'stale-base',
+      valid_from: utc('2026-01-01'),
+      valid_to: null,
+      price_snapshot: { label: 'Lidl', kWhPrice: 49 },
+      created_at: utc('2026-01-01'),
+      updated_at: utc('2026-01-01'),
+    })
+    const snapshot = async (): Promise<string> => JSON.stringify({
+      chargingPlans: await db.charging_plans.orderBy('id').toArray(),
+      providerPlanSelections: await db.provider_plan_selections.orderBy('id').toArray(),
+      syncOutbox: await db.sync_outbox.orderBy('id').toArray(),
+    })
+    const before = await snapshot()
+
+    const reconciliationRuntime = new EVAnalyticsDB()
+    await reconciliationRuntime.providers.delete(stagedProvider.id)
+    reconciliationRuntime.close()
+
+    // Act/Assert: The stale move must fail before it can mutate local rows or queue orphaning payloads.
+    await expect(updateLogicalTariffDetails({
+      userId: 'user-1',
+      providerId: 'provider-1',
+      name: 'Lidl',
+      nextProviderId: stagedProvider.id,
+      nextName: 'Lidl Plus',
+    })).rejects.toBeInstanceOf(ProviderReferenceUnavailableError)
+
+    // Assert: Every persisted row and queue entry remains byte-for-byte unchanged.
+    expect(await snapshot()).toBe(before)
+    const outbox = await db.sync_outbox.toArray()
+    expect(outbox.some((entry) => (
+      entry.table_name === 'charging_plans'
+      && 'provider_id' in entry.payload
+      && entry.payload.provider_id === stagedProvider.id
+    ))).toBe(false)
+    expect(outbox.some((entry) => (
+      entry.table_name === 'provider_plan_selections'
+      && 'provider_id' in entry.payload
+      && entry.payload.provider_id === stagedProvider.id
+    ))).toBe(false)
   })
 
   it('soft-deletes provider plan selections that point at a deleted logical tariff', async () => {

@@ -6,6 +6,7 @@ export * from './services/planService'
 export * from './services/providerPlanSelectionService'
 export * from './model/types'
 export * from './model/logicalTariffs'
+export * from './model/chargingPlanInvariants'
 export type {
   CreateSuccessorTariffVersionInput,
   LogicalTariffIdentityInput,

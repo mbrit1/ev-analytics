@@ -5,6 +5,12 @@ import { useSyncStatus } from './useSyncStatus';
 import type { SyncRuntimeHydrationSnapshot } from '../model/types';
 import 'fake-indexeddb/auto';
 
+type ProviderConflictSyncStatus = ReturnType<typeof useSyncStatus> & {
+  blockingOutboxId?: number;
+  blockingFailureKind?: 'provider-name-conflict';
+  blockingProviderId?: string;
+};
+
 let hydrationSnapshot: SyncRuntimeHydrationSnapshot = {
   providers: { status: 'ready' },
   charging_plans: { status: 'ready' },
@@ -116,6 +122,9 @@ describe('useSyncStatus', () => {
       hasBlockingSyncError: false,
       blockingErrorKind: undefined,
       blockingErrorMessage: undefined,
+      blockingOutboxId: undefined,
+      blockingFailureKind: undefined,
+      blockingProviderId: undefined,
       retryCount: undefined,
       nextRetryAt: undefined,
       hydration: hydrationSnapshot,
@@ -210,35 +219,33 @@ describe('useSyncStatus', () => {
 
   it('surfaces a blocking error only after retry threshold from the oldest actionable failed item', async () => {
     // Arrange: Add one first-failure row and two threshold-qualified failed rows.
-    await db.sync_outbox.bulkAdd([
-      {
-        table_name: 'sessions',
-        action: 'INSERT',
-        payload: buildChargingSession({ id: 'session-first-failure' }),
-        timestamp: new Date('2026-05-21T07:00:00.000Z'),
-        retry_count: 1,
-        next_attempt_at: new Date('2026-05-21T07:01:00.000Z'),
-        last_error: 'First failure should not be user-visible yet'
-      },
-      {
-        table_name: 'sessions',
-        action: 'INSERT',
-        payload: buildChargingSession({ id: 'session-oldest-failed' }),
-        timestamp: new Date('2026-05-21T08:00:00.000Z'),
-        retry_count: 2,
-        next_attempt_at: new Date('2026-05-21T08:01:00.000Z'),
-        last_error: 'Oldest actionable sync error'
-      },
-      {
-        table_name: 'sessions',
-        action: 'INSERT',
-        payload: buildChargingSession({ id: 'session-newer-failed' }),
-        timestamp: new Date('2026-05-21T09:00:00.000Z'),
-        retry_count: 1,
-        next_attempt_at: new Date('2026-05-21T09:01:00.000Z'),
-        last_error: 'Newer sync error'
-      }
-    ]);
+    await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'INSERT',
+      payload: buildChargingSession({ id: 'session-first-failure' }),
+      timestamp: new Date('2026-05-21T07:00:00.000Z'),
+      retry_count: 1,
+      next_attempt_at: new Date('2026-05-21T07:01:00.000Z'),
+      last_error: 'First failure should not be user-visible yet'
+    });
+    const oldestActionableOutboxId = await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'INSERT',
+      payload: buildChargingSession({ id: 'session-oldest-failed' }),
+      timestamp: new Date('2026-05-21T08:00:00.000Z'),
+      retry_count: 2,
+      next_attempt_at: new Date('2026-05-21T08:01:00.000Z'),
+      last_error: 'Oldest actionable sync error'
+    });
+    await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'INSERT',
+      payload: buildChargingSession({ id: 'session-newer-failed' }),
+      timestamp: new Date('2026-05-21T09:00:00.000Z'),
+      retry_count: 1,
+      next_attempt_at: new Date('2026-05-21T09:01:00.000Z'),
+      last_error: 'Newer sync error'
+    });
 
     // Act
     const { result } = renderHook(() => useSyncStatus());
@@ -250,13 +257,17 @@ describe('useSyncStatus', () => {
     expect(result.current.hasBlockingSyncError).toBe(true);
     expect(result.current.blockingErrorMessage).toBe('Oldest actionable sync error');
     expect(result.current.blockingErrorKind).toBe('retryable');
+    const syncStatus = result.current as ProviderConflictSyncStatus;
+    expect(syncStatus.blockingOutboxId).toBe(oldestActionableOutboxId);
+    expect(syncStatus.blockingFailureKind).toBeUndefined();
+    expect(syncStatus.blockingProviderId).toBeUndefined();
     expect(result.current.retryCount).toBe(2);
     expect(result.current.nextRetryAt).toEqual(new Date('2026-05-21T08:01:00.000Z'));
   });
 
-  it('surfaces a first-attempt terminal provider conflict immediately', async () => {
-    // Arrange: Queue one terminal provider conflict without a scheduled retry.
-    await db.sync_outbox.add({
+  it('preserves generic terminal semantics without typed provider recovery metadata', async () => {
+    // Arrange: Queue one untyped terminal provider failure without a scheduled retry.
+    const genericTerminalOutboxId = await db.sync_outbox.add({
       table_name: 'providers',
       action: 'INSERT',
       payload: buildProvider({ id: 'provider-terminal-conflict' }),
@@ -266,21 +277,106 @@ describe('useSyncStatus', () => {
       last_error: 'Provider name already exists remotely (active, case-insensitive)'
     });
 
-    // Act: Render the hook after the terminal failure is recorded.
+    // Act: Render the hook after the generic terminal failure is recorded.
     const { result } = renderHook(() => useSyncStatus());
     await waitFor(() => {
       expect(result.current.isLoading).toBe(false);
     });
 
-    // Assert: Terminal state is blocking immediately and has no retry promise.
+    // Assert: Generic terminal state remains blocking without provider-conflict recovery metadata.
     expect(result.current.hasBlockingSyncError).toBe(true);
     expect(result.current.blockingErrorKind).toBe('terminal');
     expect(result.current.blockingErrorMessage).toBe(
       'Provider name already exists remotely (active, case-insensitive)'
     );
+    const syncStatus = result.current as ProviderConflictSyncStatus;
+    expect(syncStatus.blockingOutboxId).toBe(genericTerminalOutboxId);
+    expect(syncStatus.blockingFailureKind).toBeUndefined();
+    expect(syncStatus.blockingProviderId).toBeUndefined();
     expect(result.current.retryCount).toBe(1);
     expect(result.current.nextRetryAt).toBeUndefined();
     expect(result.current.displayState).toBe('sync-issue');
+  });
+
+  it('surfaces typed provider conflict recovery metadata from the oldest eligible blocking row', async () => {
+    // Arrange: Queue an ineligible first failure, then an eligible typed provider conflict before a newer terminal row.
+    await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'INSERT',
+      payload: buildChargingSession({ id: 'session-first-failure' }),
+      timestamp: new Date('2026-05-21T07:00:00.000Z'),
+      retry_count: 1,
+      next_attempt_at: new Date('2026-05-21T07:01:00.000Z'),
+      last_error: 'First failure should remain non-blocking'
+    });
+    const typedConflictOutboxId = await db.sync_outbox.add({
+      table_name: 'providers',
+      action: 'INSERT',
+      payload: buildProvider({ id: 'provider-staged-conflict' }),
+      timestamp: new Date('2026-05-21T08:00:00.000Z'),
+      retry_count: 1,
+      last_attempt_at: new Date('2026-05-21T08:01:00.000Z'),
+      last_error: 'Provider conflict needs your attention.',
+      failure_kind: 'provider-name-conflict'
+    });
+    await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'INSERT',
+      payload: buildChargingSession({ id: 'session-newer-terminal' }),
+      timestamp: new Date('2026-05-21T09:00:00.000Z'),
+      retry_count: 1,
+      last_error: 'Newer generic terminal failure'
+    });
+
+    // Act: Render the hook after the mixed queue is available locally.
+    const { result } = renderHook(() => useSyncStatus());
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    // Assert: The oldest eligible typed conflict supplies its stable recovery identity.
+    const syncStatus = result.current as ProviderConflictSyncStatus;
+    expect(syncStatus.blockingOutboxId).toBe(typedConflictOutboxId);
+    expect(syncStatus.blockingFailureKind).toBe('provider-name-conflict');
+    expect(syncStatus.blockingProviderId).toBe('provider-staged-conflict');
+    expect(syncStatus).not.toHaveProperty('payload');
+    expect(syncStatus).not.toHaveProperty('blockingPayload');
+  });
+
+  it('keeps an older generic terminal row selected ahead of a typed provider conflict', async () => {
+    // Arrange: Queue a generic terminal row before a typed provider conflict.
+    const genericTerminalOutboxId = await db.sync_outbox.add({
+      table_name: 'sessions',
+      action: 'INSERT',
+      payload: buildChargingSession({ id: 'session-oldest-terminal' }),
+      timestamp: new Date('2026-05-21T08:00:00.000Z'),
+      retry_count: 1,
+      last_error: 'Oldest generic terminal failure'
+    });
+    await db.sync_outbox.add({
+      table_name: 'providers',
+      action: 'INSERT',
+      payload: buildProvider({ id: 'provider-newer-staged-conflict' }),
+      timestamp: new Date('2026-05-21T09:00:00.000Z'),
+      retry_count: 1,
+      last_attempt_at: new Date('2026-05-21T09:01:00.000Z'),
+      last_error: 'Provider name already exists remotely (active, case-insensitive)',
+      failure_kind: 'provider-name-conflict'
+    });
+
+    // Act: Render the hook after both terminal rows are available locally.
+    const { result } = renderHook(() => useSyncStatus());
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    // Assert: The oldest generic row remains selected and exposes no typed recovery metadata.
+    const syncStatus = result.current as ProviderConflictSyncStatus;
+    expect(syncStatus.blockingOutboxId).toBe(genericTerminalOutboxId);
+    expect(syncStatus.blockingFailureKind).toBeUndefined();
+    expect(syncStatus.blockingProviderId).toBeUndefined();
+    expect(result.current.blockingErrorKind).toBe('terminal');
+    expect(result.current.blockingErrorMessage).toBe('Oldest generic terminal failure');
   });
 
   it('does not surface blocking error for first-failure rows', async () => {

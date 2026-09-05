@@ -13,6 +13,7 @@ import type {
 } from '../model/types';
 import { sortSessionsNewestFirst } from '../model/types';
 import {
+  assertOwnedProviderReference,
   type SetActivePlanSelectionInput,
 } from '../../charging-plans';
 
@@ -469,6 +470,9 @@ export function prepareSessionEdit(
 }
 
 async function persistSessionInsert(session: ChargingSession): Promise<void> {
+  if (session.session_mode === 'plan') {
+    await assertOwnedProviderReference(session.user_id, session.provider_id);
+  }
   await assertAdHocSessionHasNoActiveSavedTariff(session);
   await db.sessions.put(session);
   await db.sync_outbox.add(createSyncOutboxEntry('sessions', 'INSERT', session, new Date()));
@@ -493,6 +497,10 @@ async function persistSessionUpdate(session: ChargingSession): Promise<void> {
     deleted_at: existing.deleted_at,
     updated_at: updatedAt,
   };
+
+  if (updatedSession.session_mode === 'plan') {
+    await assertOwnedProviderReference(updatedSession.user_id, updatedSession.provider_id);
+  }
 
   if (!hasUnchangedAdHocTariffIdentity(existing, updatedSession)) {
     await assertAdHocSessionHasNoActiveSavedTariff(updatedSession);
@@ -521,6 +529,13 @@ async function persistSessionRequest(
       if (request.planSelectionChange) {
         if (session.session_mode !== 'plan') {
           throw new Error('Plan selection changes require a plan session');
+        }
+        if (
+          request.planSelectionChange.userId !== session.user_id
+          || request.planSelectionChange.providerId !== session.provider_id
+          || request.planSelectionChange.tariffPlanId !== session.tariff_plan_id
+        ) {
+          throw new Error('Plan selection change must match the session');
         }
         planSelectionMutation = await buildPlanSelectionMutationWithinSessionTransaction(request.planSelectionChange);
         session = {

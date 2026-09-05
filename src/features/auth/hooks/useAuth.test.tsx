@@ -2,13 +2,16 @@ import { renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AuthError } from '@supabase/supabase-js';
+import { supabase } from '../../../infra/supabase';
 import { AuthProvider, useAuth } from './useAuth';
 
 const mockIsMockMode = vi.hoisted(() => vi.fn());
 const mockSignInWithPassword = vi.hoisted(() => vi.fn());
 const mockSignOut = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn());
+const mockGetUser = vi.hoisted(() => vi.fn());
 const mockOnAuthStateChange = vi.hoisted(() => vi.fn());
+const mockSetSession = vi.hoisted(() => vi.fn());
 const mockUnsubscribe = vi.hoisted(() => vi.fn());
 const mockClearLocalUserData = vi.hoisted(() => vi.fn());
 const mockDisposeActiveSyncRuntime = vi.hoisted(() => vi.fn());
@@ -23,7 +26,9 @@ vi.mock('../../../infra/supabase', () => ({
       signInWithPassword: mockSignInWithPassword,
       signOut: mockSignOut,
       getSession: mockGetSession,
+      getUser: mockGetUser,
       onAuthStateChange: mockOnAuthStateChange,
+      setSession: mockSetSession,
     },
   },
 }));
@@ -58,6 +63,19 @@ describe('useAuth', () => {
     });
     mockSignInWithPassword.mockResolvedValue({ error: null });
     mockSignOut.mockResolvedValue({ error: null });
+    mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
+    mockSetSession.mockImplementation(async () => {
+      mockGetUser.mockResolvedValue({
+        data: {
+          user: {
+            id: 'mock-user-id',
+            email: 'tester@local.dev',
+          },
+        },
+        error: null,
+      });
+      return { data: { session: null, user: null }, error: null };
+    });
     mockDisposeActiveSyncRuntime.mockResolvedValue(undefined);
     mockClearLocalUserData.mockResolvedValue(undefined);
   });
@@ -199,6 +217,28 @@ describe('useAuth', () => {
     expect(mockSignOut).not.toHaveBeenCalled();
     expect(mockDisposeActiveSyncRuntime).toHaveBeenCalledTimes(1);
     expect(mockClearLocalUserData).toHaveBeenCalledTimes(1);
+  });
+
+  it('seeds the Supabase client identity in mock mode for security rechecks', async () => {
+    // Arrange: The mock auth client has no verified user before its session is seeded.
+    mockIsMockMode.mockReturnValue(true);
+
+    // Act: Mount the provider, then perform the same verified-user recheck as recovery.
+    renderHook(() => useAuth(), { wrapper });
+    await waitFor(() => {
+      expect(mockSetSession).toHaveBeenCalledWith({
+        access_token: 'eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJtb2NrLXVzZXItaWQiLCJlbWFpbCI6InRlc3RlckBsb2NhbC5kZXYiLCJyb2xlIjoiYXV0aGVudGljYXRlZCIsImF1ZCI6ImF1dGhlbnRpY2F0ZWQiLCJleHAiOjQxMDI0NDQ4MDB9.mock-signature',
+        refresh_token: 'mock-refresh-token',
+      });
+    });
+    const { data, error } = await supabase.auth.getUser();
+
+    // Assert: Client-level auth agrees with the local mock user identity.
+    expect(error).toBeNull();
+    expect(data.user).toMatchObject({
+      id: 'mock-user-id',
+      email: 'tester@local.dev',
+    });
   });
 
   it('unsubscribes auth state listener on unmount', async () => {

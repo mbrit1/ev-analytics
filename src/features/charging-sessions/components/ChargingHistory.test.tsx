@@ -65,6 +65,13 @@ describe('ChargingHistory', () => {
     // Arrange: Start each test from a clean IndexedDB state.
     await db.delete();
     await db.open();
+    await db.providers.add({
+      id: 'provider-1',
+      user_id: 'user-1',
+      name: 'Tesla',
+      created_at: new Date('2026-01-01T00:00:00.000Z'),
+      updated_at: new Date('2026-01-01T00:00:00.000Z'),
+    });
     scrollIntoViewMock.mockReset();
     scrollToMock.mockReset();
     Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {

@@ -10,7 +10,7 @@ Accepted
 
 ## Last updated
 
-2026-08-01
+2026-09-03
 
 ## Context
 
@@ -36,6 +36,7 @@ Use Dexie as the local source for domain data and a transactional outbox for rem
 - Browser `online` events and committed outbox insertions request another run.
 - Only one run may execute at a time. Triggers received during a run are coalesced into one subsequent pass.
 - Disposing the authenticated runtime removes its listeners, aborts later phases and local bookkeeping after asynchronous boundaries, and exposes a completion barrier that logout awaits before clearing Dexie.
+- Hydration, replay, and explicit provider-conflict confirmation share a database-scoped Web Lock. Confirmation pauses active local runtimes before acquiring the lock and resumes their coalesced work afterward.
 
 ### Initial hydration
 
@@ -49,8 +50,8 @@ Use Dexie as the local source for domain data and a transactional outbox for rem
 - Ready items are considered oldest-first by their original timestamp.
 - Items whose `next_attempt_at` is still in the future are skipped so later ready work is not starved.
 - A successful item is removed from the outbox only after Supabase accepts it.
-- Before replaying a charging-plan insert, the runtime guards against a pending provider insert for the same provider ID, including providers delayed for retry or marked terminal. When the provider succeeds, its pending ID is removed and the dependent tariff becomes eligible; unrelated ready work continues while dependent tariffs remain blocked.
-- Provider and tariff upserts are separate remote operations, so Supabase may temporarily contain the provider without its tariff. A canonical provider-name `23505` conflict is terminal and requires manual resolution; the client never automatically rebinds the staged provider ID.
+- Replay derives a durable dependency graph and runs a fixed-point worklist. Charging-plan mutations wait for provider inserts; selection mutations wait for plan inserts; and plan-mode sessions wait for their plan and, when present, selection inserts. This applies to inserts, updates, and soft-delete upserts. Terminal parents keep descendants blocked, while unrelated ready work continues.
+- Provider and tariff upserts are separate remote operations, so Supabase may temporarily contain the provider without its tariff. The recognized canonical provider-name `23505` conflict is terminal and never auto-rebinds. Its typed, explicit, authenticated local recovery path is defined by [ADR 010](./010-provider-conflict-reconciliation.md); generic or legacy terminal conflicts remain for explicit resolution.
 - Retryable failures remain queued with `retry_count`, `last_attempt_at`, `next_attempt_at`, and `last_error`. Retry delay grows exponentially from one minute and is capped at fifteen minutes.
 - A retryable failure stops the current pass because later writes may depend on it. A future runtime trigger starts another eligible pass; there is no dedicated wake-up timer for `next_attempt_at`.
 - Database check and exclusion-constraint failures are marked non-retryable with no next retry time. Charging-plan validity overlap conflicts are item-local and allow later ready items to continue; other failures stop the pass.
@@ -62,6 +63,6 @@ Use Dexie as the local source for domain data and a transactional outbox for rem
 - **Idempotent replay:** Stable row identifiers and remote upserts make repeated delivery safe from duplicate rows.
 - **Observable failure state:** Retry timing and error metadata can be surfaced by sync-status UI and used for diagnosis.
 - **Eventual consistency:** Remote state may lag local state until a qualifying runtime trigger processes eligible work.
-- **Ordering trade-off:** Replay preserves dependency order for ready work while allowing delayed items and explicitly item-local overlap conflicts not to block unrelated ready mutations.
+- **Ordering trade-off:** The fixed-point worklist preserves durable parent-child ordering while allowing unrelated ready work and explicitly item-local overlap conflicts to continue. A terminal dependency remains a replay boundary until repaired.
 - **Conflict limitations:** The strategy does not provide a general multi-writer merge algorithm; the product remains private and single-user, and constraint conflicts require explicit resolution.
 - **Hydration limitation:** Initial pull does not currently hydrate `provider_plan_selections`; adding it requires corresponding remote selection, normalization, and tests.

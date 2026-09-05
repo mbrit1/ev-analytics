@@ -10,6 +10,15 @@ import {
   normalizeTariffName,
   resolveEffectivePlanForDate,
 } from '../model/logicalTariffs';
+import {
+  assertNoLogicalIdentityOverlap,
+  assertNoLogicalTimelineOverlap,
+  assertNoPaidTariffOverlap,
+  periodsOverlap,
+} from '../model/chargingPlanInvariants';
+import { assertOwnedProviderReference } from './providerService';
+
+export { PaidTariffOverlapError } from '../model/chargingPlanInvariants';
 
 export interface LogicalTariffIdentityInput {
   userId: string;
@@ -76,22 +85,6 @@ export interface RetireLogicalTariffInput extends LogicalTariffIdentityInput {
 export interface SwitchActivePaidTariffInput {
   candidate: ChargingPlan;
   incumbentId: string;
-}
-
-/** Describes provider-level paid tariff intervals that cannot coexist. */
-export class PaidTariffOverlapError extends Error {
-  public readonly candidate: ChargingPlan;
-  public readonly conflicts: readonly ChargingPlan[];
-
-  constructor(
-    candidate: ChargingPlan,
-    conflicts: readonly ChargingPlan[],
-  ) {
-    super('Paid tariff validity overlaps with another active paid tariff for this provider');
-    this.name = 'PaidTariffOverlapError';
-    this.candidate = candidate;
-    this.conflicts = conflicts;
-  }
 }
 
 type PlanTable = Table<ChargingPlan, string>;
@@ -196,21 +189,6 @@ async function putSelectionAndQueue(
   ));
 }
 
-function dateToComparableMs(value: Date | null | undefined): number {
-  if (value == null) return Number.POSITIVE_INFINITY;
-  return value.getTime();
-}
-
-function periodsOverlap(
-  leftStart: Date,
-  leftEnd: Date | null | undefined,
-  rightStart: Date,
-  rightEnd: Date | null | undefined
-): boolean {
-  return leftStart.getTime() < dateToComparableMs(rightEnd)
-    && rightStart.getTime() < dateToComparableMs(leftEnd);
-}
-
 function startOfUtcDay(date: Date): Date {
   const time = date.getTime();
   if (Number.isNaN(time)) {
@@ -220,58 +198,12 @@ function startOfUtcDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
-function assertNoLogicalTimelineOverlap(versions: readonly ChargingPlan[]): void {
-  const activeVersions = versions.filter((version) => !version.deleted_at);
-
-  for (let index = 0; index < activeVersions.length; index += 1) {
-    const candidate = activeVersions[index];
-
-    if (activeVersions.slice(index + 1).some((other) => (
-      periodsOverlap(candidate.valid_from, candidate.valid_to, other.valid_from, other.valid_to)
-    ))) {
-      throw new Error('Tariff validity overlaps with an existing active version for this provider and name');
-    }
-  }
-}
-
 function trimPlanName(name: string): string {
   return (name ?? '').trim();
 }
 
 function sortPlansByStartDate(plans: ChargingPlan[]): ChargingPlan[] {
   return [...plans].sort((left, right) => left.valid_from.getTime() - right.valid_from.getTime());
-}
-
-function assertNoPaidTariffOverlap(
-  candidateVersions: readonly ChargingPlan[],
-  existingProviderVersions: readonly ChargingPlan[],
-): void {
-  const candidateIds = new Set(candidateVersions.map((candidate) => candidate.id));
-  const retainedVersions = existingProviderVersions.filter((existing) => !candidateIds.has(existing.id));
-
-  for (const candidate of candidateVersions) {
-    if (candidate.deleted_at || candidate.monthly_base_fee <= 0) {
-      continue;
-    }
-
-    const conflicts = [...retainedVersions, ...candidateVersions].filter((existing) => (
-      existing.id !== candidate.id
-      && !existing.deleted_at
-      && existing.user_id === candidate.user_id
-      && existing.provider_id === candidate.provider_id
-      && existing.monthly_base_fee > 0
-      && periodsOverlap(
-        candidate.valid_from,
-        candidate.valid_to,
-        existing.valid_from,
-        existing.valid_to,
-      )
-    ));
-
-    if (conflicts.length > 0) {
-      throw new PaidTariffOverlapError(candidate, conflicts);
-    }
-  }
 }
 
 function buildLogicalTariffMissingError(providerId: string, name: string): Error {
@@ -392,27 +324,6 @@ function buildRestorationFromBaseline(
   };
 }
 
-function assertNoLogicalIdentityOverlap(
-  sourceVersions: ChargingPlan[],
-  destinationVersions: ChargingPlan[],
-  destinationIdentity: Pick<LogicalTariffIdentityInput, 'providerId' | 'name'>
-): void {
-  const overlappingDestination = sourceVersions.find((source) => (
-    destinationVersions.some((destination) => (
-      periodsOverlap(source.valid_from, source.valid_to, destination.valid_from, destination.valid_to)
-    ))
-  ));
-
-  if (overlappingDestination) {
-    throw new Error(
-      `Tariff identity overlaps an existing active logical tariff for ${getLogicalTariffKey({
-        provider_id: destinationIdentity.providerId,
-        name: destinationIdentity.name
-      })}`
-    );
-  }
-}
-
 export async function getEffectiveChargingPlanAt(
   userId: string,
   providerId: string,
@@ -426,8 +337,12 @@ export async function getEffectiveChargingPlanAt(
 export async function saveChargingPlan(plan: ChargingPlan): Promise<void> {
   validatePlan(plan);
 
-  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.sync_outbox, async () => {
     const normalizedIncomingPlan = hydrateChargingPlanDates(plan);
+    await assertOwnedProviderReference(
+      normalizedIncomingPlan.user_id,
+      normalizedIncomingPlan.provider_id,
+    );
     const existing = await db.charging_plans.get(normalizedIncomingPlan.id);
     if (existing) {
       const existingVersions = await loadLogicalVersionsFromTable(
@@ -484,9 +399,10 @@ export async function saveChargingPlan(plan: ChargingPlan): Promise<void> {
 export async function switchActivePaidTariff(
   input: SwitchActivePaidTariffInput,
 ): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.sync_outbox, async () => {
     const candidate = hydrateChargingPlanDates(input.candidate);
     validatePlan(candidate);
+    await assertOwnedProviderReference(candidate.user_id, candidate.provider_id);
 
     if (candidate.deleted_at || candidate.monthly_base_fee <= 0) {
       throw new Error('Paid tariff switch requires a positive monthly base fee candidate');
@@ -650,7 +566,8 @@ function assertLogicalTariffIsMutable(versions: ChargingPlan[]): void {
  * Retires one user-owned logical tariff without altering selections, sessions, or unrelated plans.
  */
 export async function retireLogicalTariff(input: RetireLogicalTariffInput): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.sync_outbox, async () => {
+    await assertOwnedProviderReference(input.userId, input.providerId);
     const versions = await loadLogicalVersionsFromTable(
       db.charging_plans,
       input.userId,
@@ -725,7 +642,8 @@ export async function retireLogicalTariff(input: RetireLogicalTariffInput): Prom
 export async function scheduleTemporaryPromotion(
   input: ScheduleTemporaryPromotionInput
 ): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.sync_outbox, async () => {
+    await assertOwnedProviderReference(input.userId, input.providerId);
     if (input.promoEndInclusive.getTime() < input.promoStart.getTime()) {
       throw new Error('promoEndInclusive must be on or after promoStart');
     }
@@ -803,7 +721,8 @@ export async function scheduleTemporaryPromotion(
 export async function updateCurrentTariffVersion(
   input: UpdateCurrentTariffVersionInput
 ): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.sync_outbox, async () => {
+    await assertOwnedProviderReference(input.userId, input.providerId);
     const sourceVersions = await loadLogicalVersionsFromTable(
       db.charging_plans,
       input.userId,
@@ -885,7 +804,8 @@ export async function updateCurrentTariffVersion(
 export async function createSuccessorTariffVersion(
   input: CreateSuccessorTariffVersionInput
 ): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.sync_outbox, async () => {
+    await assertOwnedProviderReference(input.userId, input.providerId);
     const versions = await loadLogicalVersionsFromTable(
       db.charging_plans,
       input.userId,
@@ -974,7 +894,9 @@ export async function createSuccessorTariffVersion(
 export async function updateLogicalTariffDetails(
   input: UpdateLogicalTariffDetailsInput
 ): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.provider_plan_selections, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.provider_plan_selections, db.sync_outbox, async () => {
+    await assertOwnedProviderReference(input.userId, input.nextProviderId);
+
     const sourceVersions = await loadLogicalVersionsFromTable(
       db.charging_plans,
       input.userId,
@@ -1053,7 +975,7 @@ export async function updateLogicalTariffDetails(
 }
 
 export async function deleteLogicalTariff(input: LogicalTariffIdentityInput): Promise<void> {
-  await db.transaction('rw', db.charging_plans, db.provider_plan_selections, db.sync_outbox, async () => {
+  await db.transaction('rw', db.providers, db.charging_plans, db.provider_plan_selections, db.sync_outbox, async () => {
     const versions = await loadLogicalVersionsFromTable(
       db.charging_plans,
       input.userId,
@@ -1064,6 +986,8 @@ export async function deleteLogicalTariff(input: LogicalTariffIdentityInput): Pr
     if (versions.length === 0) {
       return;
     }
+
+    await assertOwnedProviderReference(input.userId, input.providerId);
 
     const now = new Date();
     const sourceVersionIds = versions.map((version) => version.id);

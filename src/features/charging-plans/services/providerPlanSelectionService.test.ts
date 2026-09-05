@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import 'fake-indexeddb/auto';
-import { db } from '../../../infra/db';
+import { EVAnalyticsDB, db, type Provider } from '../../../infra/db';
 import { getProviderPlanSelections, setActivePlanSelection } from './providerPlanSelectionService';
 
 /**
@@ -11,8 +11,59 @@ import { getProviderPlanSelections, setActivePlanSelection } from './providerPla
  */
 describe('providerPlanSelectionService', () => {
   beforeEach(async () => {
+    await db.providers.clear();
     await db.provider_plan_selections.clear();
     await db.sync_outbox.clear();
+    await db.providers.bulkAdd([
+      {
+        id: 'p1',
+        user_id: 'u1',
+        name: 'Provider one',
+        created_at: new Date('2026-01-01T00:00:00.000Z'),
+        updated_at: new Date('2026-01-01T00:00:00.000Z'),
+      },
+      {
+        id: 'p2',
+        user_id: 'u2',
+        name: 'Provider two',
+        created_at: new Date('2026-01-01T00:00:00.000Z'),
+        updated_at: new Date('2026-01-01T00:00:00.000Z'),
+      },
+    ]);
+  });
+
+  it('rejects stale selection creates and updates after another runtime removes the provider', async () => {
+    // Arrange: create the current selection while the provider exists, then remove it from a second runtime.
+    const provider: Provider = {
+      id: 'staged-provider',
+      user_id: 'u1',
+      name: 'Staged provider',
+      created_at: new Date('2026-01-01T00:00:00.000Z'),
+      updated_at: new Date('2026-01-01T00:00:00.000Z'),
+    };
+    await db.providers.add(provider);
+    const staleInput = {
+      userId: 'u1',
+      providerId: provider.id,
+      tariffPlanId: 't-l',
+      validFrom: new Date('2026-01-01T00:00:00.000Z'),
+      priceSnapshot: { label: 'Staged plan', kWhPrice: 59 },
+    };
+    const current = await setActivePlanSelection(staleInput);
+    await db.sync_outbox.clear();
+
+    const reconciliationRuntime = new EVAnalyticsDB();
+    await reconciliationRuntime.providers.delete(provider.id);
+    reconciliationRuntime.close();
+
+    // Act and Assert: closing the old selection and inserting a successor both roll back.
+    await expect(setActivePlanSelection({
+      ...staleInput,
+      tariffPlanId: 't-m',
+      validFrom: new Date('2026-02-01T00:00:00.000Z'),
+    })).rejects.toThrow('Provider reference is unavailable');
+    expect(await db.provider_plan_selections.toArray()).toEqual([current]);
+    expect(await db.sync_outbox.count()).toBe(0);
   });
 
   it('creates a new selection row with unique id when switching plans', async () => {
@@ -77,7 +128,7 @@ describe('providerPlanSelectionService', () => {
     });
     await setActivePlanSelection({
       userId: 'u2',
-      providerId: 'p1',
+      providerId: 'p2',
       tariffPlanId: 't-b',
       validFrom: new Date('2026-01-02T00:00:00.000Z'),
       priceSnapshot: { label: 'Plan B', kWhPrice: 69 }

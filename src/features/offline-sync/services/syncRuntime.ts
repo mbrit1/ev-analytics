@@ -3,6 +3,7 @@ import type {
   InitialSyncResult,
   SyncRuntimeHydrationSnapshot,
 } from '../model/types';
+import { runWithSyncExclusion, SyncExclusionUnavailableError } from './syncExclusion';
 
 export interface SyncEngineModule {
   initialSync: (options?: { signal?: AbortSignal }) => Promise<InitialSyncResult>;
@@ -51,6 +52,13 @@ const defaultDeps: SyncRuntimeDeps = {
 const activeRuntimeDisposers = new Set<DisposeSyncRuntime>();
 const activeRuntimeRetries = new Set<() => void>();
 const hydrationStateListeners = new Set<() => void>();
+
+interface ActiveSyncRuntimeControl {
+  pauseForExclusiveWork: () => Promise<void>;
+  resumeAfterExclusiveWork: () => void;
+}
+
+const activeRuntimeControls = new Set<ActiveSyncRuntimeControl>();
 
 function createUniformHydrationSnapshot(
   status: 'idle' | 'loading' | 'failed'
@@ -119,6 +127,24 @@ export async function disposeActiveSyncRuntime(): Promise<void> {
 }
 
 /**
+ * Runs recovery work after local runtime passes quiesce and under the shared
+ * database lock. The lock is released when the callback settles, including on
+ * throw, as defined by the Web Locks API.
+ * Source: https://w3c.github.io/web-locks/#dom-lockmanager-request
+ */
+export async function runSyncRuntimeExclusive<T>(callback: () => Promise<T>): Promise<T> {
+  const runtimeControls = [...activeRuntimeControls];
+
+  await Promise.all(runtimeControls.map((runtime) => runtime.pauseForExclusiveWork()));
+
+  try {
+    return await runWithSyncExclusion(callback);
+  } finally {
+    runtimeControls.forEach((runtime) => runtime.resumeAfterExclusiveWork());
+  }
+}
+
+/**
  * Starts the authenticated sync runtime and returns a disposer.
  *
  * The runtime runs initial hydration once, then processes outbox sync work on
@@ -141,24 +167,13 @@ export function startSyncRuntime(
   let engineModule: SyncEngineModule | undefined;
   let activeRunPromise: Promise<void> | undefined;
   let disposePromise: Promise<void> | undefined;
+  let exclusivePauseCount = 0;
 
-  const executeRun = async (): Promise<void> => {
-    if (!engineModule) {
-      try {
-        engineModule = await deps.loadSyncEngine();
-      } catch (error) {
-        deps.logger.error('Loading sync engine failed:', error);
-        publishHydrationSnapshot(createUniformHydrationSnapshot('failed'));
+  const runCycle = async (): Promise<void> => {
+    await runWithSyncExclusion(async () => {
+      if (isDisposed || !engineModule) {
         return;
       }
-    }
-
-    if (isDisposed || !engineModule) {
-      return;
-    }
-
-    do {
-      rerunRequested = false;
 
       if (!hasHydrated) {
         publishHydrationSnapshot(createUniformHydrationSnapshot('loading'));
@@ -184,11 +199,45 @@ export function startSyncRuntime(
       } catch (error) {
         deps.logger.error('Outbox processing failed:', error);
       }
-    } while (!isDisposed && rerunRequested);
+    }, { signal: abortController.signal });
+  };
+
+  const executeRun = async (): Promise<void> => {
+    if (!engineModule) {
+      try {
+        engineModule = await deps.loadSyncEngine();
+      } catch (error) {
+        deps.logger.error('Loading sync engine failed:', error);
+        publishHydrationSnapshot(createUniformHydrationSnapshot('failed'));
+        return;
+      }
+    }
+
+    if (isDisposed || !engineModule) {
+      return;
+    }
+
+    do {
+      rerunRequested = false;
+      try {
+        await runCycle();
+      } catch (error) {
+        if (error instanceof SyncExclusionUnavailableError) {
+          deps.logger.error('Sync exclusion is unavailable:', error);
+        } else {
+          deps.logger.error('Sync runtime cycle failed:', error);
+        }
+      }
+    } while (!isDisposed && exclusivePauseCount === 0 && rerunRequested);
   };
 
   const requestRun = (): void => {
     if (isDisposed) {
+      return;
+    }
+
+    if (exclusivePauseCount > 0) {
+      rerunRequested = true;
       return;
     }
 
@@ -215,6 +264,20 @@ export function startSyncRuntime(
     requestRun();
   });
 
+  const runtimeControl: ActiveSyncRuntimeControl = {
+    pauseForExclusiveWork: async () => {
+      exclusivePauseCount += 1;
+      await activeRunPromise;
+    },
+    resumeAfterExclusiveWork: () => {
+      exclusivePauseCount -= 1;
+      if (exclusivePauseCount === 0 && !isDisposed) {
+        rerunRequested = true;
+        requestRun();
+      }
+    },
+  };
+
   const dispose: DisposeSyncRuntime = () => {
     if (disposePromise) {
       return disposePromise;
@@ -225,6 +288,7 @@ export function startSyncRuntime(
     unsubscribeOnline();
     unsubscribeOutbox();
     activeRuntimeRetries.delete(requestRun);
+    activeRuntimeControls.delete(runtimeControl);
     const pendingRun = activeRunPromise;
     disposePromise = (async () => {
       await pendingRun;
@@ -238,6 +302,7 @@ export function startSyncRuntime(
 
   activeRuntimeDisposers.add(dispose);
   activeRuntimeRetries.add(requestRun);
+  activeRuntimeControls.add(runtimeControl);
   requestRun();
 
   return dispose;

@@ -1,11 +1,12 @@
 import { useLiveQuery } from 'dexie-react-hooks';
 import { useSyncExternalStore } from 'react';
-import { db } from '../../../infra/db';
+import { db, type SyncOutbox } from '../../../infra/db';
 import {
   getSyncRuntimeHydrationSnapshot,
   subscribeSyncRuntimeHydration
 } from '../services/syncRuntime';
 import type { SyncRuntimeHydrationSnapshot } from '../model/types';
+import { isTypedTerminalProviderNameConflict } from '../model/syncFailure';
 
 /** The concise sync condition rendered by application-level status UI. */
 export type SyncDisplayState = 'sync-issue' | 'pending' | 'syncing' | 'synced';
@@ -45,6 +46,12 @@ export interface SyncStatus {
   blockingErrorKind?: SyncBlockingErrorKind;
   /** Human-readable last error for the oldest actionable blocking outbox item. */
   blockingErrorMessage?: string;
+  /** Stable local identity of the oldest actionable blocking outbox item. */
+  blockingOutboxId?: number;
+  /** Durable typed reason when the blocking item is eligible for provider recovery. */
+  blockingFailureKind?: 'provider-name-conflict';
+  /** Staged provider identity when the blocking item is eligible for recovery. */
+  blockingProviderId?: string;
   /** Retry count for the oldest actionable blocking outbox item. */
   retryCount?: number;
   /** Next scheduled retry for the oldest actionable blocking outbox item. */
@@ -91,6 +98,9 @@ export function useSyncStatus(): SyncStatus {
       hasBlockingSyncError: false,
       blockingErrorKind: undefined,
       blockingErrorMessage: undefined,
+      blockingOutboxId: undefined,
+      blockingFailureKind: undefined,
+      blockingProviderId: undefined,
       retryCount: undefined,
       nextRetryAt: undefined,
       hydration,
@@ -105,13 +115,9 @@ export function useSyncStatus(): SyncStatus {
   let oldestPendingAt: Date | undefined;
   const now = new Date();
   let blockingItem:
-    | {
-      timestamp: Date;
-      last_error?: string;
-      retry_count?: number;
-      next_attempt_at?: Date;
+    | (SyncOutbox & {
       blockingErrorKind: SyncBlockingErrorKind;
-    }
+    })
     | undefined;
 
   for (const item of outboxItems) {
@@ -142,6 +148,10 @@ export function useSyncStatus(): SyncStatus {
 
   const queueLength = outboxItems.length;
   const hasBlockingSyncError = blockingItem != null;
+  const typedProviderConflict = blockingItem !== undefined
+    && isTypedTerminalProviderNameConflict(blockingItem)
+    ? blockingItem
+    : undefined;
   const displayState: SyncDisplayState = hasHydrationFailure || hasBlockingSyncError
     ? 'sync-issue'
     : queueLength > 0
@@ -158,6 +168,9 @@ export function useSyncStatus(): SyncStatus {
     hasBlockingSyncError,
     blockingErrorKind: blockingItem?.blockingErrorKind,
     blockingErrorMessage: blockingItem?.last_error,
+    blockingOutboxId: blockingItem?.id,
+    blockingFailureKind: typedProviderConflict ? 'provider-name-conflict' : undefined,
+    blockingProviderId: typedProviderConflict?.payload.id,
     retryCount: blockingItem?.retry_count,
     nextRetryAt: blockingItem?.next_attempt_at,
     hydration,

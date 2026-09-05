@@ -76,15 +76,43 @@ Domain screens read from Dexie. Feature hooks scope records to the authenticated
 
 Runtime disposal aborts later synchronization phases and local bookkeeping after asynchronous boundaries. Sign-out waits for the disposed runtime's active pass to quiesce before atomically clearing local user data, so a delayed hydration response cannot repopulate Dexie after logout cleanup.
 
+An eligible terminal provider-name conflict has an explicit recovery path rather
+than automatic replay repair. Preparation reads the owner-scoped local graph and
+uses the authenticated, RLS-protected client to find exactly one active canonical
+provider; confirmation refreshes that preflight. Confirmation first pauses local
+sync runtimes, then takes the database-scoped Web Lock also used by hydration and
+outbox replay. Its one Dexie transaction upserts the canonical provider, rebinds
+the safe local graph, rewrites affected payloads, removes the eligible terminal
+provider item, and removes the staged provider last. Local plan, selection, and
+plan-mode session writers validate their referenced same-user provider in their
+own transactions, so a stale writer cannot recreate a staged reference. The
+full recovery contract, including blocked and retryable outcomes, is in
+[ADR 010](./adr/010-provider-conflict-reconciliation.md).
+
+The recovery database upgrade adds local-only durable completion evidence. It is
+a forward-only runtime floor: the upgrade closes open older Dexie connections,
+but an older bundle can subsequently reopen the database and is unsupported.
+Rollback may disable recovery UI and service entry points, but retains the
+upgraded database, replay guards, and local-writer guards; forward repair is
+required after recovery has been used.
+
 Initial hydration pulls `providers`, `charging_plans`, and remote `charging_sessions`, then bulk-upserts them into the corresponding local tables. Remote session rows are validated against the plan/ad-hoc mode contract before any session batch is written. Pull, validation, and write failures are isolated per table. Hydration does not clear local tables or the outbox first.
 
-The current reconciliation model is deliberately simple: remote hydration uses primary-key upserts, then queued local payloads replay to Supabase. There is no general multi-writer merge algorithm. A pending outbox payload survives hydration, but a remote row with the same ID can temporarily replace its local domain row until replay or another local write occurs. The private, single-user product posture limits this trade-off.
+The current reconciliation model is deliberately simple: remote hydration uses primary-key upserts, then queued local payloads replay to Supabase. Provider-conflict recovery is the narrowly defined exception: it replaces a staged provider reference only after explicit authenticated review and preserves charging-plan, selection, session, outbox, and immutable snapshot identities. There is no general multi-writer merge algorithm. A pending outbox payload survives hydration, but a remote row with the same ID can temporarily replace its local domain row until replay or another local write occurs. The private, single-user product posture limits this trade-off.
 
 `provider_plan_selections` can be written locally and replayed remotely, but the current initial hydration does not pull that table. Charging sessions retain selection identifiers and immutable price/name snapshots needed for historical rendering. This limitation and retry behavior are documented in [ADR 005](./adr/005-outbox-sync-strategy.md).
 
 ### Retry and failure behavior
 
-Outbox processing considers ready entries oldest-first. Retryable failures retain the entry and record retry count, last attempt, next eligible attempt, and the last error. Backoff starts at one minute and caps at fifteen minutes. A future runtime trigger—not a dedicated timer—starts the next eligible pass.
+Outbox processing derives parent dependencies from durable queue state and uses a
+fixed-point worklist: a charging-plan mutation waits for provider inserts, a
+selection mutation waits for plan inserts, and a plan-mode session waits for its
+plan and, when present, selection inserts. This applies to insert, update, and
+soft-delete upserts. A terminal parent keeps descendants blocked until explicit
+repair, while unrelated ready work continues. Retryable failures retain the
+entry and record retry count, last attempt, next eligible attempt, and the last
+error. Backoff starts at one minute and caps at fifteen minutes. A future runtime
+trigger—not a dedicated timer—starts the next eligible pass.
 
 Database constraint failures are non-retryable. Sync distinguishes a same-name
 version conflict ("Tariff validity overlaps with an existing active version for
