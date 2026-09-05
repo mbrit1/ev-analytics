@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   ProviderConflictBlockReason,
   ProviderConflictRecoveryDescriptor,
@@ -75,14 +75,14 @@ export function useProviderConflictRecovery(
   const mountedRef = useRef(true);
   const userIdRef = useRef(userId);
 
-  const invalidate = () => {
+  const invalidate = useCallback(() => {
     generationRef.current += 1;
     descriptorRef.current = undefined;
     inputRef.current = undefined;
     setWorkflowOwnerId(undefined);
     setIsPending(false);
     setState({ kind: 'closed' });
-  };
+  }, []);
 
   const prepare = async (input: ProviderConflictRecoveryOpenInput, ownerId: string) => {
     const generation = ++generationRef.current;
@@ -146,15 +146,10 @@ export function useProviderConflictRecovery(
 
   useEffect(() => {
     if (userIdRef.current !== userId) {
-      generationRef.current += 1;
-      descriptorRef.current = undefined;
-      inputRef.current = undefined;
-      setWorkflowOwnerId(undefined);
-      setIsPending(false);
-      setState({ kind: 'closed' });
+      invalidate();
     }
     userIdRef.current = userId;
-  }, [userId]);
+  }, [invalidate, userId]);
 
   const open = (input: ProviderConflictRecoveryOpenInput) => {
     if (!userId) return;

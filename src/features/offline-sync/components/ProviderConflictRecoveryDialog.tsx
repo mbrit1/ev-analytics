@@ -1,25 +1,27 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Slab } from '../../../shared/ui';
+import type {
+  ProviderConflictBlockReason,
+  ProviderConflictRecoverySummary,
+} from '../model/providerConflictRecovery';
 
-interface ProviderConflictRecoverySummary {
-  chargingPlanCount: number;
-  selectionCount: number;
-  sessionCount: number;
-  outboxCount: number;
-}
+type ProviderConflictRecoveryDialogSummary = Pick<
+  ProviderConflictRecoverySummary,
+  'chargingPlanCount' | 'selectionCount' | 'sessionCount' | 'outboxCount'
+>;
 
 type ProviderConflictRecoveryDialogState =
   | { kind: 'loading' }
   | {
     kind: 'ready';
-    stagedProviderName: string;
-    canonicalProviderName: string;
-    summary: ProviderConflictRecoverySummary;
+    stagedProviderName: ProviderConflictRecoverySummary['stagedProviderName'];
+    canonicalProviderName: ProviderConflictRecoverySummary['canonicalProviderName'];
+    summary: ProviderConflictRecoveryDialogSummary;
   }
   | {
     kind: 'blocked';
-    reason: 'no-canonical-match' | 'multiple-canonical-matches' | 'malformed-graph' | 'tariff-ambiguity';
+    reason: ProviderConflictBlockReason;
     message: string;
   }
   | { kind: 'retryable-error'; message: string }
