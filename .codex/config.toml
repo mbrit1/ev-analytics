@@ -50,10 +50,20 @@ route to implement_terra. Use implement_sol for score 7+ execution only after th
 primary supervisor has resolved any architecture, product, security, or routing
 decision needed to bound the assignment.
 
+Use scan_luna for focused read-only exploration and evidence gathering when a
+delegated scan is warranted. Do not assign it write work. Every delegated prompt
+must include a terminal stop condition: planning or diagnosis-only assignments
+stop before edits and return the result for parent acknowledgement; implementation
+assignments stop after their acceptance criteria and validation command complete.
+
 For score 7+ delegation, select the exact custom agent role `implement_sol`. A
 generic or default worker is not an equivalent substitute. If the custom role
 cannot be selected or loaded, stop and report the routing failure rather than
 silently inheriting the parent or default agent settings.
+
+Do not use `ultra` for project work unless the user explicitly requests it and
+the primary supervisor records why a lower effort level is insufficient. Prefer
+`high` or `xhigh` for demanding work and keep delegation bounded.
 
 Treat the calculated route as the target execution tier. When that tier matches
 the primary supervisor's active model, execute the slice locally. Otherwise,
