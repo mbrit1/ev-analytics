@@ -1,6 +1,3 @@
-default_agent = "gpt-5.6-sol"
-model_reasoning_effort = "medium"
-
 developer_instructions = """
 Act as the planning and integration agent for this repository. The top-level
 user-facing agent is the primary supervisor regardless of whether its active
@@ -52,6 +49,11 @@ may route to implement_luna; conflicts, ambiguous commit ownership, and recovery
 route to implement_terra. Use implement_sol for score 7+ execution only after the
 primary supervisor has resolved any architecture, product, security, or routing
 decision needed to bound the assignment.
+
+For score 7+ delegation, select the exact custom agent role `implement_sol`. A
+generic or default worker is not an equivalent substitute. If the custom role
+cannot be selected or loaded, stop and report the routing failure rather than
+silently inheriting the parent or default agent settings.
 
 Treat the calculated route as the target execution tier. When that tier matches
 the primary supervisor's active model, execute the slice locally. Otherwise,
