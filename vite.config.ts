@@ -29,7 +29,15 @@ export default defineConfig(({ mode }) => {
 
   const plugins = [react(), tailwindcss(), VitePWA({
     registerType: 'autoUpdate',
-    includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
+    includeAssets: [
+      'icons/favicon.ico',
+      'icons/favicon-16x16.png',
+      'icons/favicon-32x32.png',
+      'icons/apple-touch-icon.png',
+      'icons/icon-192x192.png',
+      'icons/icon-512x512.png',
+      'icons/icon-maskable-512x512.png',
+    ],
     workbox: {
       // The worker is served from public/ for local mock mode only.
       globIgnores: ['**/mockServiceWorker.js'],
@@ -41,20 +49,20 @@ export default defineConfig(({ mode }) => {
       theme_color: '#ffffff',
       icons: [
         {
-          src: 'pwa-192x192.png',
+          src: 'icons/icon-192x192.png',
           sizes: '192x192',
           type: 'image/png'
         },
         {
-          src: 'pwa-512x512.png',
+          src: 'icons/icon-512x512.png',
           sizes: '512x512',
           type: 'image/png'
         },
         {
-          src: 'pwa-512x512.png',
+          src: 'icons/icon-maskable-512x512.png',
           sizes: '512x512',
           type: 'image/png',
-          purpose: 'any maskable'
+          purpose: 'maskable'
         }
       ]
     }
