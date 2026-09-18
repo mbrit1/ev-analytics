@@ -449,11 +449,9 @@ export function TariffList({
           updated_at: now,
         };
         await addProviderWithFirstTariff({ provider, plan: candidate });
-        setRetiredTariffCloneDraft(null);
-        onSaveComplete(getLogicalTariffKey({ provider_id: candidate.provider_id, name: candidate.name }));
-        return;
+      } else {
+        await addChargingPlan(candidate);
       }
-      await addChargingPlan(candidate);
       setRetiredTariffCloneDraft(null);
       onSaveComplete(getLogicalTariffKey({ provider_id: candidate.provider_id, name: candidate.name }));
     } catch (error) {
