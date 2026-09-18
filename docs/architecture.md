@@ -44,6 +44,35 @@ A representative dependency path is the Analytics flow:
 
 The app shell may compose and lazy-load feature UI. Domain behavior remains inside feature services rather than moving into `src/app`.
 
+## Tariffs navigation and overlays
+
+Tariffs owns its hash locations, edit-state restoration, and exceptional-action
+policy. `#tariffs` is the list; `#tariffs/edit/<encoded logical key>` is the
+loadable editor location. The app shell coordinates history and authentication
+gates while charging-plans resolves owner-scoped data and supplies native
+anchors, action descriptors, and confirmation callbacks.
+
+Current tariff cards use the shared `EntitySlab` structure with a sibling
+overflow trigger; retired history remains read-only. Tariffs uses the shared
+`PageActionSlab` for its create action. Known providers use the shared
+`TactileMatrix`; its `Provider` radiogroup preserves provider IDs, keyboard and
+pointer selection, required validation, and edit-mode locking while staged new
+providers retain their separate text-input workflow.
+
+Exceptional actions remain feature-local: below 768 CSS pixels, or whenever
+pointer/hover capability is coarse, absent, or ambiguous, the body-portalled
+sheet is used; regular fine-pointer/hover layouts use the body-portalled,
+visual-viewport and dock-aware popover. Both preserve action identity and
+trigger restoration. Retire and Delete are separate destructive confirmations;
+only one Tariffs modal owns inert background, scroll lock, Escape, and focus at a
+time. Provider-conflict recovery is an app-shell exclusion handshake and cannot
+overlap a Tariffs modal.
+
+The Tariffs page/entity visual treatment and action-overlay geometry are local
+exceptions to the shared design baseline. The shared slab primitives are
+domain-neutral and remain opt-in; promotion to a broader baseline requires a
+separate consumer and review.
+
 ## Local Write Path
 
 User-visible mutations are local-first:

@@ -21,10 +21,11 @@ describe('MobileNavigationDock', () => {
     expect(dock).toHaveClass('md:hidden')
     expect(dock).toHaveAttribute(
       'style',
-      expect.stringContaining('bottom: var(--mobile-nav-dock-bottom, calc(var(--safe-area-bottom, env(safe-area-inset-bottom, 0px)) + 6px))')
+      expect.stringContaining('bottom: var(--mobile-nav-dock-bottom)')
     )
     expect(dock.firstElementChild).toHaveClass('grid')
     expect(dock.firstElementChild).toHaveClass('grid-cols-3')
+    expect(dock.firstElementChild).toHaveClass('h-[var(--mobile-nav-dock-height)]')
 
     expect(screen.getAllByRole('button')).toHaveLength(3)
     expect(screen.getByRole('button', { name: 'Sessions' })).toHaveClass('w-full')

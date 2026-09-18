@@ -8,6 +8,7 @@ interface RetireLogicalTariffDialogProps {
   finalActiveDate: Date;
   restoreFocusElement?: HTMLElement | null;
   resolveRestoreFocusElement?: () => HTMLElement | null;
+  suppressFocusRestore?: boolean;
   isPending: boolean;
   error?: string | null;
   onCancel: () => void;
@@ -20,6 +21,7 @@ export function RetireLogicalTariffDialog({
   finalActiveDate,
   restoreFocusElement,
   resolveRestoreFocusElement,
+  suppressFocusRestore = false,
   isPending,
   error,
   onCancel,
@@ -29,6 +31,7 @@ export function RetireLogicalTariffDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCancelRef = useRef(onCancel);
   const isPendingRef = useRef(isPending);
+  const suppressFocusRestoreRef = useRef(suppressFocusRestore);
   const [portalElement] = useState(() => document.createElement('div'));
   const finalActiveDateLabel = formatUtcDate(finalActiveDate);
 
@@ -36,6 +39,10 @@ export function RetireLogicalTariffDialog({
     onCancelRef.current = onCancel;
     isPendingRef.current = isPending;
   }, [isPending, onCancel]);
+
+  useEffect(() => {
+    suppressFocusRestoreRef.current = suppressFocusRestore;
+  }, [suppressFocusRestore]);
 
   useEffect(() => {
     portalElement.setAttribute('data-retire-logical-tariff-dialog', 'true');
@@ -103,7 +110,7 @@ export function RetireLogicalTariffDialog({
         }
       });
       portalElement.remove();
-      if (restoreFocusTarget?.isConnected) restoreFocusTarget.focus();
+      if (!suppressFocusRestoreRef.current && restoreFocusTarget?.isConnected) restoreFocusTarget.focus();
     };
   }, [portalElement, resolveRestoreFocusElement, restoreFocusElement]);
 
@@ -152,7 +159,7 @@ export function RetireLogicalTariffDialog({
               type="button"
               onClick={onConfirm}
               disabled={isPending}
-              className="min-h-[44px] rounded-xl bg-accent px-4 py-2 font-bold text-white"
+              className="min-h-[44px] rounded-xl bg-red-600 px-4 py-2 font-bold text-white hover:bg-red-700"
             >
               {isPending ? 'Retiring tariff…' : 'Retire tariff'}
             </button>

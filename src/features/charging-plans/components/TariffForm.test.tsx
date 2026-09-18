@@ -128,7 +128,7 @@ describe('TariffForm', () => {
     // Arrange: Render and enter tariff inputs across grouped sections.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.change(screen.getByLabelText(/tariff name/i), { target: { value: 'Travel Tariff' } });
-    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'ChargePoint' }));
     fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,49' } });
     fireEvent.change(screen.getByLabelText(/^dc price$/i), { target: { value: '0,59' } });
     fireEvent.change(screen.getByLabelText(/roaming ac price/i), { target: { value: '0,69' } });
@@ -159,7 +159,7 @@ describe('TariffForm', () => {
   it('keeps optional prices undefined and falls back required fees to zero', async () => {
     // Arrange: Fill only the required provider field and leave price inputs blank.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'ChargePoint' }));
 
     // Act: Submit the form without optional money values.
     fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
@@ -225,7 +225,7 @@ describe('TariffForm', () => {
   it('allows submit when tariff name is empty', async () => {
     // Arrange: Fill only required fields without tariff name.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'ChargePoint' }));
 
     // Act: Submit with empty tariff name.
     fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
@@ -264,7 +264,7 @@ describe('TariffForm', () => {
   it('submits a selected inclusive valid-to date as the following exclusive UTC day', async () => {
     // Arrange: Render a new tariff and choose the last billable day.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'ChargePoint' }));
     pickDate(/valid to/i, '2026-06-30');
 
     // Act: Save the tariff.
@@ -307,7 +307,7 @@ describe('TariffForm', () => {
   it('sets and clears optional valid-to with the shared picker', async () => {
     // Arrange: Render a tariff form and set required provider.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'ChargePoint' }));
 
     // Act: Choose and then clear Valid To.
     pickDate(/valid to/i, '2026-06-30');
@@ -333,7 +333,7 @@ describe('TariffForm', () => {
     // Arrange: Enter whitespace tariff name with required provider.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.change(screen.getByLabelText(/tariff name \(optional\)/i), { target: { value: '   ' } });
-    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'ChargePoint' }));
 
     // Act: Submit form.
     fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
@@ -354,7 +354,7 @@ describe('TariffForm', () => {
     // Arrange: Rejected save for duplicate unnamed tariff.
     mockOnSubmit.mockRejectedValueOnce(new Error('Only one unnamed tariff is allowed per provider'));
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'ChargePoint' }));
     fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,45' } });
     fireEvent.change(screen.getByLabelText(/^notes$/i), { target: { value: 'my draft notes' } });
 
@@ -364,7 +364,7 @@ describe('TariffForm', () => {
     // Assert: Error is announced and form entries remain intact.
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Only one unnamed tariff is allowed per provider');
-    expect(screen.getByLabelText(/^provider$/i)).toHaveValue('p1');
+    expect(screen.getByRole('radio', { name: 'ChargePoint' })).toBeChecked();
     expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,45');
     expect(screen.getByLabelText(/^notes$/i)).toHaveValue('my draft notes');
   });
@@ -374,7 +374,7 @@ describe('TariffForm', () => {
     mockOnSubmit.mockRejectedValueOnce(new Error('Tariff validity overlaps with an existing active version for this provider and name'));
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
     fireEvent.change(screen.getByLabelText(/tariff name/i), { target: { value: 'mobility+ m' } });
-    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'ChargePoint' }));
     fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,49' } });
 
     // Act: Submit and surface service error.
@@ -388,7 +388,7 @@ describe('TariffForm', () => {
   it('rejects malformed money input before submit and shows a validation error', async () => {
     // Arrange: Enter required fields plus a malformed decimal amount.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'ChargePoint' }));
     fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,4,9' } });
 
     // Act: Submit the form with invalid money input.
@@ -405,14 +405,16 @@ describe('TariffForm', () => {
     fireEvent.change(screen.getByLabelText(/tariff name/i), { target: { value: 'No Provider Tariff' } });
     fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
 
-    // Assert: Provider select exposes invalid + error relationship for assistive tech.
-    const providerSelect = screen.getByLabelText(/^provider$/i);
+    // Assert: Provider radiogroup exposes invalid + error relationship for assistive tech.
+    const providerSelection = screen.getByRole('radiogroup', { name: 'Provider' });
     await waitFor(() => {
-      expect(providerSelect).toHaveAttribute('aria-invalid', 'true');
-      expect(providerSelect).toHaveAttribute('aria-describedby');
+      expect(providerSelection).toHaveAttribute('aria-required', 'true');
+      expect(providerSelection).toHaveAttribute('aria-invalid', 'true');
+      expect(providerSelection).toHaveAttribute('aria-describedby');
     });
     const providerError = screen.getByText(/provider is required/i);
-    expect(providerError.id).toBe(providerSelect.getAttribute('aria-describedby'));
+    expect(providerError.id).toBe(providerSelection.getAttribute('aria-describedby'));
+    expect(screen.queryByRole('group', { name: 'Provider selection' })).not.toBeInTheDocument();
   });
 
   it('renders the preceding UTC day for a stored exclusive end without timezone drift', () => {
@@ -444,9 +446,67 @@ describe('TariffForm', () => {
     // Act: Inspect provider-mode controls.
 
     // Assert: Existing-provider selection is shown with an explicit add action.
-    expect(screen.getByRole('combobox', { name: /^provider$/i })).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: /^provider$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /add new provider/i })).toBeInTheDocument();
     expect(screen.queryByLabelText(/new provider name/i)).not.toBeInTheDocument();
+  });
+
+  it('renders known providers as an accessible tactile matrix with stable options', () => {
+    // Arrange: Render create mode with two hydrated providers.
+    vi.mocked(useProviders).mockReturnValue({
+      providers: [
+        { id: 'p1', name: 'ChargePoint', user_id: 'user-1', created_at: new Date(), updated_at: new Date() },
+        { id: 'p2', name: 'EWE Go', user_id: 'user-1', created_at: new Date(), updated_at: new Date() },
+      ],
+      isLoading: false,
+    });
+    render(
+      <TariffForm
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        initialValues={{ provider_id: 'p1' }}
+      />
+    );
+
+    // Act: Inspect the provider selection semantics.
+    const providerGroup = screen.getByRole('radiogroup', { name: /^provider$/i });
+    const providerOptions = within(providerGroup).getAllByRole('radio');
+
+    // Assert: The tactile options preserve provider order/labels and current selection.
+    expect(providerOptions).toHaveLength(2);
+    expect(providerOptions.map((option) => option.textContent?.trim())).toEqual(['ChargePoint', 'EWE Go']);
+    expect(providerOptions[0]).toHaveAttribute('aria-checked', 'true');
+    expect(providerOptions[1]).toHaveAttribute('aria-checked', 'false');
+  });
+
+  it('selects the same known-provider ID by pointer and keyboard and submits it', async () => {
+    // Arrange: Render a known-provider matrix and identify the second provider.
+    vi.mocked(useProviders).mockReturnValue({
+      providers: [
+        { id: 'p1', name: 'ChargePoint', user_id: 'user-1', created_at: new Date(), updated_at: new Date() },
+        { id: 'p2', name: 'EWE Go', user_id: 'user-1', created_at: new Date(), updated_at: new Date() },
+      ],
+      isLoading: false,
+    });
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    const providerGroup = screen.getByRole('radiogroup', { name: /^provider$/i });
+    const providerOptions = within(providerGroup).getAllByRole('radio');
+
+    // Act: Select p2 by pointer, then return to p1 by the matrix keyboard path.
+    fireEvent.click(providerOptions[1]);
+    expect(providerOptions[1]).toHaveAttribute('aria-checked', 'true');
+    fireEvent.keyDown(providerOptions[1], { key: 'ArrowLeft' });
+    expect(providerOptions[0]).toHaveAttribute('aria-checked', 'true');
+    fireEvent.keyDown(providerOptions[0], { key: 'ArrowRight' });
+    expect(providerOptions[1]).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: Keyboard and pointer selection submit the canonical provider ID.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+    expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      intent: 'create',
+      plan: expect.objectContaining({ provider_id: 'p2' }),
+    }));
   });
 
   it('switches to new-provider mode and focuses the provider name input', () => {
@@ -473,7 +533,7 @@ describe('TariffForm', () => {
     fireEvent.click(screen.getByRole('button', { name: /back to provider list/i }));
 
     // Assert: Only the provider draft is discarded.
-    expect(screen.getByRole('combobox', { name: /^provider$/i })).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: /^provider$/i })).toBeInTheDocument();
     expect(screen.queryByLabelText(/new provider name/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,49');
   });
@@ -506,7 +566,7 @@ describe('TariffForm', () => {
     rerender(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
 
     // Assert: The untouched automatic state returns to existing-provider mode.
-    expect(screen.getByRole('combobox', { name: /^provider$/i })).toBeInTheDocument();
+    expect(screen.getByRole('radiogroup', { name: /^provider$/i })).toBeInTheDocument();
     expect(screen.queryByLabelText(/new provider name/i)).not.toBeInTheDocument();
   });
 
@@ -525,7 +585,7 @@ describe('TariffForm', () => {
   it('restores the selected provider and unrelated tariff fields after explicit mode Back', () => {
     // Arrange: Select p1, edit a tariff value, then explicitly stage a provider.
     render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/^provider$/i), { target: { value: 'p1' } });
+    fireEvent.click(screen.getByRole('radio', { name: 'ChargePoint' }));
     fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,49' } });
     fireEvent.click(screen.getByRole('button', { name: /add new provider/i }));
 
@@ -533,7 +593,7 @@ describe('TariffForm', () => {
     fireEvent.click(screen.getByRole('button', { name: /back to provider list/i }));
 
     // Assert: The previous provider selection and tariff input remain intact.
-    expect(screen.getByRole('combobox', { name: /^provider$/i })).toHaveValue('p1');
+    expect(screen.getByRole('radio', { name: 'ChargePoint' })).toBeChecked();
     expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,49');
   });
 
@@ -569,7 +629,7 @@ describe('TariffForm', () => {
 
     // Assert: Explicit mode remains new-provider mode even with an empty name.
     expect(screen.getByLabelText(/new provider name/i)).toBeInTheDocument();
-    expect(screen.queryByRole('combobox', { name: /^provider$/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup', { name: /^provider$/i })).not.toBeInTheDocument();
   });
 
   it('submits a trimmed staged provider and matching plan provider id', async () => {
@@ -672,6 +732,26 @@ describe('TariffForm', () => {
     expect(mockOnSubmit).not.toHaveBeenCalled();
   });
 
+  it('keeps provider required and error semantics on the provider radiogroup', async () => {
+    // Arrange: Render the normal known-provider form without choosing a provider.
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Act: Submit the form to reveal its provider validation error.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+    const error = await screen.findByText('Provider is required');
+    const providerGroup = screen.getByRole('radiogroup', { name: 'Provider' });
+    const labelId = providerGroup.getAttribute('aria-labelledby');
+    const providerLabel = labelId ? document.getElementById(labelId) : null;
+
+    // Assert: The actual choice group, rather than an outer generic group, owns the requirement and error relationship.
+    expect(providerGroup).toHaveAttribute('aria-required', 'true');
+    expect(providerGroup).toHaveAttribute('aria-invalid', 'true');
+    expect(providerGroup).toHaveAttribute('aria-describedby', error.id);
+    expect(screen.queryByRole('group', { name: 'Provider selection' })).not.toBeInTheDocument();
+    expect(providerLabel).toHaveTextContent('Provider *');
+    expect(providerGroup).toHaveAccessibleName('Provider');
+  });
+
   it('offers duplicate-provider recovery that selects the existing provider and preserves tariff values', async () => {
     // Arrange: Reject a staged provider with the typed duplicate error.
     const existing = { id: 'p2', name: 'EWE Go', user_id: 'user-1', created_at: new Date(), updated_at: new Date() };
@@ -691,7 +771,7 @@ describe('TariffForm', () => {
     fireEvent.click(recovery);
 
     // Assert: Existing mode and selection replace only the staged provider state.
-    expect(screen.getByRole('combobox', { name: /^provider$/i })).toHaveValue('p2');
+    expect(screen.getByRole('radio', { name: 'EWE Go' })).toBeChecked();
     expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,49');
   });
 
@@ -708,8 +788,8 @@ describe('TariffForm', () => {
 
     // Act: Inspect provider controls.
 
-    // Assert: Edit mode keeps the native select disabled and provider mode locked.
-    expect(screen.getByRole('combobox', { name: /^provider$/i })).toBeDisabled();
+    // Assert: Edit mode keeps provider selection disabled and provider mode locked.
+    expect(screen.getByRole('radio', { name: 'ChargePoint' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: /add new provider/i })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/new provider name/i)).not.toBeInTheDocument();
   });
@@ -751,7 +831,7 @@ describe('TariffForm', () => {
     // Act: Inspect editability of the identity controls.
 
     // Assert: Provider is disabled and Tariff Name is enabled.
-    expect(screen.getByLabelText(/^provider$/i)).toBeDisabled();
+    expect(screen.getByRole('radio', { name: 'ChargePoint' })).toBeDisabled();
     expect(screen.getByLabelText(/tariff name/i)).not.toBeDisabled();
   });
 

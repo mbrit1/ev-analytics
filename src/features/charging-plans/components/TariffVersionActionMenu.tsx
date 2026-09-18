@@ -1,93 +1,287 @@
 import { MoreHorizontal } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { TariffActionPopover } from './TariffActionPopover';
+import { TariffActionSheet } from './TariffActionSheet';
+
+type PointerCapability = 'fine' | 'coarse' | 'unavailable' | 'ambiguous';
+type HoverCapability = 'hover' | 'none' | 'unavailable' | 'ambiguous';
+
+/** A feature-owned exceptional tariff action and its visual group. */
+export interface TariffActionDescriptor {
+  id: 'promotion' | 'retire' | 'delete';
+  group: 'primary' | 'separated' | 'danger';
+  label: string;
+}
+
+/** Input capability snapshot used by the responsive Tariffs action policy. */
+export interface TariffActionCapabilitySnapshot {
+  width: number;
+  pointer: PointerCapability;
+  hover: HoverCapability;
+}
+
+/** Resolves the ordered exceptional actions available for one logical tariff. */
+// eslint-disable-next-line react-refresh/only-export-components -- Task 10 specifies this feature policy beside its consumer.
+export function getTariffActionDescriptors({
+  canRetire,
+}: {
+  canRetire: boolean;
+}): readonly TariffActionDescriptor[] {
+  return [
+    { id: 'promotion', group: 'primary', label: 'Run temporary promotion' },
+    ...(canRetire
+      ? [{ id: 'retire', group: 'separated', label: 'Retire tariff' } satisfies TariffActionDescriptor]
+      : []),
+    { id: 'delete', group: 'danger', label: 'Delete tariff' },
+  ];
+}
+
+/** Chooses the one Tariffs action presentation permitted by the capability snapshot. */
+// eslint-disable-next-line react-refresh/only-export-components -- Task 10 specifies this feature policy beside its consumer.
+export function selectTariffActionPresentation(
+  input: TariffActionCapabilitySnapshot,
+): 'sheet' | 'menu' {
+  return input.width >= 768 && input.pointer === 'fine' && input.hover === 'hover'
+    ? 'menu'
+    : 'sheet';
+}
+
+function readPointerCapability(): PointerCapability {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return 'unavailable';
+  }
+
+  const hasFinePointer = window.matchMedia('(pointer: fine)').matches;
+  const hasCoarsePointer = window.matchMedia('(pointer: coarse)').matches;
+  if (hasFinePointer === hasCoarsePointer) {
+    return hasFinePointer ? 'ambiguous' : 'unavailable';
+  }
+
+  return hasFinePointer ? 'fine' : 'coarse';
+}
+
+function readHoverCapability(): HoverCapability {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return 'unavailable';
+  }
+
+  const hasHover = window.matchMedia('(hover: hover)').matches;
+  const hasNoHover = window.matchMedia('(hover: none)').matches;
+  if (hasHover === hasNoHover) {
+    return hasHover ? 'ambiguous' : 'unavailable';
+  }
+
+  return hasHover ? 'hover' : 'none';
+}
+
+function readCapabilitySnapshot(): TariffActionCapabilitySnapshot {
+  return {
+    width: typeof window === 'undefined' ? 0 : window.innerWidth,
+    pointer: readPointerCapability(),
+    hover: readHoverCapability(),
+  };
+}
+
+function useTariffActionCapabilities(): TariffActionCapabilitySnapshot {
+  const [capabilities, setCapabilities] = useState(readCapabilitySnapshot);
+
+  useEffect(() => {
+    const refresh = () => setCapabilities(readCapabilitySnapshot());
+    const queries = typeof window.matchMedia === 'function'
+      ? [
+        window.matchMedia('(pointer: fine)'),
+        window.matchMedia('(pointer: coarse)'),
+        window.matchMedia('(hover: hover)'),
+        window.matchMedia('(hover: none)'),
+      ]
+      : [];
+
+    window.addEventListener('resize', refresh);
+    queries.forEach((query) => query.addEventListener('change', refresh));
+    return () => {
+      window.removeEventListener('resize', refresh);
+      queries.forEach((query) => query.removeEventListener('change', refresh));
+    };
+  }, []);
+
+  return capabilities;
+}
 
 interface TariffVersionActionMenuProps {
   label: string;
+  displayIdentity: string;
   onRetire?: () => void;
   onPromotion: () => void;
   onDelete: () => void;
+  disabled?: boolean;
+  onOpenChange?: (isOpen: boolean) => void;
+  onTriggerRefChange?: (element: HTMLButtonElement | null) => void;
 }
 
-/**
- * Overflow menu for logical tariff actions that do not need a persistent button.
- */
+interface InertSnapshot {
+  inert: boolean;
+  hadInertAttribute: boolean;
+  inertAttribute: string | null;
+}
+
+/** Opens the feature-owned responsive exceptional-action surface for one tariff. */
 export function TariffVersionActionMenu({
   label,
+  displayIdentity,
   onRetire,
   onPromotion,
   onDelete,
+  disabled = false,
+  onOpenChange,
+  onTriggerRefChange,
 }: TariffVersionActionMenuProps) {
-  const triggerLabel = `Tariff actions for ${label}`;
   const [isOpen, setIsOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const pendingActionRef = useRef<(() => void) | null>(null);
+  const onOpenChangeRef = useRef(onOpenChange);
+  const triggerInertSnapshotRef = useRef<InertSnapshot | null>(null);
+  const restoreTriggerInertTimeoutRef = useRef<number | null>(null);
+  const capabilities = useTariffActionCapabilities();
+  const presentation = selectTariffActionPresentation(capabilities);
+  const previousPresentationRef = useRef(presentation);
+  const overlayId = `tariff-actions-${useId().replaceAll(':', '')}`;
+  const triggerLabel = `Tariff actions for ${label}`;
+  const overlayOpen = isOpen && !disabled;
+  const dismiss = useCallback(() => setIsOpen(false), []);
+  const setTriggerRef = useCallback((element: HTMLButtonElement | null) => {
+    triggerRef.current = element;
+    onTriggerRefChange?.(element);
+  }, [onTriggerRefChange]);
+  const restoreTriggerInertState = useCallback(() => {
+    const trigger = triggerRef.current;
+    const snapshot = triggerInertSnapshotRef.current;
+    triggerInertSnapshotRef.current = null;
+    restoreTriggerInertTimeoutRef.current = null;
+    if (!trigger || !snapshot) return;
+    trigger.inert = snapshot.inert;
+    if (snapshot.hadInertAttribute) {
+      trigger.setAttribute('inert', snapshot.inertAttribute ?? '');
+    } else {
+      trigger.removeAttribute('inert');
+    }
+  }, []);
+  const suppressTriggerFocusRestore = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger || triggerInertSnapshotRef.current) return;
+
+    triggerInertSnapshotRef.current = {
+      inert: trigger.inert,
+      hadInertAttribute: trigger.hasAttribute('inert'),
+      inertAttribute: trigger.getAttribute('inert'),
+    };
+    trigger.inert = true;
+    trigger.setAttribute('inert', '');
+    restoreTriggerInertTimeoutRef.current = window.setTimeout(() => {
+      restoreTriggerInertTimeoutRef.current = window.setTimeout(restoreTriggerInertState, 0);
+    }, 0);
+  }, [restoreTriggerInertState]);
+  const actions = useMemo(() => getTariffActionDescriptors({ canRetire: Boolean(onRetire) }).map((action) => {
+    const onSelect = action.id === 'promotion'
+      ? onPromotion
+      : action.id === 'retire'
+        ? onRetire ?? (() => undefined)
+        : onDelete;
+    return {
+      ...action,
+      onSelect: action.id === 'retire' || action.id === 'delete'
+        ? () => {
+          suppressTriggerFocusRestore();
+          pendingActionRef.current = onSelect;
+          setIsOpen(false);
+        }
+        : onSelect,
+    };
+  }), [onDelete, onPromotion, onRetire, suppressTriggerFocusRestore]);
 
   useEffect(() => {
-    if (!isOpen) return undefined;
-
-    const closeIfOutside = (event: PointerEvent | FocusEvent) => {
-      const target = event.target;
-      if (target instanceof Node && menuRef.current?.contains(target)) return;
+    if (previousPresentationRef.current !== presentation) {
+      previousPresentationRef.current = presentation;
       setIsOpen(false);
-    };
+    }
+  }, [presentation]);
 
-    document.addEventListener('pointerdown', closeIfOutside);
-    document.addEventListener('focusin', closeIfOutside);
+  useEffect(() => {
+    onOpenChange?.(overlayOpen);
+  }, [onOpenChange, overlayOpen]);
 
-    return () => {
-      document.removeEventListener('pointerdown', closeIfOutside);
-      document.removeEventListener('focusin', closeIfOutside);
-    };
+  useEffect(() => {
+    onOpenChangeRef.current = onOpenChange;
+  }, [onOpenChange]);
+
+  useEffect(() => () => {
+    onOpenChangeRef.current?.(false);
+  }, []);
+
+  useEffect(() => () => {
+    if (restoreTriggerInertTimeoutRef.current != null) {
+      window.clearTimeout(restoreTriggerInertTimeoutRef.current);
+    }
+    restoreTriggerInertState();
+  }, [restoreTriggerInertState]);
+
+  useLayoutEffect(() => {
+    if (!disabled || !isOpen) return;
+    suppressTriggerFocusRestore();
+  }, [disabled, isOpen, suppressTriggerFocusRestore]);
+
+  useEffect(() => {
+    if (!disabled || !isOpen) return;
+    const closeOverlayTaskId = window.setTimeout(() => setIsOpen(false), 0);
+    return () => window.clearTimeout(closeOverlayTaskId);
+  }, [disabled, isOpen]);
+
+  useEffect(() => {
+    if (isOpen || pendingActionRef.current == null) return;
+    const action = pendingActionRef.current;
+    pendingActionRef.current = null;
+    triggerRef.current?.blur();
+    action();
   }, [isOpen]);
 
-  const runAction = (action: () => void) => {
-    setIsOpen(false);
-    action();
-  };
-
   return (
-    <div ref={menuRef} className="relative">
+    <>
       <button
+        ref={setTriggerRef}
         type="button"
         aria-label={triggerLabel}
-        aria-expanded={isOpen}
-        aria-haspopup="menu"
+        aria-expanded={overlayOpen}
+        aria-controls={overlayId}
+        aria-haspopup={presentation === 'menu' ? 'menu' : 'dialog'}
+        disabled={disabled}
         onClick={() => setIsOpen((current) => !current)}
         onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            setIsOpen(false);
-          }
+          if (event.key === 'Escape') setIsOpen(false);
         }}
-        className="flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-xl border border-secondary/10 bg-surface px-3 py-2 text-primary transition-all hover:bg-secondary/5"
+        className="inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-xl border border-transparent bg-transparent px-3 py-2 text-secondary transition-[background-color,color,box-shadow] motion-reduce:transition-none [@media(min-width:768px)_and_(hover:hover)_and_(pointer:fine)]:hover:bg-secondary/5 [@media(min-width:768px)_and_(hover:hover)_and_(pointer:fine)]:hover:text-primary active:bg-secondary/10 active:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50"
       >
         <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
       </button>
-      {isOpen && (
-        <div className="absolute right-0 top-[calc(100%+0.5rem)] z-10 min-w-[15rem] rounded-xl border border-secondary/10 bg-surface p-2 shadow-lg">
-          {onRetire && (
-            <button
-              type="button"
-              onClick={() => runAction(onRetire)}
-              className="flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left text-primary transition-colors hover:bg-secondary/5"
-            >
-              Retire tariff
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => runAction(onPromotion)}
-            className="flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left text-primary transition-colors hover:bg-secondary/5"
-          >
-            Run temporary promotion
-          </button>
-          <button
-            type="button"
-            onClick={() => runAction(onDelete)}
-            className="flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left text-primary transition-colors hover:bg-secondary/5"
-          >
-            Delete tariff
-          </button>
-        </div>
+      {presentation === 'menu' ? (
+        <TariffActionPopover
+          id={overlayId}
+          open={overlayOpen}
+          label={triggerLabel}
+          actions={actions}
+          triggerRef={triggerRef}
+          dockExclusion={null}
+          onDismiss={dismiss}
+        />
+      ) : (
+        <TariffActionSheet
+          id={overlayId}
+          open={overlayOpen}
+          label={label}
+          displayIdentity={displayIdentity}
+          actions={actions}
+          triggerRef={triggerRef}
+          onDismiss={dismiss}
+        />
       )}
-    </div>
+    </>
   );
 }

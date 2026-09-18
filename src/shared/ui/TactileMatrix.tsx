@@ -28,6 +28,14 @@ interface TactileMatrixProps {
   onChange: (value: string) => void;
   /** Optional CSS class name for the wrapper element. */
   className?: string;
+  /** Whether the radiogroup requires an option selection. */
+  required?: boolean;
+  /** Whether the radiogroup currently has a validation error. */
+  invalid?: boolean;
+  /** ID of consumer-owned descriptive or error content for the radiogroup. */
+  describedBy?: string;
+  /** Whether to show a visual-only required marker next to the label. */
+  requiredIndicator?: boolean;
 }
 
 /**
@@ -45,6 +53,10 @@ export const TactileMatrix: React.FC<TactileMatrixProps> = ({
   value,
   onChange,
   className = '',
+  required = false,
+  invalid = false,
+  describedBy,
+  requiredIndicator = false,
 }) => {
   const labelId = React.useId();
   const buttonRefs = React.useRef<(HTMLButtonElement | null)[]>([]);
@@ -107,12 +119,21 @@ export const TactileMatrix: React.FC<TactileMatrixProps> = ({
       className={`flex flex-col w-full ${className}`}
       role="radiogroup"
       aria-labelledby={labelId}
+      aria-required={required ? 'true' : undefined}
+      aria-invalid={invalid ? 'true' : undefined}
+      aria-describedby={describedBy}
     >
       <span 
         id={labelId}
         className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-3"
       >
         {label}
+        {requiredIndicator && (
+          <>
+            {' '}
+            <span className="text-primary" aria-hidden="true">*</span>
+          </>
+        )}
       </span>
       <div className={`grid gap-3 ${gridColumnsClass}`}>
         {options.map((option, index) => {

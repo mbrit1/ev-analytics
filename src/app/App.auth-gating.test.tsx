@@ -14,6 +14,9 @@ import type {
 const providerConflictRecoveryMocks = vi.hoisted(() => ({
   useProviderConflictRecovery: vi.fn(),
 }));
+const tariffListTestState = vi.hoisted(() => ({
+  mounts: vi.fn(),
+}));
 
 type ProviderConflictSyncStatus = ReturnType<typeof useSyncStatus> & {
   blockingOutboxId?: number;
@@ -25,11 +28,46 @@ vi.mock('../features/auth', () => ({
   useAuth: vi.fn(),
   LoginForm: () => <div data-testid="login-form">Login Form</div>,
 }));
-vi.mock('../features/charging-plans/components/TariffList', () => ({
-  TariffList: ({ isCreatingTariff }: { isCreatingTariff: boolean }) => (
-    <div>{isCreatingTariff ? 'Tariff Create Form' : 'Tariff List'}</div>
-  ),
-}));
+vi.mock('../features/charging-plans/components/TariffList', () => {
+  const TariffList = ({
+    isCreatingTariff,
+    tariffFormState,
+    tariffLocationHydration,
+  }: {
+    isCreatingTariff?: boolean;
+    tariffFormState?: { mode: 'closed' } | { mode: 'create' } | { mode: 'edit'; logicalTariffKey: string };
+    tariffLocationHydration?: {
+      providers: { status: string };
+      chargingPlans: { status: string };
+      onRetry: () => void;
+    };
+  }) => {
+    const [isLocalConfirmationOpen, setIsLocalConfirmationOpen] = React.useState(false);
+
+    React.useEffect(() => {
+      tariffListTestState.mounts();
+    }, []);
+
+    return (
+      <div>
+        {tariffFormState?.mode === 'edit'
+          ? 'Tariff Edit Form'
+          : (tariffFormState?.mode === 'create' || isCreatingTariff ? 'Tariff Create Form' : 'Tariff List')}
+        <button type="button" onClick={() => setIsLocalConfirmationOpen(true)}>
+          Open TariffList Local Confirmation
+        </button>
+        {isLocalConfirmationOpen ? <div>TariffList Local Confirmation</div> : null}
+        <span data-testid="tariff-location-hydration">
+          {tariffLocationHydration
+            ? `${tariffLocationHydration.providers.status}:${tariffLocationHydration.chargingPlans.status}`
+            : 'missing'}
+        </span>
+      </div>
+    );
+  };
+
+  return { TariffList };
+});
 vi.mock('../features/charging-sessions', () => ({
   ChargingHistory: ({
     hydrationState,
@@ -136,6 +174,7 @@ describe('App auth gating', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState({ unrelated: 'keep-me' }, '', '/');
     mockSignOut.mockResolvedValue({ error: null });
     vi.mocked(retryActiveSyncRuntime).mockImplementation(() => undefined);
     const recoveryController: ProviderConflictRecoveryController = {
@@ -401,6 +440,216 @@ describe('App auth gating', () => {
 
     // Assert: Tariff view resolves through the direct tariff module mock.
     expect(await screen.findByText('Tariff List')).toBeInTheDocument();
+  });
+
+  it('remounts TariffList when the authenticated principal changes so local confirmation state cannot cross accounts', async () => {
+    // Arrange: Mount user one's Tariffs surface and open state owned locally by TariffList.
+    const user = userEvent.setup();
+    const firstUser = {
+      id: 'user-1', email: 'first@example.com', app_metadata: {}, user_metadata: {},
+      aud: 'authenticated', created_at: new Date().toISOString(),
+    } as never;
+    const secondUser = {
+      id: 'user-2', email: 'second@example.com', app_metadata: {}, user_metadata: {},
+      aud: 'authenticated', created_at: new Date().toISOString(),
+    } as never;
+    vi.mocked(useAuth).mockReturnValue({
+      user: firstUser, session: null, loading: false, signIn: vi.fn(), signOut: mockSignOut,
+    });
+    const view = render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Tariffs Tab' }));
+    await user.click(screen.getByRole('button', { name: 'Open TariffList Local Confirmation' }));
+    expect(screen.getByText('TariffList Local Confirmation')).toBeInTheDocument();
+    expect(tariffListTestState.mounts).toHaveBeenCalledTimes(1);
+
+    // Act: Replace the active authenticated principal without unmounting App.
+    vi.mocked(useAuth).mockReturnValue({
+      user: secondUser, session: null, loading: false, signIn: vi.fn(), signOut: mockSignOut,
+    });
+    await act(async () => {
+      view.rerender(<App />);
+    });
+
+    // Assert: User two receives a fresh TariffList instance with no state from user one.
+    expect(await screen.findByText('Tariff List')).toBeInTheDocument();
+    expect(screen.queryByText('TariffList Local Confirmation')).not.toBeInTheDocument();
+    expect(tariffListTestState.mounts).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves a recognized tariffs edit location while auth is loading and resolves it after authentication completes', async () => {
+    // Arrange: Begin initial auth hydration on a loadable direct tariff location.
+    window.history.replaceState({ unrelated: 'keep-me' }, '', '#tariffs/edit/provider-1%3A%3Alidl');
+    const authenticatedUser = {
+      id: 'user-1', email: 'driver@example.com', app_metadata: {}, user_metadata: {},
+      aud: 'authenticated', created_at: new Date().toISOString(),
+    } as never;
+    vi.mocked(useAuth).mockReturnValue({
+      user: null, session: null, loading: true, signIn: vi.fn(), signOut: mockSignOut,
+    });
+    const view = render(<App />);
+
+    // Act: Complete authentication without replacing the browser location.
+    vi.mocked(useAuth).mockReturnValue({
+      user: authenticatedUser, session: null, loading: false, signIn: vi.fn(), signOut: mockSignOut,
+    });
+    view.rerender(<App />);
+
+    // Assert: Loading did not discard the requested edit destination.
+    expect(window.location.hash).toBe('#tariffs/edit/provider-1%3A%3Alidl');
+    expect(await screen.findByText('Tariff Edit Form')).toBeInTheDocument();
+  });
+
+  it('clears a signed-out tariff editor location and transient state instead of preserving it for the next principal', async () => {
+    // Arrange: Render the authenticated app from an in-app editor entry with list restoration state.
+    window.history.replaceState({
+      unrelated: 'keep-me',
+      evAnalytics: {
+        tab: 'tariffs',
+        entryId: 'edit-user-1',
+        tariffListPredecessorId: 'list-user-1',
+        tariffListScrollY: 640,
+      },
+    }, '', '#tariffs/edit/provider-1%3A%3Alidl');
+    const authenticatedUser = {
+      id: 'user-1', email: 'driver@example.com', app_metadata: {}, user_metadata: {},
+      aud: 'authenticated', created_at: new Date().toISOString(),
+    } as never;
+    vi.mocked(useAuth).mockReturnValue({
+      user: authenticatedUser, session: null, loading: false, signIn: vi.fn(), signOut: mockSignOut,
+    });
+    const view = render(<App />);
+    expect(await screen.findByText('Tariff Edit Form')).toBeInTheDocument();
+
+    // Act: Simulate the auth transition produced by a completed sign-out.
+    vi.mocked(useAuth).mockReturnValue({
+      user: null, session: null, loading: false, signIn: vi.fn(), signOut: mockSignOut,
+    });
+    await act(async () => {
+      view.rerender(<App />);
+    });
+
+    // Assert: The next principal cannot inherit the former editor or restoration entry.
+    expect(screen.getByTestId('login-form')).toBeInTheDocument();
+    expect(window.location.hash).toBe('');
+    expect(window.history.state).toMatchObject({ unrelated: 'keep-me' });
+    const marker = window.history.state.evAnalytics;
+    expect(marker == null || (
+      marker.tariffListPredecessorId == null
+      && marker.tariffListScrollY == null
+    )).toBe(true);
+  });
+
+  it('clears tariff edit transient state before resolving the same recognized location for a different principal', async () => {
+    // Arrange: Start user one from an actual in-app editor marker with a list predecessor and scroll snapshot.
+    window.history.replaceState({
+      unrelated: 'keep-me',
+      evAnalytics: {
+        tab: 'tariffs',
+        entryId: 'edit-user-1',
+        tariffListPredecessorId: 'list-user-1',
+        tariffListScrollY: 640,
+      },
+    }, '', '#tariffs/edit/provider-1%3A%3Alidl');
+    const firstUser = {
+      id: 'user-1', email: 'first@example.com', app_metadata: {}, user_metadata: {},
+      aud: 'authenticated', created_at: new Date().toISOString(),
+    } as never;
+    const secondUser = {
+      id: 'user-2', email: 'second@example.com', app_metadata: {}, user_metadata: {},
+      aud: 'authenticated', created_at: new Date().toISOString(),
+    } as never;
+    vi.mocked(useAuth).mockReturnValue({
+      user: firstUser, session: null, loading: false, signIn: vi.fn(), signOut: mockSignOut,
+    });
+    const view = render(<App />);
+    expect(await screen.findByText('Tariff Edit Form')).toBeInTheDocument();
+
+    // Act: Replace the authenticated principal while retaining the browser location.
+    vi.mocked(useAuth).mockReturnValue({
+      user: secondUser, session: null, loading: false, signIn: vi.fn(), signOut: mockSignOut,
+    });
+    await act(async () => {
+      view.rerender(<App />);
+    });
+
+    // Assert: User two gets a direct editor marker, never user one's list predecessor or scroll snapshot.
+    expect(await screen.findByText('Tariff Edit Form')).toBeInTheDocument();
+    expect(window.history.state).toMatchObject({
+      unrelated: 'keep-me',
+      evAnalytics: {
+        tab: 'tariffs',
+        tariffListPredecessorId: null,
+        tariffListScrollY: 0,
+      },
+    });
+  });
+
+  it('keeps a locally available direct target editable while tariff hydration remains pending', async () => {
+    // Arrange: Load an edit target before remote providers and plans have hydrated.
+    window.history.replaceState({}, '', '#tariffs/edit/provider-1%3A%3Alidl');
+    vi.mocked(useAuth).mockReturnValue({
+      user: { id: 'user-1' } as never, session: null, loading: false, signIn: vi.fn(), signOut: mockSignOut,
+    });
+    vi.mocked(useSyncStatus).mockReturnValue({
+      queueLength: 0, hasPendingSync: false,
+      pendingByTable: { providers: 0, charging_plans: 0, sessions: 0, provider_plan_selections: 0 },
+      hasBlockingSyncError: false, blockingErrorMessage: undefined, retryCount: undefined, nextRetryAt: undefined,
+      oldestPendingAt: undefined,
+      hydration: { providers: { status: 'loading' }, charging_plans: { status: 'loading' }, sessions: { status: 'ready' } },
+      hasHydrationFailure: false, isHydrating: true, displayState: 'syncing', isLoading: false,
+    });
+
+    // Act: Render with the local target available through the Tariffs feature seam.
+    render(<App />);
+
+    // Assert: Pending remote hydration does not block a local positive edit resolution.
+    expect(await screen.findByText('Tariff Edit Form')).toBeInTheDocument();
+  });
+
+  it('waits for both tariff hydration gates before showing a missing target and exposes failure as retryable instead', async () => {
+    // Arrange: Load an absent direct target with a failed provider hydration gate.
+    window.history.replaceState({}, '', '#tariffs/edit/missing');
+    vi.mocked(useAuth).mockReturnValue({
+      user: { id: 'user-1' } as never, session: null, loading: false, signIn: vi.fn(), signOut: mockSignOut,
+    });
+    vi.mocked(useSyncStatus).mockReturnValue({
+      queueLength: 0, hasPendingSync: false,
+      pendingByTable: { providers: 0, charging_plans: 0, sessions: 0, provider_plan_selections: 0 },
+      hasBlockingSyncError: false, blockingErrorMessage: undefined, retryCount: undefined, nextRetryAt: undefined,
+      oldestPendingAt: undefined,
+      hydration: { providers: { status: 'failed', failureKind: 'network' }, charging_plans: { status: 'ready' }, sessions: { status: 'ready' } },
+      hasHydrationFailure: true, isHydrating: false, displayState: 'sync-issue', isLoading: false,
+    });
+
+    // Act: Render the failed-hydration direct location.
+    render(<App />);
+
+    // Assert: Failure preserves the requested target rather than falsely claiming it is missing.
+    expect(await screen.findByText('Tariff Edit Form')).toBeInTheDocument();
+    expect(screen.queryByText('Tariff is no longer available')).not.toBeInTheDocument();
+  });
+
+  it('passes the provider and charging-plan hydration gates to the Tariffs location seam', async () => {
+    // Arrange: Keep providers pending while charging plans have settled.
+    const user = userEvent.setup();
+    vi.mocked(useAuth).mockReturnValue({
+      user: { id: 'user-1' } as never, session: null, loading: false, signIn: vi.fn(), signOut: mockSignOut,
+    });
+    vi.mocked(useSyncStatus).mockReturnValue({
+      queueLength: 0, hasPendingSync: false,
+      pendingByTable: { providers: 0, charging_plans: 0, sessions: 0, provider_plan_selections: 0 },
+      hasBlockingSyncError: false, blockingErrorMessage: undefined, retryCount: undefined, nextRetryAt: undefined,
+      oldestPendingAt: undefined,
+      hydration: { providers: { status: 'loading' }, charging_plans: { status: 'ready' }, sessions: { status: 'ready' } },
+      hasHydrationFailure: false, isHydrating: true, displayState: 'syncing', isLoading: false,
+    });
+    render(<App />);
+
+    // Act: Enter the Tariffs location surface.
+    await user.click(screen.getByRole('button', { name: 'Tariffs Tab' }));
+
+    // Assert: The app supplies both independent gates rather than forcing TariffList to infer remote readiness.
+    expect(await screen.findByTestId('tariff-location-hydration')).toHaveTextContent('loading:ready');
   });
 
   it('shows a sync issue alert when blocking sync error metadata is present', () => {

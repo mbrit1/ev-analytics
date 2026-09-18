@@ -11,7 +11,7 @@ Use this checklist for every UI-facing change. The default baseline is `2026-05-
 - Touch targets meet minimum 44px height for interactive controls.
 - Primary actions follow shared emphasis treatment (accent fill, high contrast, strong affordance).
 - Secondary actions follow shared contrast treatment (neutral fill or subtle border, not competing with primary).
-- Selects and inputs in forms follow thin-underline paradigm with uppercase meta labels and consistent focus state.
+- Inputs in forms follow the thin-underline paradigm with uppercase meta labels and consistent focus state. The Tariffs provider control is a documented local tactile-matrix exception.
 
 ## 3) Spacing and rhythm
 - Form sections keep consistent vertical rhythm (section spacing + control spacing).
@@ -21,6 +21,7 @@ Use this checklist for every UI-facing change. The default baseline is `2026-05-
 ## 4) Tactile matrix behavior
 - Matrix layout behavior is explicit at breakpoints and intentional for expected option counts.
 - Matrix active/inactive visuals are consistent with baseline token states unless a deviation is documented.
+- Tariffs provider selection uses the shared `TactileMatrix` with stable provider IDs, pointer/keyboard selection, required validation, and disabled edit-mode options.
 
 ## 5) Accessibility and semantics
 - Inputs/selects have stable label relationships (`label` + `id`).
@@ -32,3 +33,8 @@ Use this checklist for every UI-facing change. The default baseline is `2026-05-
 - `what deviates`
 - `why this improves UX for this screen`
 - `decision`: `local exception` or `promote to master candidate`
+
+Tariffs records its provider matrix and page/entity/action-overlay
+visual treatment as `local exception`; the shared slab structures are opt-in,
+while action-overlay geometry remains feature-local. A later Sessions consumer
+may provide evidence for promotion to the master baseline.
