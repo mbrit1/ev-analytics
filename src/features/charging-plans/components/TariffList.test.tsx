@@ -347,6 +347,37 @@ describe('TariffList', () => {
     expect(screen.getByText('0,29 €')).toBeInTheDocument();
   });
 
+  it('uses the provider identity in the mobile action-sheet header while retaining the full accessible label', async () => {
+    // Arrange: Render a combined provider and tariff label at the compact breakpoint.
+    const originalInnerWidth = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    vi.mocked(useProviders).mockReturnValue({
+      providers: [{
+        id: 'p1', name: 'EnBW', user_id: 'user-1', created_at: utc('2026-01-01'), updated_at: utc('2026-01-01'),
+      }],
+      isLoading: false,
+    });
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [buildLogicalTariff({ name: 'mobility+ ADAC Full' })],
+    }));
+    const user = userEvent.setup();
+
+    try {
+      renderTariffList();
+
+      // Act: Open the compact action sheet for the combined logical tariff.
+      await user.click(screen.getByRole('button', { name: 'Tariff actions for EnBW mobility+ ADAC Full' }));
+
+      // Assert: Accessible naming stays complete while the visible identity is provider-only.
+      expect(screen.getByRole('dialog', { name: 'Tariff actions for EnBW mobility+ ADAC Full' })).toBeInTheDocument();
+      expect(within(screen.getByRole('dialog', { name: 'Tariff actions for EnBW mobility+ ADAC Full' }))
+        .getByRole('heading', { name: 'EnBW', level: 2 })).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'EnBW mobility+ ADAC Full', level: 2 })).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth });
+    }
+  });
+
   it('hides optional fee rows that have no current value', () => {
     // Arrange: Render a logical tariff whose current version only has per-kWh prices.
     vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({

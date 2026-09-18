@@ -14,6 +14,7 @@ export interface TariffActionSheetProps {
   id?: string;
   open: boolean;
   label: string;
+  displayIdentity: string;
   actions: readonly TariffActionSheetAction[];
   triggerRef: React.RefObject<HTMLButtonElement | null>;
   onDismiss: () => void;
@@ -37,6 +38,7 @@ export function TariffActionSheet({
   id,
   open,
   label,
+  displayIdentity,
   actions,
   triggerRef,
   onDismiss,
@@ -141,62 +143,71 @@ export function TariffActionSheet({
   return createPortal(
     <div
       ref={rootRef}
-      className="fixed inset-0 z-50 flex items-end bg-black/40"
+      className="fixed inset-0 z-50 isolate flex items-end justify-center px-3 pb-[calc(0.5rem+env(safe-area-inset-bottom))] sm:px-4"
       onClick={(event) => {
         if (event.target === event.currentTarget) onDismiss();
       }}
     >
-      <section
+      <div
+        aria-hidden="true"
+        className="absolute inset-0 bg-black/50"
+        onClick={onDismiss}
+      />
+      <div
         id={id}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-label={label}
-        className="max-h-[calc(100dvh-1rem)] w-full overflow-y-auto rounded-t-2xl bg-surface p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-lg"
+        aria-label={`Tariff actions for ${label}`}
+        className="relative z-10 flex max-h-[calc(100dvh-0.5rem-env(safe-area-inset-bottom))] w-full max-w-[520px] flex-col gap-2 overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))]"
       >
-        <button
-          type="button"
-          aria-label="Dismiss tariff actions"
-          data-autofocus
-          className="mb-2 min-h-[44px] rounded-lg px-3 text-primary transition-colors hover:bg-secondary/5"
-          onClick={onDismiss}
-        >
-          Dismiss
-        </button>
-        {(['primary', 'separated', 'danger'] as const).map((group) => {
-          const groupedActions = actions.filter((action) => action.group === group);
-          if (groupedActions.length === 0) return null;
-
-          return (
-            <div
-              key={group}
-              className={group === 'primary' ? 'space-y-1' : 'mt-3 border-t border-secondary/10 pt-3 space-y-1'}
-            >
-              {groupedActions.map((action) => (
-                <button
-                  key={action.id}
-                  type="button"
-                  className={group === 'danger'
-                    ? 'flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left text-red-600 transition-colors hover:bg-red-500/10'
-                    : 'flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left text-primary transition-colors hover:bg-secondary/5'}
-                  onClick={() => selectAction(action)}
-                >
-                  {action.label}
-                </button>
-              ))}
+        <section className="rounded-[24px] border border-slab-border bg-surface p-4 shadow-slab">
+          <header className="mb-3 px-3">
+            <h2 className="text-base font-semibold text-primary">{displayIdentity}</h2>
+            <p className="text-sm text-secondary">Tariff actions</p>
+          </header>
+          <div className="space-y-1">
+            {actions.filter((action) => action.group === 'primary').map((action) => (
+              <button
+                key={action.id}
+                type="button"
+                data-autofocus={action.id === 'promotion' ? true : undefined}
+                className="flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left text-primary transition-colors hover:bg-secondary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+                onClick={() => selectAction(action)}
+              >
+                {action.label}
+              </button>
+            ))}
+          </div>
+          {actions.some((action) => action.group !== 'primary') && (
+            <div className="mt-3 border-t border-secondary/10 pt-3">
+              <div className="space-y-1">
+                {actions.filter((action) => action.group !== 'primary').map((action) => (
+                  <button
+                    key={action.id}
+                    type="button"
+                    className={action.group === 'danger'
+                      ? 'flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left text-red-600 transition-colors hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface'
+                      : 'flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left text-primary transition-colors hover:bg-secondary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface'}
+                    onClick={() => selectAction(action)}
+                  >
+                    {action.label}
+                  </button>
+                ))}
+              </div>
             </div>
-          );
-        })}
-        <div className="mt-3 border-t border-secondary/10 pt-3">
+          )}
+        </section>
+        <section className="flex min-h-[60px] items-center justify-center rounded-[24px] border border-slab-border bg-surface px-4 py-2 shadow-slab">
           <button
             type="button"
-            className="min-h-[44px] rounded-lg px-3 text-primary transition-colors hover:bg-secondary/5"
+            className="min-h-[44px] rounded-lg px-3 text-accent transition-colors hover:bg-accent/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
             onClick={onDismiss}
           >
             Cancel
           </button>
-        </div>
-      </section>
+        </section>
+      </div>
     </div>,
     document.body,
   );

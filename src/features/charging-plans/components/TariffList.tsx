@@ -567,7 +567,7 @@ export function TariffList({
         <PageActionSlab
           heading="Tariffs"
           description="Manage charging prices"
-          className="bg-surface shadow-slab"
+          className="flex-row items-center justify-between gap-3 bg-surface p-[18px_20px] shadow-slab sm:p-6"
           action={(
             <button
               type="button"
@@ -577,7 +577,7 @@ export function TariffList({
                 setRetiredCloneRestoreFocusKey(null);
                 onCreateTariff();
               }}
-              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-accent px-3 py-2 font-bold text-white shadow-md shadow-accent/20 transition-all hover:opacity-90 md:px-4"
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-accent px-3 py-2 font-bold text-white transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-reduce:transition-none md:px-4"
             >
               <Plus aria-hidden="true" className="h-5 w-5" />
               <span className="hidden md:inline md:pl-2">Add tariff</span>
@@ -769,6 +769,7 @@ export function TariffList({
             trailing={(
                 <TariffVersionActionMenu
                   label={logicalTariffLabel}
+                  displayIdentity={identity.provider}
                   disabled={recoveryExclusion}
                   onOpenChange={setIsTariffActionOverlayOpen}
                   onRetire={canRetire ? () => {

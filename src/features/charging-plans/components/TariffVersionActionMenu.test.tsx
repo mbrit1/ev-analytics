@@ -110,6 +110,7 @@ describe('TariffVersionActionMenu', () => {
     render(
       <TariffVersionActionMenu
         label="Ionity Lidl"
+        displayIdentity="Ionity"
         onRetire={onRetire}
         onPromotion={onPromotion}
         onDelete={onDelete}
@@ -152,6 +153,7 @@ describe('TariffVersionActionMenu', () => {
       render(
         <TariffVersionActionMenu
           label="Ionity Lidl"
+          displayIdentity="Ionity"
           onRetire={onRetire}
           onPromotion={vi.fn()}
           onDelete={onDelete}
@@ -177,6 +179,7 @@ describe('TariffVersionActionMenu', () => {
     render(
       <TariffVersionActionMenu
         label="Ionity Lidl"
+        displayIdentity="Ionity"
         onRetire={vi.fn()}
         onPromotion={vi.fn()}
         onDelete={vi.fn()}
@@ -186,11 +189,16 @@ describe('TariffVersionActionMenu', () => {
     // Act: Inspect the trigger classes.
     const trigger = screen.getByRole('button', { name: /tariff actions for ionity lidl/i });
 
-    // Assert: The trigger uses governed styling hooks and touch-target sizing.
-    expect(trigger.className).toContain('bg-surface');
-    expect(trigger.className).toContain('border-secondary/10');
-    expect(trigger.className).toContain('text-primary');
+    // Assert: The trigger stays quiet by default while preserving the touch target and adaptive states.
+    expect(trigger.className).toContain('bg-transparent');
+    expect(trigger.className).toContain('border-transparent');
+    expect(trigger.className).toContain('text-secondary');
     expect(trigger.className).toContain('min-h-[44px]');
+    expect(trigger.className).toContain('min-w-[44px]');
+    expect(trigger.className).toContain('[@media(min-width:768px)_and_(hover:hover)_and_(pointer:fine)]:hover:bg-secondary/5');
+    expect(trigger.className).toContain('[@media(min-width:768px)_and_(hover:hover)_and_(pointer:fine)]:hover:text-primary');
+    expect(trigger.className).toContain('focus-visible:ring-accent');
+    expect(trigger.className).not.toContain('bg-surface');
   });
 
   it('closes when focus or pointer interaction moves outside the menu', async () => {
@@ -200,6 +208,7 @@ describe('TariffVersionActionMenu', () => {
       <div>
         <TariffVersionActionMenu
           label="Ionity Lidl"
+          displayIdentity="Ionity"
           onRetire={vi.fn()}
           onPromotion={vi.fn()}
           onDelete={vi.fn()}

@@ -182,8 +182,8 @@ export function TariffActionPopover({
             type="button"
             role="menuitem"
             className={action.group === 'danger'
-              ? 'flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left text-red-600 transition-colors hover:bg-red-500/10'
-              : 'flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left text-primary transition-colors hover:bg-secondary/5'}
+              ? 'flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left text-red-600 transition-colors hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface'
+              : 'flex min-h-[44px] w-full items-center rounded-lg px-3 py-2 text-left text-primary transition-colors hover:bg-secondary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface'}
             onClick={() => selectAction(action)}
             onKeyDown={(event) => handleMenuItemKeyDown(event, index)}
           >

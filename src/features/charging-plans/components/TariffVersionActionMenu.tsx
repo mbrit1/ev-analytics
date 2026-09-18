@@ -109,6 +109,7 @@ function useTariffActionCapabilities(): TariffActionCapabilitySnapshot {
 
 interface TariffVersionActionMenuProps {
   label: string;
+  displayIdentity: string;
   onRetire?: () => void;
   onPromotion: () => void;
   onDelete: () => void;
@@ -125,6 +126,7 @@ interface InertSnapshot {
 /** Opens the feature-owned responsive exceptional-action surface for one tariff. */
 export function TariffVersionActionMenu({
   label,
+  displayIdentity,
   onRetire,
   onPromotion,
   onDelete,
@@ -249,7 +251,7 @@ export function TariffVersionActionMenu({
         onKeyDown={(event) => {
           if (event.key === 'Escape') setIsOpen(false);
         }}
-        className="flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-xl border border-secondary/10 bg-surface px-3 py-2 text-primary transition-all hover:bg-secondary/5"
+        className="inline-flex min-h-[44px] min-w-[44px] cursor-pointer items-center justify-center rounded-xl border border-transparent bg-transparent px-3 py-2 text-secondary transition-[background-color,color,box-shadow] motion-reduce:transition-none [@media(min-width:768px)_and_(hover:hover)_and_(pointer:fine)]:hover:bg-secondary/5 [@media(min-width:768px)_and_(hover:hover)_and_(pointer:fine)]:hover:text-primary active:bg-secondary/10 active:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-50"
       >
         <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
       </button>
@@ -267,7 +269,8 @@ export function TariffVersionActionMenu({
         <TariffActionSheet
           id={overlayId}
           open={overlayOpen}
-          label={triggerLabel}
+          label={label}
+          displayIdentity={displayIdentity}
           actions={actions}
           triggerRef={triggerRef}
           onDismiss={dismiss}
