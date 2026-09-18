@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 import { useAuth } from '../features/auth';
 import { useSyncStatus } from '../features/offline-sync';
@@ -184,6 +184,10 @@ vi.mock('../features/offline-sync', () => ({
  */
 describe('App tariff editing', () => {
   const mockScrollTo = vi.fn();
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -429,6 +433,72 @@ describe('App tariff editing', () => {
       unrelated: 'keep-me',
       evAnalytics: { tab: 'tariffs', tariffListPredecessorId: null },
     });
+  });
+
+  it('replaces a stale edit predecessor instead of traversing away from the mounted list entry on cancel', async () => {
+    // Arrange: Let the mounted app observe one concrete list entry before a stale editor marker arrives.
+    window.history.replaceState({
+      unrelated: 'keep-me',
+      evAnalytics: { tab: 'tariffs', entryId: 'mounted-list-entry', tariffListScrollY: 0 },
+    }, '', '#tariffs');
+    const user = userEvent.setup();
+    render(<App />);
+    expect(await screen.findByRole('heading', { name: 'Tariffs' })).toBeInTheDocument();
+    const historyBack = vi.spyOn(window.history, 'back').mockImplementation(() => undefined);
+
+    // Act: Replay an edit location whose predecessor does not match the list entry App observed.
+    act(() => {
+      window.history.replaceState({
+        unrelated: 'keep-me',
+        evAnalytics: {
+          tab: 'tariffs',
+          entryId: 'stale-edit-entry',
+          tariffListPredecessorId: 'different-list-entry',
+          tariffListScrollY: 640,
+        },
+      }, '', '#tariffs/edit/provider-1%3A%3Alidl');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(await screen.findByRole('heading', { name: 'Edit Tariff' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    // Assert: Only the observed predecessor can authorize history traversal.
+    expect(historyBack).not.toHaveBeenCalled();
+    expect(window.location.hash).toBe('#tariffs');
+    historyBack.mockRestore();
+  });
+
+  it('uses history Back when the edit predecessor matches the mounted list entry on cancel', async () => {
+    // Arrange: Let the mounted app observe the same list entry recorded by the current editor marker.
+    window.history.replaceState({
+      unrelated: 'keep-me',
+      evAnalytics: { tab: 'tariffs', entryId: 'mounted-list-entry', tariffListScrollY: 0 },
+    }, '', '#tariffs');
+    const user = userEvent.setup();
+    render(<App />);
+    expect(await screen.findByRole('heading', { name: 'Tariffs' })).toBeInTheDocument();
+    const historyBack = vi.spyOn(window.history, 'back').mockImplementation(() => undefined);
+
+    // Act: Replay the in-app editor marker for that exact list entry and close it.
+    act(() => {
+      window.history.replaceState({
+        unrelated: 'keep-me',
+        evAnalytics: {
+          tab: 'tariffs',
+          entryId: 'matching-edit-entry',
+          tariffListPredecessorId: 'mounted-list-entry',
+          tariffListScrollY: 640,
+        },
+      }, '', '#tariffs/edit/provider-1%3A%3Alidl');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(await screen.findByRole('heading', { name: 'Edit Tariff' })).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    // Assert: A verified in-app predecessor retains browser Back behavior.
+    expect(historyBack).toHaveBeenCalledTimes(1);
+    expect(window.location.hash).toBe('#tariffs/edit/provider-1%3A%3Alidl');
+    historyBack.mockRestore();
   });
 
   it('returns renamed saves to the list hash, restores the captured position, and focuses the emitted logical key', async () => {

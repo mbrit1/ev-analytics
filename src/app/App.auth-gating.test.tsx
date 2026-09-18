@@ -14,6 +14,9 @@ import type {
 const providerConflictRecoveryMocks = vi.hoisted(() => ({
   useProviderConflictRecovery: vi.fn(),
 }));
+const tariffListTestState = vi.hoisted(() => ({
+  mounts: vi.fn(),
+}));
 
 type ProviderConflictSyncStatus = ReturnType<typeof useSyncStatus> & {
   blockingOutboxId?: number;
@@ -25,8 +28,8 @@ vi.mock('../features/auth', () => ({
   useAuth: vi.fn(),
   LoginForm: () => <div data-testid="login-form">Login Form</div>,
 }));
-vi.mock('../features/charging-plans/components/TariffList', () => ({
-  TariffList: ({
+vi.mock('../features/charging-plans/components/TariffList', () => {
+  const TariffList = ({
     isCreatingTariff,
     tariffFormState,
     tariffLocationHydration,
@@ -38,19 +41,33 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
       chargingPlans: { status: string };
       onRetry: () => void;
     };
-  }) => (
-    <div>
-      {tariffFormState?.mode === 'edit'
-        ? 'Tariff Edit Form'
-        : (tariffFormState?.mode === 'create' || isCreatingTariff ? 'Tariff Create Form' : 'Tariff List')}
-      <span data-testid="tariff-location-hydration">
-        {tariffLocationHydration
-          ? `${tariffLocationHydration.providers.status}:${tariffLocationHydration.chargingPlans.status}`
-          : 'missing'}
-      </span>
-    </div>
-  ),
-}));
+  }) => {
+    const [isLocalConfirmationOpen, setIsLocalConfirmationOpen] = React.useState(false);
+
+    React.useEffect(() => {
+      tariffListTestState.mounts();
+    }, []);
+
+    return (
+      <div>
+        {tariffFormState?.mode === 'edit'
+          ? 'Tariff Edit Form'
+          : (tariffFormState?.mode === 'create' || isCreatingTariff ? 'Tariff Create Form' : 'Tariff List')}
+        <button type="button" onClick={() => setIsLocalConfirmationOpen(true)}>
+          Open TariffList Local Confirmation
+        </button>
+        {isLocalConfirmationOpen ? <div>TariffList Local Confirmation</div> : null}
+        <span data-testid="tariff-location-hydration">
+          {tariffLocationHydration
+            ? `${tariffLocationHydration.providers.status}:${tariffLocationHydration.chargingPlans.status}`
+            : 'missing'}
+        </span>
+      </div>
+    );
+  };
+
+  return { TariffList };
+});
 vi.mock('../features/charging-sessions', () => ({
   ChargingHistory: ({
     hydrationState,
@@ -423,6 +440,40 @@ describe('App auth gating', () => {
 
     // Assert: Tariff view resolves through the direct tariff module mock.
     expect(await screen.findByText('Tariff List')).toBeInTheDocument();
+  });
+
+  it('remounts TariffList when the authenticated principal changes so local confirmation state cannot cross accounts', async () => {
+    // Arrange: Mount user one's Tariffs surface and open state owned locally by TariffList.
+    const user = userEvent.setup();
+    const firstUser = {
+      id: 'user-1', email: 'first@example.com', app_metadata: {}, user_metadata: {},
+      aud: 'authenticated', created_at: new Date().toISOString(),
+    } as never;
+    const secondUser = {
+      id: 'user-2', email: 'second@example.com', app_metadata: {}, user_metadata: {},
+      aud: 'authenticated', created_at: new Date().toISOString(),
+    } as never;
+    vi.mocked(useAuth).mockReturnValue({
+      user: firstUser, session: null, loading: false, signIn: vi.fn(), signOut: mockSignOut,
+    });
+    const view = render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Tariffs Tab' }));
+    await user.click(screen.getByRole('button', { name: 'Open TariffList Local Confirmation' }));
+    expect(screen.getByText('TariffList Local Confirmation')).toBeInTheDocument();
+    expect(tariffListTestState.mounts).toHaveBeenCalledTimes(1);
+
+    // Act: Replace the active authenticated principal without unmounting App.
+    vi.mocked(useAuth).mockReturnValue({
+      user: secondUser, session: null, loading: false, signIn: vi.fn(), signOut: mockSignOut,
+    });
+    await act(async () => {
+      view.rerender(<App />);
+    });
+
+    // Assert: User two receives a fresh TariffList instance with no state from user one.
+    expect(await screen.findByText('Tariff List')).toBeInTheDocument();
+    expect(screen.queryByText('TariffList Local Confirmation')).not.toBeInTheDocument();
+    expect(tariffListTestState.mounts).toHaveBeenCalledTimes(2);
   });
 
   it('preserves a recognized tariffs edit location while auth is loading and resolves it after authentication completes', async () => {
