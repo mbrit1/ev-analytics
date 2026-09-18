@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -24,7 +24,7 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
     tariffFormState: { mode: 'closed' } | { mode: 'create' } | { mode: 'edit'; logicalTariffKey: string };
     restorationRequest?: { type: 'position'; scrollY: number; focusTariffKey?: string | null } | { type: 'tariff'; tariffKey: string };
     onCreateTariff: () => void;
-    onEditTariff: (logicalTariffKey: string) => void;
+    onEditTariff: (logicalTariffKey: string, event: React.MouseEvent<HTMLButtonElement>) => void;
     onCloseForm: () => void;
     onSaveComplete: (logicalTariffKey: string) => void;
     onRestorationComplete: () => void;
@@ -42,6 +42,7 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
       if (restorationRequest.type === 'position') {
         window.scrollTo({ top: restorationRequest.scrollY, behavior: 'auto' });
         setFocusTariffKey(restorationRequest.focusTariffKey ?? null);
+        editButtonRef.current?.focus();
       } else {
         setCurrentTariffKey(restorationRequest.tariffKey);
         setFocusTariffKey(restorationRequest.tariffKey);
@@ -74,7 +75,7 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
           <button
             ref={editButtonRef}
             type="button"
-            onClick={() => onEditTariff(currentTariffKey)}
+            onClick={(event) => onEditTariff(currentTariffKey, event as never)}
           >
             {currentLabel}
           </button>
@@ -112,6 +113,7 @@ vi.mock('../features/charging-sessions', () => ({
   updateSession: vi.fn(),
   updateSessionWithPlanSelection: vi.fn(),
 }));
+vi.mock('../features/analytics', () => ({ AnalyticsPage: () => <div>Analytics</div> }));
 vi.mock('../shared/ui', () => ({
   Navigation: ({
     activeTab,
@@ -185,6 +187,7 @@ describe('App tariff editing', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState({ unrelated: 'keep-me' }, '', '/');
     vi.stubGlobal('scrollTo', mockScrollTo);
     Object.defineProperty(window, 'scrollY', {
       configurable: true,
@@ -268,5 +271,197 @@ describe('App tariff editing', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Edit Ionity Lidl Plus' })).toHaveFocus();
     });
+  });
+
+  it('pushes an encoded app-owned edit entry from the current tariffs list without discarding unrelated history state', async () => {
+    // Arrange: Open the Tariffs list from an entry that carries unrelated state.
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Tariffs' }));
+    const historyLengthBeforeEdit = window.history.length;
+
+    // Act: Activate the available tariff editor from the list.
+    await user.click(screen.getByRole('button', { name: 'Edit Ionity Lidl' }));
+
+    // Assert: The concrete edit destination is encoded and retains the foreign state namespace.
+    expect(window.location.hash).toBe('#tariffs/edit/provider-1%3A%3Alidl');
+    expect(window.history.length).toBe(historyLengthBeforeEdit + 1);
+    expect(window.history.state).toMatchObject({
+      unrelated: 'keep-me',
+      evAnalytics: {
+        tab: 'tariffs',
+        tariffListPredecessorId: expect.any(String),
+      },
+    });
+  });
+
+  it('persists the changing list scroll across a complete edit Back/Forward/Back cycle', async () => {
+    // Arrange: Enter the marked list at a known viewport position and observe browser writes after setup.
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Tariffs' }));
+    Object.defineProperty(window, 'scrollY', { configurable: true, writable: true, value: 480 });
+    const replaceState = vi.spyOn(window.history, 'replaceState');
+    const pushState = vi.spyOn(window.history, 'pushState');
+    replaceState.mockClear();
+    pushState.mockClear();
+
+    // Act: Open edit. The outgoing list entry must be updated before the edit entry is pushed.
+    await user.click(screen.getByRole('button', { name: 'Edit Ionity Lidl' }));
+
+    // Assert: The current list marker records the actual position instead of leaving its initial zero snapshot.
+    expect(replaceState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        evAnalytics: expect.objectContaining({
+          tab: 'tariffs',
+          tariffListScrollY: 480,
+        }),
+      }),
+      '',
+      expect.stringMatching(/#tariffs$/),
+    );
+    expect(replaceState.mock.invocationCallOrder[0]).toBeLessThan(pushState.mock.invocationCallOrder[0]);
+
+    // Act: Deterministically replay the prior list entry rather than relying on browser traversal timing.
+    act(() => {
+      window.history.replaceState({
+        unrelated: 'keep-me',
+        evAnalytics: { tab: 'tariffs', entryId: 'list-1', tariffListScrollY: 480 },
+      }, '', '#tariffs');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    // Assert: Back restores the recorded list position and original edit trigger.
+    expect(await screen.findByRole('heading', { name: 'Tariffs' })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockScrollTo).toHaveBeenCalledWith({ top: 480, behavior: 'auto' });
+      expect(screen.getByRole('button', { name: 'Edit Ionity Lidl' })).toHaveFocus();
+    });
+    const restorationCountAfterFirstBack = mockScrollTo.mock.calls.length;
+
+    // Act: The user scrolls the restored list before following its existing Forward editor entry.
+    Object.defineProperty(window, 'scrollY', { configurable: true, writable: true, value: 777 });
+    act(() => {
+      window.dispatchEvent(new Event('scroll'));
+    });
+    expect(window.history.state).toMatchObject({
+      evAnalytics: { tab: 'tariffs', entryId: 'list-1', tariffListScrollY: 777 },
+    });
+
+    // Act: Replay the old Forward edit entry after the list snapshot changed.
+    act(() => {
+      window.history.replaceState({
+        unrelated: 'keep-me',
+        evAnalytics: {
+          tab: 'tariffs',
+          entryId: 'edit-1',
+          tariffListPredecessorId: 'list-1',
+          tariffListScrollY: 480,
+        },
+      }, '', '#tariffs/edit/provider-1%3A%3Alidl');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    // Assert: Forward reopens the editor, captures the new list position, and does not replay list restoration.
+    expect(await screen.findByRole('heading', { name: 'Edit Tariff' })).toBeInTheDocument();
+    expect(window.history.state).toMatchObject({
+      evAnalytics: { tab: 'tariffs', entryId: 'edit-1', tariffListScrollY: 777 },
+    });
+    expect(mockScrollTo).toHaveBeenCalledTimes(restorationCountAfterFirstBack);
+
+    // Act: Deterministically replay the updated list entry for a second Back transition.
+    act(() => {
+      window.history.replaceState({
+        unrelated: 'keep-me',
+        evAnalytics: { tab: 'tariffs', entryId: 'list-1', tariffListScrollY: 777 },
+      }, '', '#tariffs');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    // Assert: The second Back restores the new position and the originating tariff focus.
+    expect(await screen.findByRole('heading', { name: 'Tariffs' })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockScrollTo).toHaveBeenCalledWith({ top: 777, behavior: 'auto' });
+      expect(screen.getByRole('button', { name: 'Edit Ionity Lidl' })).toHaveFocus();
+    });
+    replaceState.mockRestore();
+    pushState.mockRestore();
+  });
+
+  it('restores the prior tariffs list on browser Back and reopens the available editor on Forward', async () => {
+    // Arrange: Enter the editor from an in-app Tariffs list entry.
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Tariffs' }));
+    await user.click(screen.getByRole('button', { name: 'Edit Ionity Lidl' }));
+    expect(screen.getByRole('heading', { name: 'Edit Tariff' })).toBeInTheDocument();
+
+    // Act: Replay the browser locations for the list and then the editor.
+    act(() => {
+      window.history.replaceState({ evAnalytics: { tab: 'tariffs', entryId: 'list-1' } }, '', '#tariffs');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
+    // Assert: Back derives list mode from the location rather than retaining stale editor state.
+    expect(screen.getByRole('heading', { name: 'Tariffs' })).toBeInTheDocument();
+    act(() => {
+      window.history.replaceState({
+        evAnalytics: { tab: 'tariffs', entryId: 'edit-1', tariffListPredecessorId: 'list-1' },
+      }, '', '#tariffs/edit/provider-1%3A%3Alidl');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    expect(screen.getByRole('heading', { name: 'Edit Tariff' })).toBeInTheDocument();
+  });
+
+  it('uses history only for an in-app edit predecessor and otherwise replaces a direct edit with the tariffs list on cancel', async () => {
+    // Arrange: Load a direct edit location with no in-app list predecessor.
+    window.history.replaceState({ unrelated: 'keep-me' }, '', '#tariffs/edit/provider-1%3A%3Alidl');
+    const user = userEvent.setup();
+    render(<App />);
+    expect(await screen.findByRole('heading', { name: 'Edit Tariff' })).toBeInTheDocument();
+
+    // Act: Cancel the direct editor.
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    // Assert: The app stays within its own Tariffs list instead of traversing an unknown predecessor.
+    expect(window.location.hash).toBe('#tariffs');
+    expect(window.history.state).toMatchObject({
+      unrelated: 'keep-me',
+      evAnalytics: { tab: 'tariffs', tariffListPredecessorId: null },
+    });
+  });
+
+  it('returns renamed saves to the list hash, restores the captured position, and focuses the emitted logical key', async () => {
+    // Arrange: Start from an in-app list and open the editable tariff.
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Tariffs' }));
+    await user.click(screen.getByRole('button', { name: 'Edit Ionity Lidl' }));
+
+    // Act: Save the renamed tariff.
+    await user.click(screen.getByRole('button', { name: 'Save Tariff' }));
+
+    // Assert: Save uses the list location and completes position-before-focus restoration for the new key.
+    expect(window.location.hash).toBe('#tariffs');
+    await waitFor(() => {
+      expect(mockScrollTo).toHaveBeenCalledWith({ top: 640, behavior: 'auto' });
+      expect(screen.getByRole('button', { name: 'Edit Ionity Lidl Plus' })).toHaveFocus();
+    });
+  });
+
+  it('closes an editor and clears pending tariff restoration when the user leaves the Tariffs tab', async () => {
+    // Arrange: Open a tariff editor from the list.
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Tariffs' }));
+    await user.click(screen.getByRole('button', { name: 'Edit Ionity Lidl' }));
+
+    // Act: Select another top-level tab.
+    await user.click(screen.getByRole('button', { name: 'Analytics' }));
+
+    // Assert: The editor cannot remain stale behind a marked non-Tariffs entry.
+    expect(screen.queryByRole('heading', { name: 'Edit Tariff' })).not.toBeInTheDocument();
+    expect(window.location.hash).toBe('');
+    expect(window.history.state).toMatchObject({ evAnalytics: { tab: 'analytics' } });
   });
 });

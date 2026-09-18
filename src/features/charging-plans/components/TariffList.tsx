@@ -3,6 +3,7 @@ import { Info, Plus } from 'lucide-react';
 import { formatCurrency } from '../../../shared/lib';
 import { PageActionSlab, Slab } from '../../../shared/ui';
 import { useAuth } from '../../auth';
+import type { HydrationTableState } from '../../offline-sync';
 import type { ChargingPlan, Provider } from '../../../infra/db';
 import { useChargingPlans } from '../hooks/useChargingPlans';
 import { useUtcToday } from '../hooks/useUtcToday';
@@ -64,7 +65,13 @@ interface TariffListProps {
   tariffFormState: TariffFormState;
   restorationRequest?: TariffRestoreRequest;
   onCreateTariff: () => void;
-  onEditTariff: (logicalTariffKey: string) => void;
+  getTariffEditHref: (logicalTariffKey: string) => string;
+  onEditTariff: (logicalTariffKey: string, event: React.MouseEvent<HTMLAnchorElement>) => void;
+  tariffLocationHydration: {
+    providers: HydrationTableState;
+    chargingPlans: HydrationTableState;
+    onRetry: () => void;
+  };
   onCloseForm: () => void;
   onSaveComplete: (logicalTariffKey: string) => void;
   onRestorationComplete: () => void;
@@ -187,6 +194,8 @@ export function TariffList({
   restorationRequest,
   onCreateTariff,
   onEditTariff,
+  getTariffEditHref,
+  tariffLocationHydration,
   onCloseForm,
   onSaveComplete,
   onRestorationComplete,
@@ -219,7 +228,7 @@ export function TariffList({
   const [pendingPaidTariffSwitch, setPendingPaidTariffSwitch] = useState<PendingPaidTariffSwitch | null>(null);
   const [paidTariffSwitchPending, setPaidTariffSwitchPending] = useState(false);
   const [paidTariffSwitchError, setPaidTariffSwitchError] = useState<string | null>(null);
-  const editButtonElementsRef = useRef<Record<string, HTMLButtonElement | null>>({});
+  const editButtonElementsRef = useRef<Record<string, HTMLElement | null>>({});
   const retiredCreateButtonElementsRef = useRef<Record<string, HTMLButtonElement | null>>({});
   const createTariffFormRef = useRef<HTMLDivElement>(null);
 
@@ -244,10 +253,16 @@ export function TariffList({
   const activeEditLogicalTariff = tariffFormState.mode === 'edit'
     ? logicalTariffsByKey.get(tariffFormState.logicalTariffKey) ?? null
     : null;
+  const isRetiredEditTarget = activeEditLogicalTariff?.lifecycle.kind === 'retired';
+  const isEditableTarget = activeEditLogicalTariff != null && !isRetiredEditTarget;
   const hasLogicalTariffs = (logicalTariffs ?? []).length > 0;
   const mainLogicalTariffs = (logicalTariffs ?? []).filter((logicalTariff) => logicalTariff.lifecycle.kind !== 'retired');
   const retiredLogicalTariffs = (logicalTariffs ?? []).filter((logicalTariff) => logicalTariff.lifecycle.kind === 'retired');
-  const isMissingEditTarget = tariffFormState.mode === 'edit' && activeEditLogicalTariff == null;
+  const isAbsentEditTarget = tariffFormState.mode === 'edit' && activeEditLogicalTariff == null;
+  const hasFailedTariffHydration = tariffLocationHydration.providers.status === 'failed'
+    || tariffLocationHydration.chargingPlans.status === 'failed';
+  const isTariffHydrationReady = tariffLocationHydration.providers.status === 'ready'
+    && tariffLocationHydration.chargingPlans.status === 'ready';
 
   const resolveTariffActionTrigger = (logicalTariffLabel: string): HTMLElement | null => (
     Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
@@ -522,7 +537,7 @@ export function TariffList({
         />
       )}
 
-      {!isCreateOpen && activeEditLogicalTariff && (
+      {!isCreateOpen && activeEditLogicalTariff && isEditableTarget && (
         <TariffFormLoader
           mode="edit"
           onSubmit={handleEditSubmit}
@@ -537,7 +552,24 @@ export function TariffList({
         />
       )}
 
-      {isMissingEditTarget && (
+      {isAbsentEditTarget && !isTariffHydrationReady && !hasFailedTariffHydration && (
+        <Slab className="space-y-2 p-6">
+          <h2 className="text-xl font-semibold text-primary">Checking tariff availability</h2>
+        </Slab>
+      )}
+      {isAbsentEditTarget && hasFailedTariffHydration && (
+        <Slab className="space-y-4 p-6">
+          <h2 className="text-xl font-semibold text-primary">Tariff availability is temporarily unavailable</h2>
+          <button
+            type="button"
+            onClick={tariffLocationHydration.onRetry}
+            className="inline-flex min-h-[44px] items-center rounded-xl bg-secondary/10 px-4 py-2 font-bold text-primary transition-all hover:bg-secondary/20"
+          >
+            Retry tariff availability
+          </button>
+        </Slab>
+      )}
+      {(isRetiredEditTarget || (isAbsentEditTarget && isTariffHydrationReady)) && (
         <Slab className="space-y-4 p-6">
           <div className="space-y-2">
             <h2 className="text-xl font-semibold text-primary">Tariff is no longer available</h2>
@@ -604,17 +636,17 @@ export function TariffList({
                 )}
               </div>
               <div className="flex items-start gap-2 pt-1">
-                <button
-                  type="button"
+                <a
+                  href={getTariffEditHref(logicalTariff.key)}
                   ref={(element) => {
                     editButtonElementsRef.current[logicalTariff.key] = element;
                   }}
-                  onClick={() => onEditTariff(logicalTariff.key)}
+                  onClick={(event) => onEditTariff(logicalTariff.key, event)}
                   aria-label={`Edit ${logicalTariffLabel}`}
                   className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-secondary/10 px-4 py-2 font-bold text-primary transition-all hover:bg-secondary/20"
                 >
                   Edit
-                </button>
+                </a>
                 <TariffVersionActionMenu
                   label={logicalTariffLabel}
                   onRetire={canRetire ? () => {

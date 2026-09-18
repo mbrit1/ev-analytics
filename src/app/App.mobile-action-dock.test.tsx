@@ -264,6 +264,7 @@ describe('App mobile action dock', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    window.history.replaceState({}, '', '/');
     vi.stubGlobal('scrollTo', mockScrollTo);
     Object.defineProperty(window, 'scrollY', {
       configurable: true,

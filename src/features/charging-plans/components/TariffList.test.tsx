@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TariffList } from './TariffList';
@@ -232,7 +232,11 @@ const renderTariffList = (
     tariffFormState={props.tariffFormState ?? { mode: 'closed' }}
     restorationRequest={props.restorationRequest}
     onCreateTariff={props.onCreateTariff ?? vi.fn()}
+    getTariffEditHref={props.getTariffEditHref ?? ((key) => `#tariffs/edit/${encodeURIComponent(key)}`)}
     onEditTariff={props.onEditTariff ?? vi.fn()}
+    tariffLocationHydration={props.tariffLocationHydration ?? {
+      providers: { status: 'ready' }, chargingPlans: { status: 'ready' }, onRetry: vi.fn(),
+    }}
     onCloseForm={props.onCloseForm ?? vi.fn()}
     onSaveComplete={props.onSaveComplete ?? vi.fn()}
     onRestorationComplete={props.onRestorationComplete ?? vi.fn()}
@@ -247,7 +251,11 @@ const tariffListElement = (
     tariffFormState={props.tariffFormState ?? { mode: 'closed' }}
     restorationRequest={props.restorationRequest}
     onCreateTariff={props.onCreateTariff ?? vi.fn()}
+    getTariffEditHref={props.getTariffEditHref ?? ((key) => `#tariffs/edit/${encodeURIComponent(key)}`)}
     onEditTariff={props.onEditTariff ?? vi.fn()}
+    tariffLocationHydration={props.tariffLocationHydration ?? {
+      providers: { status: 'ready' }, chargingPlans: { status: 'ready' }, onRetry: vi.fn(),
+    }}
     onCloseForm={props.onCloseForm ?? vi.fn()}
     onSaveComplete={props.onSaveComplete ?? vi.fn()}
     onRestorationComplete={props.onRestorationComplete ?? vi.fn()}
@@ -262,7 +270,9 @@ function TariffListCreateHarness(): React.ReactElement {
     <TariffList
       tariffFormState={tariffFormState}
       onCreateTariff={() => setTariffFormState({ mode: 'create' })}
+      getTariffEditHref={(key) => `#tariffs/edit/${encodeURIComponent(key)}`}
       onEditTariff={vi.fn()}
+      tariffLocationHydration={{ providers: { status: 'ready' }, chargingPlans: { status: 'ready' }, onRetry: vi.fn() }}
       onCloseForm={() => setTariffFormState({ mode: 'closed' })}
       onSaveComplete={vi.fn()}
       onRestorationComplete={vi.fn()}
@@ -329,7 +339,7 @@ describe('TariffList', () => {
     renderTariffList();
 
     // Assert: The list shows one grouped card, the upcoming indicator, and the current price.
-    expect(screen.getAllByRole('button', { name: /edit ionity lidl/i })).toHaveLength(1);
+    expect(screen.getAllByRole('link', { name: /edit ionity lidl/i })).toHaveLength(1);
     expect(screen.getByText('Update scheduled · 15 Aug 2026')).toBeInTheDocument();
     expect(screen.getByText('0,29 €')).toBeInTheDocument();
   });
@@ -431,10 +441,28 @@ describe('TariffList', () => {
     renderTariffList({ onEditTariff });
 
     // Act: Click "Edit Ionity Lidl".
-    await user.click(screen.getByRole('button', { name: /edit ionity lidl/i }));
+    await user.click(screen.getByRole('link', { name: /edit ionity lidl/i }));
 
     // Assert: onEditTariff receives the logical tariff key.
-    expect(onEditTariff).toHaveBeenCalledWith('p1::lidl');
+    expect(onEditTariff).toHaveBeenCalledWith('p1::lidl', expect.anything());
+  });
+
+  it('renders the current tariff edit affordance as an app-owned location anchor and only intercepts ordinary activation', async () => {
+    // Arrange: Supply the app-owned encoded destination and activation callback.
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue());
+    const onEditTariff = vi.fn();
+    const user = userEvent.setup();
+    renderTariffList({ onEditTariff, getTariffEditHref: (logicalTariffKey) => `#tariffs/edit/${encodeURIComponent(logicalTariffKey)}` });
+
+    // Act: Use an ordinary primary click, then a modified click on the same concrete destination.
+    const editLink = screen.getByRole('link', { name: /edit ionity lidl/i });
+    await user.click(editLink);
+    fireEvent.click(editLink, { ctrlKey: true });
+
+    // Assert: The anchor is loadable and the app callback owns only ordinary in-app navigation.
+    expect(editLink).toHaveAttribute('href', '#tariffs/edit/p1%3A%3Alidl');
+    expect(onEditTariff).toHaveBeenCalledTimes(2);
+    expect(onEditTariff).toHaveBeenCalledWith('p1::lidl', expect.anything());
   });
 
   it('hides the list while app-owned edit form is visible', () => {
@@ -444,7 +472,7 @@ describe('TariffList', () => {
 
     // Assert: "Edit Tariff" is visible and the tariff card is not visible.
     expect(screen.getByText(/tariff form:edit:lidl/i)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /edit ionity lidl/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /edit ionity lidl/i })).not.toBeInTheDocument();
   });
 
   it('provides one responsive Add tariff action on the list and none while its focused form is open', () => {
@@ -857,7 +885,7 @@ describe('TariffList', () => {
     // Assert: The list scroll restore is applied and completion is acknowledged.
     await waitFor(() => {
       expect(window.scrollTo).toHaveBeenCalledWith({ top: 640, behavior: 'auto' });
-      expect(screen.getByRole('button', { name: /edit ionity lidl/i })).toHaveFocus();
+      expect(screen.getByRole('link', { name: /edit ionity lidl/i })).toHaveFocus();
       expect(onRestorationComplete).toHaveBeenCalled();
     });
   });
@@ -903,7 +931,7 @@ describe('TariffList', () => {
 
     // Assert: Completion is acknowledged only after focus lands on the refreshed card.
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: /edit ionity renamed tariff/i })).toHaveFocus();
+      expect(screen.getByRole('link', { name: /edit ionity renamed tariff/i })).toHaveFocus();
       expect(onRestorationComplete).toHaveBeenCalledTimes(1);
     });
   });
@@ -923,6 +951,72 @@ describe('TariffList', () => {
     // Assert: The blank-state trap is replaced by a visible fallback and cancel path.
     expect(screen.getByText(/tariff is no longer available/i)).toBeInTheDocument();
     expect(onCloseForm).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an absent edit target pending while either local hydration gate is loading', () => {
+    // Arrange: Resolve an absent target while the provider cache is not settled.
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ logicalTariffs: [] }));
+    renderTariffList({
+      tariffFormState: { mode: 'edit', logicalTariffKey: 'p1::missing' },
+      tariffLocationHydration: {
+          providers: { status: 'loading' },
+          chargingPlans: { status: 'ready' },
+          onRetry: vi.fn(),
+      },
+    });
+
+    // Assert: A negative local snapshot does not become a conclusive missing-target result before both gates settle.
+    expect(screen.getByText(/checking tariff availability/i)).toBeInTheDocument();
+    expect(screen.queryByText(/tariff is no longer available/i)).not.toBeInTheDocument();
+  });
+
+  it('exposes an absent target after hydration failure as retryable unavailable state', async () => {
+    // Arrange: Resolve an absent target after a provider hydration failure.
+    const onRetry = vi.fn();
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ logicalTariffs: [] }));
+    renderTariffList({
+      tariffFormState: { mode: 'edit', logicalTariffKey: 'p1::missing' },
+      tariffLocationHydration: {
+        providers: { status: 'failed', failureKind: 'network' },
+        chargingPlans: { status: 'ready' },
+        onRetry,
+      },
+    });
+
+    // Act: Request another local hydration attempt from the unavailable surface.
+    await userEvent.setup().click(screen.getByRole('button', { name: /retry tariff availability/i }));
+
+    // Assert: Failure does not claim deletion and remains recoverable.
+    expect(screen.getByText(/tariff availability is temporarily unavailable/i)).toBeInTheDocument();
+    expect(screen.queryByText(/tariff is no longer available/i)).not.toBeInTheDocument();
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates an open editor when its live logical tariff becomes retired', () => {
+    // Arrange: Open an available current tariff in the shell-owned editor.
+    const currentTariff = buildLogicalTariff();
+    const retiredTariff = buildLogicalTariff({
+      lifecycle: {
+        kind: 'retired',
+        finalEffectiveVersion: currentTariff.currentVersion,
+        finalActiveDate: '2026-08-16',
+      },
+    });
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ logicalTariffs: [currentTariff] }));
+    const { rerender } = render(tariffListElement({
+      tariffFormState: { mode: 'edit', logicalTariffKey: 'p1::lidl' },
+    }));
+    expect(screen.getByText(/tariff form:edit:lidl/i)).toBeInTheDocument();
+
+    // Act: Simulate the live-query lifecycle update after retirement.
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ logicalTariffs: [retiredTariff] }));
+    rerender(tariffListElement({
+      tariffFormState: { mode: 'edit', logicalTariffKey: 'p1::lidl' },
+    }));
+
+    // Assert: A retired target loses its writable form immediately.
+    expect(screen.queryByText(/tariff form:edit:lidl/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/tariff is no longer available/i)).toBeInTheDocument();
   });
 
   it('opens ordinary creation from a retired tariff with only final-effective clone defaults', async () => {
@@ -1405,5 +1499,20 @@ describe('TariffList', () => {
     // Assert: No unsafe switch affordance is shown; manual repair guidance is surfaced in the form.
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(await screen.findByRole('alert')).toHaveTextContent(/manual|correct.*tariff|existing tariff dates/i);
+  });
+
+  it.each(['loading', 'failed'] as const)('treats a locally retired target as conclusively unavailable while hydration is %s', (status) => {
+    const retired = buildLogicalTariff({ lifecycle: { kind: 'retired', finalEffectiveVersion: null, finalActiveDate: '2026-08-16' } });
+    const hydration = status === 'failed'
+      ? { status, failureKind: 'network' as const }
+      : { status };
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ logicalTariffs: [retired] }));
+    renderTariffList({
+      tariffFormState: { mode: 'edit', logicalTariffKey: 'p1::lidl' },
+      tariffLocationHydration: { providers: hydration, chargingPlans: hydration, onRetry: vi.fn() },
+    });
+    expect(screen.getByText(/tariff is no longer available/i)).toBeInTheDocument();
+    expect(screen.queryByText(/temporarily unavailable/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/tariff form:edit/i)).not.toBeInTheDocument();
   });
 });

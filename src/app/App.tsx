@@ -22,6 +22,15 @@ import { type ChargingSession } from '../infra/db'
 import { MobileContextAction, Navigation } from '../shared/ui'
 import { type NavigationTab } from '../shared/ui/Navigation/types'
 import { AnalyticsPage } from '../features/analytics'
+import {
+  isOrdinaryTariffActivation,
+  newTariffMarker,
+  parseTariffLocation,
+  readTariffHistoryMarker,
+  tariffEditHref,
+  withTariffHistoryMarker,
+  withoutTariffHistoryMarker,
+} from './tariffNavigation'
 
 const TariffList = lazy(async () => {
   const module = await import('../features/charging-plans/components/TariffList')
@@ -72,6 +81,140 @@ function App() {
   const isSessionFormOpen = sessionFormState.mode !== 'closed'
   const historyScrollSnapshotRef = useRef(0)
   const tariffScrollSnapshotRef = useRef(0)
+  const principalIdRef = useRef<string | null>(null)
+  const activeTariffEditKeyRef = useRef<string | null>(null)
+  const isTariffListVisibleRef = useRef(false)
+  const userId = user?.id
+
+  const applyTariffLocation = useCallback(() => {
+    const location = parseTariffLocation(window.location.hash)
+    const marker = readTariffHistoryMarker(window.history.state)
+    if (location.kind === 'malformed') {
+      window.history.replaceState(withTariffHistoryMarker(window.history.state, newTariffMarker('tariffs', { tariffListScrollY: 0 })), '', '#tariffs')
+      activeTariffEditKeyRef.current = null
+      setActiveTab('tariffs')
+      setTariffFormState({ mode: 'closed' })
+      setTariffRestoreRequest(null)
+      return
+    }
+    if (location.kind === 'edit') {
+      const needsAdoption = marker == null || marker.tab !== 'tariffs'
+      const shouldRefreshScroll = !needsAdoption
+        && isTariffListVisibleRef.current
+        && marker.tariffListScrollY !== tariffScrollSnapshotRef.current
+      const nextMarker = needsAdoption
+        ? newTariffMarker('tariffs', {
+          tariffListPredecessorId: null,
+          tariffListScrollY: 0,
+        })
+        : shouldRefreshScroll
+          ? { ...marker, tariffListScrollY: tariffScrollSnapshotRef.current }
+          : marker
+      if (needsAdoption || shouldRefreshScroll) {
+        window.history.replaceState(withTariffHistoryMarker(window.history.state, nextMarker), '', window.location.href)
+      }
+      isTariffListVisibleRef.current = false
+      activeTariffEditKeyRef.current = location.logicalTariffKey
+      setActiveTab('tariffs')
+      setTariffRestoreRequest(null)
+      setTariffFormState({ mode: 'edit', logicalTariffKey: location.logicalTariffKey })
+      return
+    }
+    if (location.kind === 'list') {
+      const needsAdoption = marker == null
+        || marker.tab !== 'tariffs'
+        || marker.tariffListPredecessorId != null
+      const nextMarker = needsAdoption
+        ? newTariffMarker('tariffs', { tariffListScrollY: 0 })
+        : marker
+      if (needsAdoption) {
+        window.history.replaceState(withTariffHistoryMarker(window.history.state, nextMarker), '', window.location.href)
+      }
+      const focusTariffKey = activeTariffEditKeyRef.current
+      const scrollY = nextMarker.tariffListScrollY ?? 0
+      tariffScrollSnapshotRef.current = scrollY
+      isTariffListVisibleRef.current = true
+      setActiveTab('tariffs')
+      setTariffFormState({ mode: 'closed' })
+      setTariffRestoreRequest(focusTariffKey == null
+        ? null
+        : { type: 'position', scrollY, focusTariffKey })
+      return
+    }
+    activeTariffEditKeyRef.current = null
+    isTariffListVisibleRef.current = false
+    setActiveTab(marker?.tab ?? 'sessions')
+    setTariffFormState({ mode: 'closed' })
+    setTariffRestoreRequest(null)
+  }, [])
+
+  useEffect(() => {
+    window.addEventListener('popstate', applyTariffLocation)
+    return () => window.removeEventListener('popstate', applyTariffLocation)
+  }, [applyTariffLocation])
+
+  useEffect(() => {
+    const isActiveTariffList = activeTab === 'tariffs'
+      && tariffFormState.mode === 'closed'
+      && parseTariffLocation(window.location.hash).kind === 'list'
+    if (!isActiveTariffList) {
+      return
+    }
+
+    const persistTariffListScroll = () => {
+      const marker = readTariffHistoryMarker(window.history.state)
+      if (marker?.tab !== 'tariffs' || marker.tariffListScrollY === window.scrollY) {
+        return
+      }
+      tariffScrollSnapshotRef.current = window.scrollY
+      window.history.replaceState(
+        withTariffHistoryMarker(window.history.state, { ...marker, tariffListScrollY: window.scrollY }),
+        '',
+        window.location.href,
+      )
+    }
+
+    window.addEventListener('scroll', persistTariffListScroll)
+    return () => window.removeEventListener('scroll', persistTariffListScroll)
+  }, [activeTab, tariffFormState.mode])
+
+  useEffect(() => {
+    if (loading) return
+    const previousUserId = principalIdRef.current
+    if (!userId) {
+      if (previousUserId) {
+        window.history.replaceState(
+          withoutTariffHistoryMarker(window.history.state),
+          '',
+          `${window.location.pathname}${window.location.search}`,
+        )
+      }
+      principalIdRef.current = null
+      activeTariffEditKeyRef.current = null
+      isTariffListVisibleRef.current = false
+      tariffScrollSnapshotRef.current = 0
+      window.dispatchEvent(new PopStateEvent('popstate'))
+      return
+    }
+
+    if (previousUserId && previousUserId !== userId) {
+      const location = parseTariffLocation(window.location.hash)
+      const replacement = location.kind === 'edit'
+        ? withTariffHistoryMarker(
+          withoutTariffHistoryMarker(window.history.state),
+          newTariffMarker('tariffs', { tariffListPredecessorId: null, tariffListScrollY: 0 }),
+        )
+        : withoutTariffHistoryMarker(window.history.state)
+      window.history.replaceState(replacement, '', window.location.href)
+      activeTariffEditKeyRef.current = null
+      isTariffListVisibleRef.current = false
+      tariffScrollSnapshotRef.current = 0
+      setTariffRestoreRequest(null)
+    }
+
+    principalIdRef.current = userId
+    window.dispatchEvent(new PopStateEvent('popstate'))
+  }, [applyTariffLocation, loading, userId])
 
   useEffect(() => {
     // Runtime is auth-gated and manages initial hydration plus background outbox
@@ -101,6 +244,8 @@ function App() {
   }, [user])
 
   const handleTabChange = (tab: NavigationTab) => {
+    if (tab === activeTab) return
+    window.history.pushState(withTariffHistoryMarker(window.history.state, newTariffMarker(tab, { tariffListScrollY: tab === 'tariffs' ? 0 : undefined })), '', tab === 'tariffs' ? '#tariffs' : `${window.location.pathname}${window.location.search}`)
     setActiveTab(tab)
 
     if (tab !== 'sessions') {
@@ -109,6 +254,8 @@ function App() {
     }
 
     if (tab !== 'tariffs') {
+      activeTariffEditKeyRef.current = null
+      isTariffListVisibleRef.current = false
       setTariffFormState({ mode: 'closed' })
       setTariffRestoreRequest(null)
     }
@@ -121,7 +268,11 @@ function App() {
       if (error) {
         setLogoutError(error.message || 'Sign-out failed. Please try again.')
         console.error('Sign-out failed:', error)
+        return
       }
+      activeTariffEditKeyRef.current = null
+      setTariffFormState({ mode: 'closed' })
+      setTariffRestoreRequest(null)
     } catch (error) {
       const message = error instanceof Error && error.message
         ? error.message
@@ -197,7 +348,29 @@ function App() {
   }
 
   const handleOpenEditTariff = (logicalTariffKey: string) => {
+    const currentMarker = readTariffHistoryMarker(window.history.state)
+    const listMarker = currentMarker?.tab === 'tariffs'
+      ? { ...currentMarker, tariffListScrollY: window.scrollY }
+      : newTariffMarker('tariffs', { tariffListScrollY: window.scrollY })
+    window.history.replaceState(
+      withTariffHistoryMarker(window.history.state, listMarker),
+      '',
+      window.location.href,
+    )
+    window.history.pushState(
+      withTariffHistoryMarker(
+        window.history.state,
+        newTariffMarker('tariffs', {
+          tariffListPredecessorId: listMarker.entryId,
+          tariffListScrollY: window.scrollY,
+        }),
+      ),
+      '',
+      tariffEditHref(logicalTariffKey),
+    )
     tariffScrollSnapshotRef.current = window.scrollY
+    activeTariffEditKeyRef.current = logicalTariffKey
+    isTariffListVisibleRef.current = false
     setTariffRestoreRequest(null)
     setTariffFormState({ mode: 'edit', logicalTariffKey })
   }
@@ -207,6 +380,9 @@ function App() {
       ? tariffFormState.logicalTariffKey
       : null
 
+    const marker = readTariffHistoryMarker(window.history.state)
+    if (marker?.tariffListPredecessorId) window.history.back()
+    else window.history.replaceState(withTariffHistoryMarker(window.history.state, newTariffMarker('tariffs', { tariffListPredecessorId: null })), '', '#tariffs')
     setTariffFormState({ mode: 'closed' })
     setTariffRestoreRequest({
       type: 'position',
@@ -216,8 +392,9 @@ function App() {
   }
 
   const handleTariffSaveComplete = (logicalTariffKey: string) => {
+    window.history.replaceState(withTariffHistoryMarker(window.history.state, newTariffMarker('tariffs', { tariffListPredecessorId: null })), '', '#tariffs')
     setTariffFormState({ mode: 'closed' })
-    setTariffRestoreRequest({ type: 'tariff', tariffKey: logicalTariffKey })
+    setTariffRestoreRequest({ type: 'position', scrollY: tariffScrollSnapshotRef.current, focusTariffKey: logicalTariffKey })
   }
 
   const blockingSyncRetryText = syncStatus.nextRetryAt != null
@@ -358,7 +535,17 @@ function App() {
                     tariffFormState={tariffFormState}
                     restorationRequest={tariffRestoreRequest ?? undefined}
                     onCreateTariff={handleOpenCreateTariff}
-                    onEditTariff={handleOpenEditTariff}
+                    getTariffEditHref={tariffEditHref}
+                    onEditTariff={(logicalTariffKey, event) => {
+                      if (!isOrdinaryTariffActivation(event)) return
+                      event?.preventDefault()
+                      handleOpenEditTariff(logicalTariffKey)
+                    }}
+                    tariffLocationHydration={{
+                      providers: syncStatus.hydration.providers,
+                      chargingPlans: syncStatus.hydration.charging_plans,
+                      onRetry: retryActiveSyncRuntime,
+                    }}
                     onCloseForm={handleCloseTariffForm}
                     onSaveComplete={handleTariffSaveComplete}
                     onRestorationComplete={() => setTariffRestoreRequest(null)}
