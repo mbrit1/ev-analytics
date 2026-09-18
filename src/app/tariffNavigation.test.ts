@@ -186,6 +186,23 @@ describe('app-owned tariff navigation', () => {
     expect(window.location.hash).toBe('#external/view')
   })
 
+  it('does not let a stale Tariffs marker claim an unknown hash', () => {
+    // Arrange: A foreign hash must remain unowned even when browser state has a stale Tariffs marker.
+    const externalState = {
+      unrelated: true,
+      evAnalytics: { tab: 'tariffs', entryId: 'stale-tariffs-entry' },
+    }
+    window.history.replaceState(externalState, '', '#external/view')
+
+    // Act: Boot the app at the unknown location.
+    render(React.createElement(App))
+
+    // Assert: Unknown locations use the default tab and preserve both external location and state.
+    expect(screen.getByRole('heading', { name: 'Sessions' })).toBeInTheDocument()
+    expect(window.location.hash).toBe('#external/view')
+    expect(window.history.state).toEqual(externalState)
+  })
+
   it('does not push for the selected tab and pushes one marked entry for a different tab', async () => {
     // Arrange: Render the default Sessions entry and remember its history depth.
     const user = userEvent.setup()

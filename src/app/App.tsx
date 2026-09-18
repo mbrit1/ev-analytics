@@ -163,7 +163,7 @@ function App() {
     activeTariffEditKeyRef.current = null
     tariffListEntryIdRef.current = null
     isTariffListVisibleRef.current = false
-    setActiveTab(marker?.tab ?? 'sessions')
+    setActiveTab(window.location.hash === '' ? marker?.tab ?? 'sessions' : 'sessions')
     setTariffFormState({ mode: 'closed' })
     setTariffRestoreRequest(null)
   }, [])
