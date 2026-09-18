@@ -55,6 +55,11 @@ type TariffRestoreRequest =
   | { type: 'position'; scrollY: number; focusTariffKey?: string | null }
   | { type: 'tariff'; tariffKey: string }
 
+type TariffModalState = {
+  isOpen: boolean;
+  isPending: boolean;
+}
+
 /**
  * Root application shell for the authenticated EV Analytics experience.
  *
@@ -77,6 +82,7 @@ function App() {
   const [historyRestoreRequest, setHistoryRestoreRequest] = useState<HistoryRestoreRequest | null>(null)
   const [tariffFormState, setTariffFormState] = useState<TariffFormState>({ mode: 'closed' })
   const [tariffRestoreRequest, setTariffRestoreRequest] = useState<TariffRestoreRequest | null>(null)
+  const [tariffModalState, setTariffModalState] = useState<TariffModalState>({ isOpen: false, isPending: false })
   const [logoutError, setLogoutError] = useState<string | null>(null)
   const isSessionFormOpen = sessionFormState.mode !== 'closed'
   const historyScrollSnapshotRef = useRef(0)
@@ -85,6 +91,12 @@ function App() {
   const activeTariffEditKeyRef = useRef<string | null>(null)
   const isTariffListVisibleRef = useRef(false)
   const userId = user?.id
+  const visibleTariffModalState = activeTab === 'tariffs'
+    ? tariffModalState
+    : { isOpen: false, isPending: false }
+  const providerRecoveryRequested = providerConflictRecovery.isOpen && providerConflictRecovery.state.kind !== 'closed'
+  const recoveryExclusion = providerRecoveryRequested && !visibleTariffModalState.isPending
+  const isProviderRecoveryVisible = providerRecoveryRequested && !visibleTariffModalState.isOpen
 
   const applyTariffLocation = useCallback(() => {
     const location = parseTariffLocation(window.location.hash)
@@ -549,6 +561,8 @@ function App() {
                     onCloseForm={handleCloseTariffForm}
                     onSaveComplete={handleTariffSaveComplete}
                     onRestorationComplete={() => setTariffRestoreRequest(null)}
+                    recoveryExclusion={recoveryExclusion}
+                    onModalStateChange={setTariffModalState}
                   />
                 </Suspense>
               ) : (
@@ -585,7 +599,7 @@ function App() {
               )}
             </div>
           </main>
-          {providerConflictRecovery.isOpen && providerConflictRecovery.state.kind !== 'closed' && (
+          {isProviderRecoveryVisible && providerConflictRecovery.state.kind !== 'closed' && (
             <ProviderConflictRecoveryDialog
               state={providerConflictRecovery.state}
               isPending={providerConflictRecovery.isPending}

@@ -1,5 +1,5 @@
 import { MoreHorizontal } from 'lucide-react';
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { TariffActionPopover } from './TariffActionPopover';
 import { TariffActionSheet } from './TariffActionSheet';
 
@@ -112,6 +112,14 @@ interface TariffVersionActionMenuProps {
   onRetire?: () => void;
   onPromotion: () => void;
   onDelete: () => void;
+  disabled?: boolean;
+  onOpenChange?: (isOpen: boolean) => void;
+}
+
+interface InertSnapshot {
+  inert: boolean;
+  hadInertAttribute: boolean;
+  inertAttribute: string | null;
 }
 
 /** Opens the feature-owned responsive exceptional-action surface for one tariff. */
@@ -120,23 +128,67 @@ export function TariffVersionActionMenu({
   onRetire,
   onPromotion,
   onDelete,
+  disabled = false,
+  onOpenChange,
 }: TariffVersionActionMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const pendingActionRef = useRef<(() => void) | null>(null);
+  const onOpenChangeRef = useRef(onOpenChange);
+  const triggerInertSnapshotRef = useRef<InertSnapshot | null>(null);
+  const restoreTriggerInertTimeoutRef = useRef<number | null>(null);
   const capabilities = useTariffActionCapabilities();
   const presentation = selectTariffActionPresentation(capabilities);
   const previousPresentationRef = useRef(presentation);
   const overlayId = `tariff-actions-${useId().replaceAll(':', '')}`;
   const triggerLabel = `Tariff actions for ${label}`;
+  const overlayOpen = isOpen && !disabled;
   const dismiss = useCallback(() => setIsOpen(false), []);
-  const actions = useMemo(() => getTariffActionDescriptors({ canRetire: Boolean(onRetire) }).map((action) => ({
-    ...action,
-    onSelect: action.id === 'promotion'
+  const restoreTriggerInertState = useCallback(() => {
+    const trigger = triggerRef.current;
+    const snapshot = triggerInertSnapshotRef.current;
+    triggerInertSnapshotRef.current = null;
+    restoreTriggerInertTimeoutRef.current = null;
+    if (!trigger || !snapshot) return;
+    trigger.inert = snapshot.inert;
+    if (snapshot.hadInertAttribute) {
+      trigger.setAttribute('inert', snapshot.inertAttribute ?? '');
+    } else {
+      trigger.removeAttribute('inert');
+    }
+  }, []);
+  const suppressTriggerFocusRestore = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger || triggerInertSnapshotRef.current) return;
+
+    triggerInertSnapshotRef.current = {
+      inert: trigger.inert,
+      hadInertAttribute: trigger.hasAttribute('inert'),
+      inertAttribute: trigger.getAttribute('inert'),
+    };
+    trigger.inert = true;
+    trigger.setAttribute('inert', '');
+    restoreTriggerInertTimeoutRef.current = window.setTimeout(() => {
+      restoreTriggerInertTimeoutRef.current = window.setTimeout(restoreTriggerInertState, 0);
+    }, 0);
+  }, [restoreTriggerInertState]);
+  const actions = useMemo(() => getTariffActionDescriptors({ canRetire: Boolean(onRetire) }).map((action) => {
+    const onSelect = action.id === 'promotion'
       ? onPromotion
       : action.id === 'retire'
         ? onRetire ?? (() => undefined)
-        : onDelete,
-  })), [onDelete, onPromotion, onRetire]);
+        : onDelete;
+    return {
+      ...action,
+      onSelect: action.id === 'retire' || action.id === 'delete'
+        ? () => {
+          suppressTriggerFocusRestore();
+          pendingActionRef.current = onSelect;
+          setIsOpen(false);
+        }
+        : onSelect,
+    };
+  }), [onDelete, onPromotion, onRetire, suppressTriggerFocusRestore]);
 
   useEffect(() => {
     if (previousPresentationRef.current !== presentation) {
@@ -145,15 +197,54 @@ export function TariffVersionActionMenu({
     }
   }, [presentation]);
 
+  useEffect(() => {
+    onOpenChange?.(overlayOpen);
+  }, [onOpenChange, overlayOpen]);
+
+  useEffect(() => {
+    onOpenChangeRef.current = onOpenChange;
+  }, [onOpenChange]);
+
+  useEffect(() => () => {
+    onOpenChangeRef.current?.(false);
+  }, []);
+
+  useEffect(() => () => {
+    if (restoreTriggerInertTimeoutRef.current != null) {
+      window.clearTimeout(restoreTriggerInertTimeoutRef.current);
+    }
+    restoreTriggerInertState();
+  }, [restoreTriggerInertState]);
+
+  useLayoutEffect(() => {
+    if (!disabled || !isOpen) return;
+    suppressTriggerFocusRestore();
+  }, [disabled, isOpen, suppressTriggerFocusRestore]);
+
+  useEffect(() => {
+    if (!disabled || !isOpen) return;
+    const closeOverlayTaskId = window.setTimeout(() => setIsOpen(false), 0);
+    return () => window.clearTimeout(closeOverlayTaskId);
+  }, [disabled, isOpen]);
+
+  useEffect(() => {
+    if (isOpen || pendingActionRef.current == null) return;
+    const action = pendingActionRef.current;
+    pendingActionRef.current = null;
+    triggerRef.current?.blur();
+    action();
+  }, [isOpen]);
+
   return (
     <>
       <button
         ref={triggerRef}
         type="button"
         aria-label={triggerLabel}
-        aria-expanded={isOpen}
+        aria-expanded={overlayOpen}
         aria-controls={overlayId}
         aria-haspopup={presentation === 'menu' ? 'menu' : 'dialog'}
+        disabled={disabled}
         onClick={() => setIsOpen((current) => !current)}
         onKeyDown={(event) => {
           if (event.key === 'Escape') setIsOpen(false);
@@ -165,7 +256,7 @@ export function TariffVersionActionMenu({
       {presentation === 'menu' ? (
         <TariffActionPopover
           id={overlayId}
-          open={isOpen}
+          open={overlayOpen}
           label={triggerLabel}
           actions={actions}
           triggerRef={triggerRef}
@@ -175,7 +266,7 @@ export function TariffVersionActionMenu({
       ) : (
         <TariffActionSheet
           id={overlayId}
-          open={isOpen}
+          open={overlayOpen}
           label={triggerLabel}
           actions={actions}
           triggerRef={triggerRef}

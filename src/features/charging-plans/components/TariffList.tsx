@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Info, Plus } from 'lucide-react';
 import { formatCurrency } from '../../../shared/lib';
 import { EntitySlab, PageActionSlab, Slab } from '../../../shared/ui';
@@ -76,6 +76,8 @@ interface TariffListProps {
   onSaveComplete: (logicalTariffKey: string) => void;
   onRestorationComplete: () => void;
   onFormOpenChange?: (isOpen: boolean) => void;
+  recoveryExclusion?: boolean;
+  onModalStateChange?: (state: { isOpen: boolean; isPending: boolean }) => void;
 }
 
 interface CurrentPricingRowsProps {
@@ -209,6 +211,8 @@ export function TariffList({
   onSaveComplete,
   onRestorationComplete,
   onFormOpenChange,
+  recoveryExclusion = false,
+  onModalStateChange,
 }: TariffListProps) {
   const {
     logicalTariffs,
@@ -227,14 +231,19 @@ export function TariffList({
   const utcToday = useUtcToday();
   const [surface, setSurface] = useState<TariffSurface>({ kind: 'none' });
   const [isDeletePending, setIsDeletePending] = useState(false);
+  const [deleteRestoreFocusElement, setDeleteRestoreFocusElement] = useState<HTMLElement | null>(null);
+  const [suppressDeleteFocusRestore, setSuppressDeleteFocusRestore] = useState(false);
   const [isRetirementPending, setIsRetirementPending] = useState(false);
   const [retirementError, setRetirementError] = useState<string | null>(null);
   const [retirementRestoreFocusElement, setRetirementRestoreFocusElement] = useState<HTMLElement | null>(null);
+  const [suppressRetirementFocusRestore, setSuppressRetirementFocusRestore] = useState(false);
   const [pendingTariffRetirement, setPendingTariffRetirement] = useState<PendingTariffRetirement | null>(null);
+  const [isTariffActionOverlayOpen, setIsTariffActionOverlayOpen] = useState(false);
   const [isRetiredTariffsOpen, setIsRetiredTariffsOpen] = useState(false);
   const [retiredTariffCloneDraft, setRetiredTariffCloneDraft] = useState<RetiredTariffCloneDraft | null>(null);
   const [retiredCloneRestoreFocusKey, setRetiredCloneRestoreFocusKey] = useState<string | null>(null);
   const [pendingPaidTariffSwitch, setPendingPaidTariffSwitch] = useState<PendingPaidTariffSwitch | null>(null);
+  const [suppressPaidTariffSwitchFocusRestore, setSuppressPaidTariffSwitchFocusRestore] = useState(false);
   const [paidTariffSwitchPending, setPaidTariffSwitchPending] = useState(false);
   const [paidTariffSwitchError, setPaidTariffSwitchError] = useState<string | null>(null);
   const editButtonElementsRef = useRef<Record<string, HTMLAnchorElement | null>>({});
@@ -272,18 +281,39 @@ export function TariffList({
     || tariffLocationHydration.chargingPlans.status === 'failed';
   const isTariffHydrationReady = tariffLocationHydration.providers.status === 'ready'
     && tariffLocationHydration.chargingPlans.status === 'ready';
+  const isTariffConfirmationOpen = (!isShellOwnedFormVisible && resolvedSurface.kind === 'retire' && pendingTariffRetirement != null)
+    || (!isShellOwnedFormVisible && resolvedSurface.kind === 'delete' && activeSurfaceLogicalTariff != null)
+    || pendingPaidTariffSwitch != null;
+  const isTariffModalPending = isRetirementPending || isDeletePending || paidTariffSwitchPending;
 
-  const resolveTariffActionTrigger = (logicalTariffLabel: string): HTMLElement | null => (
+  const resolveTariffActionTrigger = useCallback((logicalTariffLabel: string): HTMLElement | null => (
     Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
       (button) => button.getAttribute('aria-label') === `Tariff actions for ${logicalTariffLabel}`,
     ) ?? null
-  );
+  ), []);
+  const resolveRetirementRestoreFocusElement = useCallback(() => (
+    pendingTariffRetirement == null
+      ? null
+      : resolveTariffActionTrigger(pendingTariffRetirement.logicalTariffLabel)
+  ), [pendingTariffRetirement, resolveTariffActionTrigger]);
+  const activeDeleteLogicalTariffLabel = activeSurfaceLogicalTariff == null
+    ? null
+    : getLogicalTariffLabel(
+      providerNameById.get(activeSurfaceLogicalTariff.providerId) ?? activeSurfaceLogicalTariff.providerId,
+      activeSurfaceLogicalTariff.name,
+    );
+  const resolveDeleteRestoreFocusElement = useCallback(() => (
+    activeDeleteLogicalTariffLabel == null
+      ? null
+      : resolveTariffActionTrigger(activeDeleteLogicalTariffLabel)
+  ), [activeDeleteLogicalTariffLabel, resolveTariffActionTrigger]);
 
   const closeRetirementDialog = () => {
     if (isRetirementPending) return;
     setSurface({ kind: 'none' });
     setRetirementError(null);
     setRetirementRestoreFocusElement(null);
+    setSuppressRetirementFocusRestore(false);
     setPendingTariffRetirement(null);
   };
 
@@ -313,6 +343,54 @@ export function TariffList({
   useEffect(() => {
     onFormOpenChange?.(isShellOwnedFormVisible);
   }, [isShellOwnedFormVisible, onFormOpenChange]);
+
+  useEffect(() => {
+    onModalStateChange?.({
+      isOpen: isTariffActionOverlayOpen || isTariffConfirmationOpen,
+      isPending: isTariffModalPending,
+    });
+  }, [isTariffActionOverlayOpen, isTariffConfirmationOpen, isTariffModalPending, onModalStateChange]);
+
+  useEffect(() => () => {
+    onModalStateChange?.({ isOpen: false, isPending: false });
+  }, [onModalStateChange]);
+
+  useEffect(() => {
+    if (!recoveryExclusion || isTariffModalPending) return;
+
+    const exclusionTaskId = window.setTimeout(() => {
+      if (surface.kind === 'retire') {
+        if (!suppressRetirementFocusRestore) {
+          setSuppressRetirementFocusRestore(true);
+          return;
+        }
+        setRetirementError(null);
+        setRetirementRestoreFocusElement(null);
+        setPendingTariffRetirement(null);
+        setSurface({ kind: 'none' });
+      } else if (surface.kind === 'delete') {
+        if (!suppressDeleteFocusRestore) {
+          setSuppressDeleteFocusRestore(true);
+          return;
+        }
+        setDeleteRestoreFocusElement(null);
+        setSurface({ kind: 'none' });
+      } else if (surface.kind === 'promotion') {
+        setSurface({ kind: 'none' });
+      }
+
+      if (pendingPaidTariffSwitch) {
+        if (!suppressPaidTariffSwitchFocusRestore) {
+          setSuppressPaidTariffSwitchFocusRestore(true);
+          return;
+        }
+        setPendingPaidTariffSwitch(null);
+        setPaidTariffSwitchError(null);
+      }
+    }, 0);
+
+    return () => window.clearTimeout(exclusionTaskId);
+  }, [isTariffModalPending, pendingPaidTariffSwitch, recoveryExclusion, suppressDeleteFocusRestore, suppressPaidTariffSwitchFocusRestore, suppressRetirementFocusRestore, surface.kind]);
 
   useEffect(() => {
     if (isShellOwnedFormVisible || !retiredCloneRestoreFocusKey) return;
@@ -396,6 +474,7 @@ export function TariffList({
         );
       }
       setPaidTariffSwitchError(null);
+      setSuppressPaidTariffSwitchFocusRestore(false);
       setPendingPaidTariffSwitch({
         candidate,
         incumbent,
@@ -421,6 +500,7 @@ export function TariffList({
         name: pendingPaidTariffSwitch.candidate.name,
       }));
       setPendingPaidTariffSwitch(null);
+      setSuppressPaidTariffSwitchFocusRestore(false);
     } catch (error) {
       setPaidTariffSwitchError(error instanceof Error ? error.message : 'Could not switch paid tariff.');
     } finally {
@@ -530,12 +610,14 @@ export function TariffList({
           candidateStart={pendingPaidTariffSwitch.candidate.valid_from}
           restoreFocusElement={pendingPaidTariffSwitch.restoreFocusElement}
           resolveRestoreFocusElement={pendingPaidTariffSwitch.resolveRestoreFocusElement}
+          suppressFocusRestore={suppressPaidTariffSwitchFocusRestore}
           isPending={paidTariffSwitchPending}
           error={paidTariffSwitchError}
           onCancel={() => {
             if (!paidTariffSwitchPending) {
               setPendingPaidTariffSwitch(null);
               setPaidTariffSwitchError(null);
+              setSuppressPaidTariffSwitchFocusRestore(false);
             }
           }}
           onConfirm={confirmPaidTariffSwitch}
@@ -547,6 +629,8 @@ export function TariffList({
           logicalTariffLabel={pendingTariffRetirement.logicalTariffLabel}
           finalActiveDate={pendingTariffRetirement.retirementDate}
           restoreFocusElement={retirementRestoreFocusElement}
+          resolveRestoreFocusElement={resolveRetirementRestoreFocusElement}
+          suppressFocusRestore={suppressRetirementFocusRestore}
           isPending={isRetirementPending}
           error={retirementError}
           onCancel={closeRetirementDialog}
@@ -685,6 +769,8 @@ export function TariffList({
             trailing={(
                 <TariffVersionActionMenu
                   label={logicalTariffLabel}
+                  disabled={recoveryExclusion}
+                  onOpenChange={setIsTariffActionOverlayOpen}
                   onRetire={canRetire ? () => {
                     const versionSnapshot = logicalTariff.versions
                       .filter((version) => !version.deleted_at)
@@ -696,6 +782,7 @@ export function TariffList({
                       }));
                     setRetirementError(null);
                     setRetirementRestoreFocusElement(resolveTariffActionTrigger(logicalTariffLabel));
+                    setSuppressRetirementFocusRestore(false);
                     setPendingTariffRetirement({
                       providerId: logicalTariff.providerId,
                       name: logicalTariff.name,
@@ -706,7 +793,11 @@ export function TariffList({
                     setSurface({ kind: 'retire', key: logicalTariff.key });
                   } : undefined}
                     onPromotion={() => setSurface({ kind: 'promotion', key: logicalTariff.key })}
-                    onDelete={() => setSurface({ kind: 'delete', key: logicalTariff.key })}
+                    onDelete={() => {
+                      setDeleteRestoreFocusElement(resolveTariffActionTrigger(logicalTariffLabel));
+                      setSuppressDeleteFocusRestore(false);
+                      setSurface({ kind: 'delete', key: logicalTariff.key });
+                    }}
                 />
             )}
           />
@@ -781,7 +872,15 @@ export function TariffList({
             activeSurfaceLogicalTariff.name,
           )}
           isDeleting={isDeletePending}
-          onCancel={() => setSurface({ kind: 'none' })}
+          restoreFocusElement={deleteRestoreFocusElement}
+          resolveRestoreFocusElement={resolveDeleteRestoreFocusElement}
+          suppressFocusRestore={suppressDeleteFocusRestore}
+          onCancel={() => {
+            if (isDeletePending) return;
+            setSurface({ kind: 'none' });
+            setDeleteRestoreFocusElement(null);
+            setSuppressDeleteFocusRestore(false);
+          }}
           onConfirm={async () => {
             setIsDeletePending(true);
 
@@ -792,6 +891,8 @@ export function TariffList({
                 name: activeSurfaceLogicalTariff.name,
               });
               setSurface({ kind: 'none' });
+              setDeleteRestoreFocusElement(null);
+              setSuppressDeleteFocusRestore(false);
             } finally {
               setIsDeletePending(false);
             }

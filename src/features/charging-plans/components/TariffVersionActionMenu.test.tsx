@@ -132,6 +132,46 @@ describe('TariffVersionActionMenu', () => {
     expect(screen.queryByRole('button', { name: /change price permanently/i })).not.toBeInTheDocument();
   });
 
+  it.each([
+    ['Retire tariff', 'retire'],
+    ['Delete tariff', 'delete'],
+  ] as const)('unmounts the outgoing action sheet before dispatching %s without restoring focus behind it', async (actionLabel, action) => {
+    // Arrange: Force the compact modal action sheet and observe the handoff at the action boundary.
+    const originalInnerWidth = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 767 });
+    const user = userEvent.setup();
+    let outgoingSheetWasMountedAtDispatch = false;
+    const onRetire = vi.fn(() => {
+      outgoingSheetWasMountedAtDispatch = screen.queryByRole('dialog', { name: /tariff actions for ionity lidl/i }) != null;
+    });
+    const onDelete = vi.fn(() => {
+      outgoingSheetWasMountedAtDispatch = screen.queryByRole('dialog', { name: /tariff actions for ionity lidl/i }) != null;
+    });
+
+    try {
+      render(
+        <TariffVersionActionMenu
+          label="Ionity Lidl"
+          onRetire={onRetire}
+          onPromotion={vi.fn()}
+          onDelete={onDelete}
+        />,
+      );
+      const trigger = screen.getByRole('button', { name: /tariff actions for ionity lidl/i });
+
+      // Act: Select a confirmation-producing action from the open sheet.
+      await user.click(trigger);
+      await user.click(screen.getByRole('button', { name: new RegExp(`^${actionLabel}$`, 'i') }));
+
+      // Assert: Only the selected handoff is dispatched after its predecessor is gone.
+      expect(action === 'retire' ? onRetire : onDelete).toHaveBeenCalledTimes(1);
+      expect(outgoingSheetWasMountedAtDispatch).toBe(false);
+      expect(document.activeElement).not.toBe(trigger);
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalInnerWidth });
+    }
+  });
+
   it('uses governed surface tokens and 44px minimum controls', () => {
     // Arrange: Render the action menu without interacting.
     render(

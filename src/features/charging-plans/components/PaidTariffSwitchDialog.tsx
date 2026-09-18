@@ -9,6 +9,7 @@ interface PaidTariffSwitchDialogProps {
   candidateStart: Date;
   restoreFocusElement?: HTMLElement | null;
   resolveRestoreFocusElement?: () => HTMLElement | null;
+  suppressFocusRestore?: boolean;
   isPending: boolean;
   error?: string | null;
   onCancel: () => void;
@@ -22,6 +23,7 @@ export function PaidTariffSwitchDialog({
   candidateStart,
   restoreFocusElement,
   resolveRestoreFocusElement,
+  suppressFocusRestore = false,
   isPending,
   error,
   onCancel,
@@ -31,12 +33,17 @@ export function PaidTariffSwitchDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCancelRef = useRef(onCancel);
   const isPendingRef = useRef(isPending);
+  const suppressFocusRestoreRef = useRef(suppressFocusRestore);
   const [portalElement] = useState(() => document.createElement('div'));
 
   useEffect(() => {
     onCancelRef.current = onCancel;
     isPendingRef.current = isPending;
   }, [isPending, onCancel]);
+
+  useEffect(() => {
+    suppressFocusRestoreRef.current = suppressFocusRestore;
+  }, [suppressFocusRestore]);
 
   useEffect(() => {
     portalElement.setAttribute('data-paid-tariff-switch-dialog', 'true');
@@ -101,7 +108,7 @@ export function PaidTariffSwitchDialog({
         }
       });
       portalElement.remove();
-      if (restoreFocusTarget?.isConnected) restoreFocusTarget.focus();
+      if (!suppressFocusRestoreRef.current && restoreFocusTarget?.isConnected) restoreFocusTarget.focus();
     };
   }, [portalElement, resolveRestoreFocusElement, restoreFocusElement]);
 
