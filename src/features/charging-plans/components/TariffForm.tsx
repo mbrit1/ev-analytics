@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { type ChargingPlan } from '../../../infra/db';
 import { formatCentsToDecimal } from '../../../shared/lib';
-import { DatePicker, ThinInput } from '../../../shared/ui';
+import { DatePicker, TactileMatrix, ThinInput } from '../../../shared/ui';
 import { useProviders } from '../hooks/useProviders';
 import {
   DuplicateProviderNameError,
@@ -106,7 +106,7 @@ function formatExclusiveEndDateInputValue(dateLike: unknown): string {
   return formatUtcDate(addUtcDays(date, -1));
 }
 
-interface ProviderSelectProps {
+interface ProviderMatrixProps {
   value: string;
   onChange: (value: string) => void;
   error?: string;
@@ -114,35 +114,29 @@ interface ProviderSelectProps {
   providers: ReturnType<typeof useProviders>['providers'];
 }
 
-function ProviderSelect({
+function ProviderMatrix({
   value,
   onChange,
   error,
   disabled = false,
   providers,
-}: ProviderSelectProps): React.ReactElement {
+}: ProviderMatrixProps): React.ReactElement {
   return (
     <div className="flex flex-col">
-      <label htmlFor="provider_id" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
-        Provider <span className="text-primary" aria-hidden="true">*</span>
-      </label>
-      <select
-        id="provider_id"
-        aria-label="Provider"
-        aria-invalid={error ? 'true' : 'false'}
-        aria-describedby={error ? 'provider_id_error' : undefined}
-        required
-        aria-required="true"
-        disabled={disabled}
+      <TactileMatrix
+        label="Provider"
+        options={providers.map((provider) => ({
+          label: provider.name,
+          value: provider.id,
+          disabled,
+        }))}
         value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors disabled:opacity-70"
-      >
-        <option value="">Select Provider</option>
-        {providers.map((provider) => (
-          <option key={provider.id} value={provider.id}>{provider.name}</option>
-        ))}
-      </select>
+        onChange={onChange}
+        required
+        invalid={Boolean(error)}
+        describedBy={error ? 'provider_id_error' : undefined}
+        requiredIndicator
+      />
       {error && <p id="provider_id_error" className="text-sm text-red-500 font-medium mt-1.5">{error}</p>}
     </div>
   );
@@ -341,7 +335,7 @@ function StandardTariffForm({
               </div>
             ) : (
               <div>
-                <ProviderSelect providers={providers} value={field.value ?? ''} onChange={field.onChange} error={errors.provider_id?.message} disabled={resolvedMode === 'edit'} />
+                <ProviderMatrix providers={providers} value={field.value ?? ''} onChange={field.onChange} error={errors.provider_id?.message} disabled={resolvedMode === 'edit'} />
                 {resolvedMode === 'create' && <button type="button" onClick={() => enterNewProviderMode(field.value ?? '')} className="w-full mt-2 min-h-[44px] px-3 py-2 bg-secondary/10 text-primary font-semibold rounded-xl hover:bg-secondary/20 transition-colors">Add new provider</button>}
               </div>
             )

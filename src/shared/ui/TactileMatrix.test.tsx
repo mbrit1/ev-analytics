@@ -37,6 +37,58 @@ describe('TactileMatrix', () => {
     });
   });
 
+  it('keeps validation metadata opt-in while exposing it from the radiogroup', () => {
+    // Arrange: Supply generic required and validation metadata for a consumer-owned error.
+    render(
+      <TactileMatrix
+        label="Provider"
+        options={options}
+        value=""
+        onChange={() => {}}
+        required
+        invalid
+        describedBy="provider-error"
+        requiredIndicator
+      />
+    );
+
+    // Act: Locate the semantic group and its visible label.
+    const group = screen.getByRole('radiogroup', { name: 'Provider' });
+    const labelId = group.getAttribute('aria-labelledby');
+    const label = labelId ? document.getElementById(labelId) : null;
+
+    // Assert: Generic metadata remains on the radiogroup and the marker stays visual-only.
+    expect(group).toHaveAttribute('aria-required', 'true');
+    expect(group).toHaveAttribute('aria-invalid', 'true');
+    expect(group).toHaveAttribute('aria-describedby', 'provider-error');
+    expect(label).toHaveTextContent('Provider *');
+    expect(group).toHaveAccessibleName('Provider');
+  });
+
+  it('keeps default matrix instances free of consumer validation metadata', () => {
+    // Arrange: Render the generic matrix without required or validation inputs.
+    render(
+      <TactileMatrix
+        label="Test Matrix"
+        options={options}
+        value="opt1"
+        onChange={() => {}}
+      />
+    );
+
+    // Act: Locate the default radiogroup and label.
+    const group = screen.getByRole('radiogroup', { name: 'Test Matrix' });
+    const labelId = group.getAttribute('aria-labelledby');
+    const label = labelId ? document.getElementById(labelId) : null;
+
+    // Assert: Existing consumers keep their plain label and unvalidated semantic contract.
+    expect(group).not.toHaveAttribute('aria-required');
+    expect(group).not.toHaveAttribute('aria-invalid');
+    expect(group).not.toHaveAttribute('aria-describedby');
+    expect(label).toHaveTextContent(/^Test Matrix$/);
+    expect(screen.getByRole('radio', { name: 'Option 1' })).toBeChecked();
+  });
+
   it('renders option secondary text with smaller tabular typography', () => {
     // Arrange: Provide an option with secondary pricing copy.
     render(
