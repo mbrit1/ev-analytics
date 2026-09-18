@@ -410,7 +410,7 @@ describe('TariffList', () => {
     expect(screen.queryByText('Session Fee')).not.toBeInTheDocument();
   });
 
-  it('shows only preview copy for the preview upcoming state', () => {
+  it('shows the preview date and future prices as an ordered secondary data block', () => {
     // Arrange: Render a logical tariff with an imminent preview.
     vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
       logicalTariffs: [
@@ -432,9 +432,25 @@ describe('TariffList', () => {
     // Act: Render the list.
     renderTariffList();
 
-    // Assert: Changed categories are summarized in the preview block.
-    expect(screen.getByText('Next Update · 06 Jul 2026')).toBeInTheDocument();
-    expect(screen.getByText('Domestic DC 0,53 € · Roaming DC 0,63 €')).toBeInTheDocument();
+    // Assert: The section label, date, and discrete future rows appear in order.
+    const nextUpdate = screen.getByText('Next Update', { exact: true });
+    const effectiveDate = screen.getByText('06 Jul 2026', { exact: true });
+    const domesticDcLabels = screen.getAllByText('Domestic DC', { exact: true });
+    const domesticDcLabel = domesticDcLabels[domesticDcLabels.length - 1];
+    const domesticDcValue = screen.getByText('0,53 €', { exact: true });
+    const roamingDcLabel = screen.getByText('Roaming DC', { exact: true });
+    const roamingDcValue = screen.getByText('0,63 €', { exact: true });
+    expect(nextUpdate).toBeInTheDocument();
+    expect(effectiveDate).toBeInTheDocument();
+    expect(domesticDcLabel).toBeInTheDocument();
+    expect(domesticDcValue).toBeInTheDocument();
+    expect(roamingDcLabel).toBeInTheDocument();
+    expect(roamingDcValue).toBeInTheDocument();
+    expect(nextUpdate.compareDocumentPosition(effectiveDate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(effectiveDate.compareDocumentPosition(domesticDcLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(domesticDcLabel.compareDocumentPosition(roamingDcLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByText('Next Update · 06 Jul 2026', { exact: true })).not.toBeInTheDocument();
+    expect(screen.queryByText('Domestic DC 0,53 € · Roaming DC 0,63 €', { exact: true })).not.toBeInTheDocument();
   });
 
   it('omits roaming prices without values from the upcoming preview', () => {
@@ -461,9 +477,12 @@ describe('TariffList', () => {
     renderTariffList();
 
     // Assert: The valued change remains while unavailable roaming entries are absent.
-    expect(screen.getByText('Domestic AC 0,59 €')).toBeInTheDocument();
+    const domesticAcLabels = screen.getAllByText('Domestic AC', { exact: true });
+    expect(domesticAcLabels[domesticAcLabels.length - 1]).toBeInTheDocument();
+    expect(screen.getByText('0,59 €', { exact: true })).toBeInTheDocument();
     expect(screen.queryByText(/roaming ac/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/roaming dc/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Next Update · 01 Jul 2026', { exact: true })).not.toBeInTheDocument();
     expect(screen.queryByText(/unavailable/i)).not.toBeInTheDocument();
   });
 

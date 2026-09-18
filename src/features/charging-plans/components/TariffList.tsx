@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Info, Plus } from 'lucide-react';
+import { ChevronRight, Info, Plus } from 'lucide-react';
 import { formatCurrency } from '../../../shared/lib';
 import { EntitySlab, PageActionSlab, Slab } from '../../../shared/ui';
 import { useAuth } from '../../auth';
@@ -11,7 +11,6 @@ import { useProviders } from '../hooks/useProviders';
 import {
   getLogicalTariffKey,
   type LogicalTariff,
-  type LogicalTariffUpcomingVisibility,
 } from '../model/logicalTariffs';
 import { DeleteLogicalTariffDialog } from './DeleteLogicalTariffDialog';
 import type { TariffFormSubmit } from './TariffForm';
@@ -145,18 +144,6 @@ function CurrentPricingRows({ plan }: CurrentPricingRowsProps) {
       )}
     </div>
   );
-}
-
-function formatUpcomingPreviewCopy(
-  upcomingVisibility: Extract<LogicalTariffUpcomingVisibility, { kind: 'preview' }>,
-): string {
-  return upcomingVisibility.changes
-    .flatMap((change) => (
-      change.valueCents == null
-        ? []
-        : [`${change.label} ${formatCurrency(change.valueCents)}`]
-    ))
-    .join(' · ');
 }
 
 function getLogicalTariffLabel(providerName: string, tariffName: string): string {
@@ -716,15 +703,13 @@ export function TariffList({
         const providerName = providerNameById.get(logicalTariff.providerId) ?? logicalTariff.providerId;
         const identity = getDisplayIdentity(providerName, logicalTariff.name);
         const logicalTariffLabel = getLogicalTariffLabel(providerName, logicalTariff.name);
-        const upcomingPreviewCopy = logicalTariff.upcomingVisibility.kind === 'preview'
-          ? formatUpcomingPreviewCopy(logicalTariff.upcomingVisibility)
-          : '';
         const canRetire = logicalTariff.currentVersion != null
           && logicalTariff.lifecycle.kind === 'current';
 
         return (
           <EntitySlab
             key={logicalTariff.key}
+            mainInteraction
             main={(
               <a
                 href={getTariffEditHref(logicalTariff.key)}
@@ -733,33 +718,53 @@ export function TariffList({
                 }}
                 onClick={(event) => onEditTariff(logicalTariff.key, event)}
                 aria-label={`Open tariff ${logicalTariffLabel}`}
-                className="block min-w-0 rounded-xl [overflow-wrap:anywhere] transition-[background-color,transform] duration-150 hover:bg-secondary/5 active:scale-[0.995] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transform-none motion-reduce:transition-none"
+                className="block min-w-0 rounded-xl [overflow-wrap:anywhere] focus-visible:outline-none"
               >
                 <div className="space-y-4">
-                  <div className="space-y-1">
-                    <h2 className="text-xl font-semibold text-primary">{identity.provider}</h2>
-                    {identity.tariff && (
-                      <p className="text-sm text-secondary">{identity.tariff}</p>
-                    )}
-                    {logicalTariff.lifecycle.kind === 'ending_today' && (
-                      <p className="text-sm font-medium text-primary">Ends today</p>
-                    )}
-                    {logicalTariff.badge?.kind === 'promo' && (
-                      <p className="text-sm font-medium text-primary">{logicalTariff.badge.label}</p>
-                    )}
+                  <div className="space-y-5">
+                    <div className="space-y-1">
+                      <h2 className="text-xl font-semibold text-primary">{identity.provider}</h2>
+                      {identity.tariff && (
+                        <p className="text-sm text-secondary">{identity.tariff}</p>
+                      )}
+                      {logicalTariff.lifecycle.kind === 'ending_today' && (
+                        <p className="text-sm font-medium text-primary">Ends today</p>
+                      )}
+                      {logicalTariff.badge?.kind === 'promo' && (
+                        <p className="text-sm font-medium text-primary">{logicalTariff.badge.label}</p>
+                      )}
+                    </div>
+                    <CurrentPricingRows plan={logicalTariff.currentVersion} />
                   </div>
-                  <CurrentPricingRows plan={logicalTariff.currentVersion} />
                   {logicalTariff.upcomingVisibility.kind === 'indicator' && (
                     <p className="w-fit rounded-full bg-accent/10 px-3 py-2 text-xs font-semibold tabular-nums text-accent">
                       {logicalTariff.upcomingVisibility.label}
                     </p>
                   )}
                   {logicalTariff.upcomingVisibility.kind === 'preview' && (
-                    <div className="space-y-3">
-                      <div className="h-px bg-secondary/20" />
+                    <div className="space-y-4 pt-1">
+                      <div className="h-px bg-transparent before:pointer-events-none before:absolute before:inset-x-0 before:h-px before:bg-secondary/20 before:content-['']" />
                       <div className="space-y-1">
-                        <p className="text-xs font-semibold tabular-nums text-secondary">{logicalTariff.upcomingVisibility.label}</p>
-                        {upcomingPreviewCopy && <p className="text-sm tabular-nums text-primary">{upcomingPreviewCopy}</p>}
+                        <p className="text-xs font-semibold text-secondary">Next Update</p>
+                        <p className="text-sm tabular-nums text-secondary">
+                          {logicalTariff.upcomingVisibility.label.replace('Next Update · ', '')}
+                        </p>
+                      </div>
+                      <div className="grid w-full grid-cols-1 gap-y-2 text-sm">
+                        {logicalTariff.upcomingVisibility.changes.flatMap((change) => {
+                          if (change.valueCents == null) return [];
+                          return [(
+                            <div
+                              key={change.label}
+                              className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3"
+                            >
+                              <span>{change.label}</span>
+                              <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
+                                {formatCurrency(change.valueCents)}
+                              </span>
+                            </div>
+                          )];
+                        })}
                       </div>
                     </div>
                   )}
@@ -809,13 +814,17 @@ export function TariffList({
         <div className="space-y-4">
           <button
             type="button"
+            aria-label={`Retired tariffs (${retiredLogicalTariffs.length})`}
             aria-expanded={isRetiredTariffsOpen}
             aria-controls="retired-tariffs"
             onClick={() => setIsRetiredTariffsOpen((isOpen) => !isOpen)}
-            className="flex min-h-[44px] w-full items-center justify-between rounded-xl bg-secondary/10 px-4 py-2 text-left font-bold text-primary transition-all hover:bg-secondary/20"
+            className="flex min-h-[44px] w-full items-center justify-between rounded-slab border border-slab-border bg-surface px-4 py-2 text-left text-sm font-semibold text-primary shadow-slab transition-[background-color,color,box-shadow,transform] motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:hover:bg-secondary/5 [@media(hover:hover)_and_(pointer:fine)]:hover:text-primary active:scale-[0.99] active:bg-secondary/10 active:text-primary motion-reduce:active:scale-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
           >
-            <span>Retired tariffs ({retiredLogicalTariffs.length})</span>
-            <span aria-hidden="true">{isRetiredTariffsOpen ? 'Hide' : 'Show'}</span>
+            <span>Retired tariffs · {retiredLogicalTariffs.length}</span>
+            <ChevronRight
+              aria-hidden="true"
+              className={`h-5 w-5 shrink-0 text-secondary transition-transform duration-150 motion-reduce:transition-none ${isRetiredTariffsOpen ? 'rotate-90' : ''}`}
+            />
           </button>
           {isRetiredTariffsOpen && (
             <section id="retired-tariffs" aria-label="Retired tariffs" className="space-y-4">
