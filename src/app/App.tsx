@@ -227,11 +227,9 @@ function App() {
     && syncStatus.blockingOutboxId != null
     && syncStatus.blockingProviderId != null
   const isMobileContextActionVisible = activeTab === 'sessions' && !isSessionFormOpen
-  const mobileMainPaddingClass = activeTab === 'analytics'
-    ? 'pb-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom)+32px)]'
-    : isMobileContextActionVisible
-      ? 'pb-[var(--mobile-content-clearance-with-action)]'
-      : 'pb-[var(--mobile-content-clearance-dock-only)]'
+  const mobileMainPaddingClass = isMobileContextActionVisible
+    ? 'pb-[var(--mobile-content-clearance-with-action)]'
+    : 'pb-[var(--mobile-content-clearance-dock-only)]'
 
   if (loading) {
     return (

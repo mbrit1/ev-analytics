@@ -74,6 +74,8 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
     onCloseForm: () => void;
     onFormOpenChange?: (isOpen: boolean) => void;
   }) => {
+    const [isActionOverlayOpen, setIsActionOverlayOpen] = React.useState(false);
+
     React.useEffect(() => {
       onFormOpenChange?.(tariffFormState.mode !== 'closed');
     }, [onFormOpenChange, tariffFormState.mode]);
@@ -89,9 +91,21 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
             </button>
           </div>
         ) : (
-          <button type="button" onClick={onCreateTariff}>
-            Open Tariff Form
-          </button>
+          <>
+            <button type="button" onClick={onCreateTariff}>
+              Open Tariff Form
+            </button>
+            <button type="button" onClick={() => setIsActionOverlayOpen(true)}>
+              Open Tariff Action Overlay
+            </button>
+            {isActionOverlayOpen ? (
+              <div role="dialog" aria-label="Tariff Actions">
+                <button type="button" onClick={() => setIsActionOverlayOpen(false)}>
+                  Close Tariff Action Overlay
+                </button>
+              </div>
+            ) : null}
+          </>
         )}
       </div>
     );
@@ -343,7 +357,7 @@ describe('App mobile action dock', () => {
     await user.click(screen.getByRole('tab', { name: 'Monthly' }));
     expect(screen.getByText('No charging spend recorded for this month yet.')).toBeInTheDocument();
     expect(document.querySelector('main')).toHaveClass(
-      'pb-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom)+32px)]',
+      'pb-[var(--mobile-content-clearance-dock-only)]',
       'md:pb-8',
     );
 
@@ -426,6 +440,31 @@ describe('App mobile action dock', () => {
       'pb-[var(--mobile-content-clearance-dock-only)]',
       'md:pb-8',
     );
+  });
+
+  it('keeps Tariffs dock-only while the list, editor, and action overlay change', async () => {
+    // Arrange: Render the authenticated shell and navigate to Tariffs.
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Tariffs' }));
+
+    const main = container.querySelector('main');
+    expect(main).not.toBeNull();
+
+    // Act: Open the feature-owned action overlay, then close it and open the editor.
+    expect(main).toHaveClass('pb-[var(--mobile-content-clearance-dock-only)]');
+    await user.click(screen.getByRole('button', { name: 'Open Tariff Action Overlay' }));
+
+    // Assert: Tariffs still reserves only the navigation dock while the overlay is open.
+    expect(screen.getByRole('dialog', { name: 'Tariff Actions' })).toBeInTheDocument();
+    expect(main).toHaveClass('pb-[var(--mobile-content-clearance-dock-only)]');
+
+    await user.click(screen.getByRole('button', { name: 'Close Tariff Action Overlay' }));
+    await user.click(screen.getByRole('button', { name: 'Open Tariff Form' }));
+
+    // Assert: The editor does not add the Sessions contextual-action reservation.
+    expect(screen.getByText('Tariff Form')).toBeInTheDocument();
+    expect(main).toHaveClass('pb-[var(--mobile-content-clearance-dock-only)]');
   });
 
   it('opens the selected session and cancel returns to history without persistence', async () => {
