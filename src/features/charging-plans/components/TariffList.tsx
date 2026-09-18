@@ -52,6 +52,7 @@ interface RetiredTariffCloneDraft {
 interface PendingTariffRetirement {
   providerId: string;
   name: string;
+  logicalTariffKey: string;
   logicalTariffLabel: string;
   retirementDate: Date;
   versionSnapshot: readonly RetirementVersionSnapshot[];
@@ -225,7 +226,7 @@ export function TariffList({
   const [retirementRestoreFocusElement, setRetirementRestoreFocusElement] = useState<HTMLElement | null>(null);
   const [suppressRetirementFocusRestore, setSuppressRetirementFocusRestore] = useState(false);
   const [pendingTariffRetirement, setPendingTariffRetirement] = useState<PendingTariffRetirement | null>(null);
-  const [isTariffActionOverlayOpen, setIsTariffActionOverlayOpen] = useState(false);
+  const [tariffActionOverlayKeys, setTariffActionOverlayKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [isRetiredTariffsOpen, setIsRetiredTariffsOpen] = useState(false);
   const [retiredTariffCloneDraft, setRetiredTariffCloneDraft] = useState<RetiredTariffCloneDraft | null>(null);
   const [retiredCloneRestoreFocusKey, setRetiredCloneRestoreFocusKey] = useState<string | null>(null);
@@ -234,6 +235,7 @@ export function TariffList({
   const [paidTariffSwitchPending, setPaidTariffSwitchPending] = useState(false);
   const [paidTariffSwitchError, setPaidTariffSwitchError] = useState<string | null>(null);
   const editButtonElementsRef = useRef<Record<string, HTMLAnchorElement | null>>({});
+  const tariffActionTriggerElementsRef = useRef<Record<string, HTMLButtonElement | null>>({});
   const retiredCreateButtonElementsRef = useRef<Record<string, HTMLButtonElement | null>>({});
   const createTariffFormRef = useRef<HTMLDivElement>(null);
 
@@ -272,28 +274,35 @@ export function TariffList({
     || (!isShellOwnedFormVisible && resolvedSurface.kind === 'delete' && activeSurfaceLogicalTariff != null)
     || pendingPaidTariffSwitch != null;
   const isTariffModalPending = isRetirementPending || isDeletePending || paidTariffSwitchPending;
+  const isTariffActionOverlayOpen = tariffActionOverlayKeys.size > 0;
 
-  const resolveTariffActionTrigger = useCallback((logicalTariffLabel: string): HTMLElement | null => (
-    Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(
-      (button) => button.getAttribute('aria-label') === `Tariff actions for ${logicalTariffLabel}`,
-    ) ?? null
+  const handleTariffActionOverlayChange = useCallback((logicalTariffKey: string, isOpen: boolean) => {
+    setTariffActionOverlayKeys((current) => {
+      if (isOpen && current.has(logicalTariffKey)) return current;
+      if (!isOpen && !current.has(logicalTariffKey)) return current;
+
+      const next = new Set(current);
+      if (isOpen) {
+        next.add(logicalTariffKey);
+      } else {
+        next.delete(logicalTariffKey);
+      }
+      return next;
+    });
+  }, []);
+  const resolveTariffActionTrigger = useCallback((logicalTariffKey: string): HTMLElement | null => (
+    tariffActionTriggerElementsRef.current[logicalTariffKey] ?? null
   ), []);
   const resolveRetirementRestoreFocusElement = useCallback(() => (
     pendingTariffRetirement == null
       ? null
-      : resolveTariffActionTrigger(pendingTariffRetirement.logicalTariffLabel)
+      : resolveTariffActionTrigger(pendingTariffRetirement.logicalTariffKey)
   ), [pendingTariffRetirement, resolveTariffActionTrigger]);
-  const activeDeleteLogicalTariffLabel = activeSurfaceLogicalTariff == null
-    ? null
-    : getLogicalTariffLabel(
-      providerNameById.get(activeSurfaceLogicalTariff.providerId) ?? activeSurfaceLogicalTariff.providerId,
-      activeSurfaceLogicalTariff.name,
-    );
   const resolveDeleteRestoreFocusElement = useCallback(() => (
-    activeDeleteLogicalTariffLabel == null
+    activeSurfaceLogicalTariff == null
       ? null
-      : resolveTariffActionTrigger(activeDeleteLogicalTariffLabel)
-  ), [activeDeleteLogicalTariffLabel, resolveTariffActionTrigger]);
+      : resolveTariffActionTrigger(activeSurfaceLogicalTariff.key)
+  ), [activeSurfaceLogicalTariff, resolveTariffActionTrigger]);
 
   const closeRetirementDialog = () => {
     if (isRetirementPending) return;
@@ -776,7 +785,10 @@ export function TariffList({
                   label={logicalTariffLabel}
                   displayIdentity={identity.provider}
                   disabled={recoveryExclusion}
-                  onOpenChange={setIsTariffActionOverlayOpen}
+                  onOpenChange={(isOpen) => handleTariffActionOverlayChange(logicalTariff.key, isOpen)}
+                  onTriggerRefChange={(element) => {
+                    tariffActionTriggerElementsRef.current[logicalTariff.key] = element;
+                  }}
                   onRetire={canRetire ? () => {
                     const versionSnapshot = logicalTariff.versions
                       .filter((version) => !version.deleted_at)
@@ -787,11 +799,12 @@ export function TariffList({
                         valid_to: version.valid_to ? new Date(version.valid_to.getTime()) : null,
                       }));
                     setRetirementError(null);
-                    setRetirementRestoreFocusElement(resolveTariffActionTrigger(logicalTariffLabel));
+                    setRetirementRestoreFocusElement(resolveTariffActionTrigger(logicalTariff.key));
                     setSuppressRetirementFocusRestore(false);
                     setPendingTariffRetirement({
                       providerId: logicalTariff.providerId,
                       name: logicalTariff.name,
+                      logicalTariffKey: logicalTariff.key,
                       logicalTariffLabel,
                       retirementDate: new Date(utcToday.getTime()),
                       versionSnapshot,
@@ -800,7 +813,7 @@ export function TariffList({
                   } : undefined}
                     onPromotion={() => setSurface({ kind: 'promotion', key: logicalTariff.key })}
                     onDelete={() => {
-                      setDeleteRestoreFocusElement(resolveTariffActionTrigger(logicalTariffLabel));
+                      setDeleteRestoreFocusElement(resolveTariffActionTrigger(logicalTariff.key));
                       setSuppressDeleteFocusRestore(false);
                       setSurface({ kind: 'delete', key: logicalTariff.key });
                     }}

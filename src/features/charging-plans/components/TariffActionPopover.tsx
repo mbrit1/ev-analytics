@@ -73,9 +73,13 @@ export function TariffActionPopover({
       if (!menu) return;
 
       const visualViewport = window.visualViewport;
+      const menuRect = menu.getBoundingClientRect();
       const placement = calculateTariffActionPlacement({
         trigger: trigger.getBoundingClientRect(),
-        overlay: menu.getBoundingClientRect(),
+        overlay: {
+          width: menuRect.width,
+          height: Math.max(menu.scrollHeight, menuRect.height),
+        },
         visualViewport: visualViewport
           ? {
             left: visualViewport.offsetLeft,

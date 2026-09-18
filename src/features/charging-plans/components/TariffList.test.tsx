@@ -241,6 +241,8 @@ const renderTariffList = (
     onSaveComplete={props.onSaveComplete ?? vi.fn()}
     onRestorationComplete={props.onRestorationComplete ?? vi.fn()}
     onFormOpenChange={props.onFormOpenChange}
+    recoveryExclusion={props.recoveryExclusion}
+    onModalStateChange={props.onModalStateChange}
   />,
 );
 
@@ -260,6 +262,8 @@ const tariffListElement = (
     onSaveComplete={props.onSaveComplete ?? vi.fn()}
     onRestorationComplete={props.onRestorationComplete ?? vi.fn()}
     onFormOpenChange={props.onFormOpenChange}
+    recoveryExclusion={props.recoveryExclusion}
+    onModalStateChange={props.onModalStateChange}
   />
 );
 
@@ -550,6 +554,54 @@ describe('TariffList', () => {
     // Assert: The overflow remains outside the anchor and leaves editor navigation untouched.
     expect(mainAnchor).not.toContainElement(overflow);
     expect(onEditTariff).not.toHaveBeenCalled();
+  });
+
+  it('keeps the parent modal state open when another tariff action trigger mounts closed', async () => {
+    // Arrange: Open tariff A, then simulate a live update that mounts tariff B's closed action trigger.
+    const tariffA = buildLogicalTariff({ key: 'p1::lidl', providerId: 'p1', name: 'Lidl' });
+    const tariffB = buildLogicalTariff({ key: 'p2::fast', providerId: 'p2', name: 'Fast' });
+    const onModalStateChange = vi.fn();
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ logicalTariffs: [tariffA] }));
+    const user = userEvent.setup();
+    const { rerender } = render(tariffListElement({ onModalStateChange }));
+
+    await user.click(screen.getByRole('button', { name: /tariff actions for ionity lidl/i }));
+    await waitFor(() => expect(onModalStateChange).toHaveBeenLastCalledWith({ isOpen: true, isPending: false }));
+    onModalStateChange.mockClear();
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ logicalTariffs: [tariffA, tariffB] }));
+
+    // Act: Re-render with B while A's action overlay remains open.
+    rerender(tariffListElement({ onModalStateChange }));
+
+    // Assert: B reporting its own closed state cannot clear A's still-open overlay from the parent contract.
+    expect(screen.getByRole('dialog', { name: 'Tariff actions for Ionity Lidl' })).toBeInTheDocument();
+    expect(onModalStateChange).not.toHaveBeenCalledWith({ isOpen: false, isPending: false });
+  });
+
+  it('restores focus to the exact duplicate-label tariff trigger that opened deletion confirmation', async () => {
+    // Arrange: Give two logical tariffs colliding display labels but separate keys and trigger elements.
+    const tariffA = buildLogicalTariff({ key: 'p1::lidl', providerId: 'p1', name: 'Lidl' });
+    const tariffB = buildLogicalTariff({ key: 'p2::lidl', providerId: 'p2', name: 'Lidl' });
+    vi.mocked(useProviders).mockReturnValue({
+      providers: [
+        { id: 'p1', name: 'Ionity', user_id: 'user-1', created_at: utc('2026-01-01'), updated_at: utc('2026-01-01') },
+        { id: 'p2', name: 'Ionity', user_id: 'user-1', created_at: utc('2026-01-01'), updated_at: utc('2026-01-01') },
+      ],
+      isLoading: false,
+    });
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ logicalTariffs: [tariffA, tariffB] }));
+    const user = userEvent.setup();
+    renderTariffList();
+    const triggers = screen.getAllByRole('button', { name: 'Tariff actions for Ionity Lidl' });
+
+    // Act: Invoke deletion from the second, identically labelled trigger and cancel its confirmation.
+    await user.click(triggers[1]);
+    await user.click(screen.getByRole('button', { name: /^delete tariff$/i }));
+    await user.click(within(await screen.findByRole('dialog', { name: /^delete tariff$/i }))
+      .getByRole('button', { name: 'Cancel' }));
+
+    // Assert: Restoration follows the initiating element identity, not the first matching display label.
+    await waitFor(() => expect(triggers[1]).toHaveFocus());
   });
 
   it('renders the current tariff main anchor as an app-owned location and only intercepts ordinary activation', async () => {

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { type ComponentType, type RefObject, useRef, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -169,6 +169,62 @@ describe('TariffActionPopover', () => {
       expect(Number.parseFloat(menu.style.top)).toBeGreaterThanOrEqual(0);
       expect(Number.parseFloat(menu.style.left)).toBeGreaterThanOrEqual(0);
       expect(Number.parseFloat(menu.style.top) + 180).toBeLessThanOrEqual(dockExclusion.top);
+    } finally {
+      unmount?.();
+      if (previousVisualViewport) {
+        Object.defineProperty(window, 'visualViewport', previousVisualViewport);
+      } else {
+        Reflect.deleteProperty(window, 'visualViewport');
+      }
+    }
+  });
+
+  it('keeps max-height bounded after successive placement updates when clipped geometry hides taller intrinsic content', async () => {
+    // Arrange: Model a 500px intrinsic menu whose DOM rect is clipped by each max-height assignment.
+    const module = await loadTariffActionPopover();
+    expect(module?.TariffActionPopover).toBeDefined();
+    const Popover = module?.TariffActionPopover;
+    if (!Popover) return;
+    const user = userEvent.setup();
+    const previousVisualViewport = Object.getOwnPropertyDescriptor(window, 'visualViewport');
+    const visualViewport = new EventTarget();
+    Object.assign(visualViewport, {
+      offsetLeft: 0,
+      offsetTop: 0,
+      width: 1024,
+      height: 768,
+      scale: 1,
+    });
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: visualViewport });
+    let unmount: (() => void) | undefined;
+
+    try {
+      const rendered = render(
+        <TariffActionPopoverHarness Popover={Popover} dockExclusion={createRect(0, 700, 1024, 68)} />,
+      );
+      unmount = rendered.unmount;
+      const trigger = screen.getByRole('button', { name: 'Tariff actions for Ionity Lidl' });
+      vi.spyOn(trigger, 'getBoundingClientRect').mockReturnValue(createRect(500, 300, 44, 44));
+
+      // Act: Recompute once at intrinsic height, then again from the clipped rect produced by that bound.
+      await user.click(trigger);
+      const menu = screen.getByRole('menu', { name: 'Tariff actions for Ionity Lidl' });
+      const intrinsicHeight = 500;
+      Object.defineProperty(menu, 'scrollHeight', { configurable: true, value: intrinsicHeight });
+      vi.spyOn(menu, 'getBoundingClientRect').mockImplementation(() => {
+        const boundedHeight = menu.style.maxHeight === ''
+          ? intrinsicHeight
+          : Math.min(intrinsicHeight, Number.parseFloat(menu.style.maxHeight));
+        return createRect(0, 0, 280, boundedHeight);
+      });
+      act(() => {
+        visualViewport.dispatchEvent(new Event('resize'));
+        visualViewport.dispatchEvent(new Event('scroll'));
+      });
+
+      // Assert: A second update must retain a finite scroll bound despite the rect reporting only clipped height.
+      expect(Number.parseFloat(menu.style.maxHeight)).toBeGreaterThan(0);
+      expect(Number.parseFloat(menu.style.maxHeight)).toBeLessThan(intrinsicHeight);
     } finally {
       unmount?.();
       if (previousVisualViewport) {

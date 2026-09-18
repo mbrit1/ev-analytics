@@ -115,6 +115,7 @@ interface TariffVersionActionMenuProps {
   onDelete: () => void;
   disabled?: boolean;
   onOpenChange?: (isOpen: boolean) => void;
+  onTriggerRefChange?: (element: HTMLButtonElement | null) => void;
 }
 
 interface InertSnapshot {
@@ -132,6 +133,7 @@ export function TariffVersionActionMenu({
   onDelete,
   disabled = false,
   onOpenChange,
+  onTriggerRefChange,
 }: TariffVersionActionMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -146,6 +148,10 @@ export function TariffVersionActionMenu({
   const triggerLabel = `Tariff actions for ${label}`;
   const overlayOpen = isOpen && !disabled;
   const dismiss = useCallback(() => setIsOpen(false), []);
+  const setTriggerRef = useCallback((element: HTMLButtonElement | null) => {
+    triggerRef.current = element;
+    onTriggerRefChange?.(element);
+  }, [onTriggerRefChange]);
   const restoreTriggerInertState = useCallback(() => {
     const trigger = triggerRef.current;
     const snapshot = triggerInertSnapshotRef.current;
@@ -240,7 +246,7 @@ export function TariffVersionActionMenu({
   return (
     <>
       <button
-        ref={triggerRef}
+        ref={setTriggerRef}
         type="button"
         aria-label={triggerLabel}
         aria-expanded={overlayOpen}
