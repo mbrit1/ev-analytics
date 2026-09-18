@@ -22,6 +22,7 @@ import {
   updateLogicalTariffDetails,
 } from './planService'
 import { ProviderReferenceUnavailableError } from './providerService'
+import { getLogicalTariffKey } from '../model/logicalTariffs'
 import 'fake-indexeddb/auto'
 
 const utc = (date: string): Date => new Date(`${date}T00:00:00.000Z`)
@@ -303,6 +304,27 @@ describe('planService', () => {
         created_at: utc('2026-01-01'),
         updated_at: utc('2026-01-01'),
       },
+    ])
+  })
+
+  it('preserves canonical keys for duplicate, empty, distinct, and fallback display identities', () => {
+    // Arrange: Use identities whose card presentation may change without changing domain ownership.
+    const identities = [
+      { provider_id: 'provider-1', name: '  Lidl  ' },
+      { provider_id: 'provider-1', name: '' },
+      { provider_id: 'provider-2', name: 'Lidl' },
+      { provider_id: 'missing-provider', name: 'Fallback tariff' },
+    ]
+
+    // Act: Derive the persisted logical keys used by navigation and mutation services.
+    const keys = identities.map(getLogicalTariffKey)
+
+    // Assert: Display deduplication never conflates an empty, distinct-provider, or ID-fallback tariff.
+    expect(keys).toEqual([
+      'provider-1::lidl',
+      'provider-1::',
+      'provider-2::lidl',
+      'missing-provider::fallback tariff',
     ])
   })
 

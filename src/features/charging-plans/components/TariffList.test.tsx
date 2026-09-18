@@ -331,15 +331,18 @@ describe('TariffList', () => {
     });
   });
 
-  it('renders one card for all versions and displays the current price', () => {
+  it('renders one navigable card for all versions and displays the current price in its main anchor', () => {
     // Arrange: Expose one logical tariff with current and upcoming versions.
     vi.mocked(useChargingPlans).mockReturnValue(buildHookValue());
 
     // Act: Render the grouped tariff list.
     renderTariffList();
 
-    // Assert: The list shows one grouped card, the upcoming indicator, and the current price.
-    expect(screen.getAllByRole('link', { name: /edit ionity lidl/i })).toHaveLength(1);
+    // Assert: The list shows one grouped main anchor, the upcoming indicator, and the current price.
+    expect(screen.queryByRole('link', { name: /^Edit /i })).not.toBeInTheDocument();
+    const mainAnchor = screen.getByRole('link', { name: /open tariff ionity lidl/i });
+    expect(mainAnchor).toContainElement(screen.getByRole('heading', { name: 'Ionity', level: 2 }));
+    expect(mainAnchor).toHaveTextContent('0,29 €');
     expect(screen.getByText('Update scheduled · 15 Aug 2026')).toBeInTheDocument();
     expect(screen.getByText('0,29 €')).toBeInTheDocument();
   });
@@ -433,21 +436,73 @@ describe('TariffList', () => {
     expect(screen.queryByText(/unavailable/i)).not.toBeInTheDocument();
   });
 
-  it('opens app-owned edit mode from the primary edit action', async () => {
-    // Arrange: Render TariffList with tariffFormState closed and onEditTariff spy.
+  it('keeps display identity deduplicated while preserving empty, distinct, and fallback identities', () => {
+    // Arrange: Supply the card-name combinations that must not change persisted identity semantics.
+    vi.mocked(useProviders).mockReturnValue({
+      providers: [
+        { id: 'p1', name: 'Lidl', user_id: 'user-1', created_at: utc('2026-01-01'), updated_at: utc('2026-01-01') },
+        { id: 'p2', name: 'Empty Provider', user_id: 'user-1', created_at: utc('2026-01-01'), updated_at: utc('2026-01-01') },
+        { id: 'p3', name: 'Distinct Provider', user_id: 'user-1', created_at: utc('2026-01-01'), updated_at: utc('2026-01-01') },
+      ],
+      isLoading: false,
+    });
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [
+        buildLogicalTariff({ key: 'p1::lidl', providerId: 'p1', name: ' Lidl ' }),
+        buildLogicalTariff({ key: 'p2::', providerId: 'p2', name: '' }),
+        buildLogicalTariff({ key: 'p3::lidl-plus', providerId: 'p3', name: 'Lidl Plus' }),
+        buildLogicalTariff({ key: 'missing-provider::fallback', providerId: 'missing-provider', name: 'Fallback tariff' }),
+      ],
+    }));
+
+    // Act: Render the complete identity matrix.
+    renderTariffList();
+
+    // Assert: Equivalent display names collapse visually while empty, distinct, and missing-provider identities stay meaningful.
+    expect(screen.queryByRole('link', { name: /^Edit /i })).not.toBeInTheDocument();
+    const duplicateNameAnchor = screen.getByRole('link', { name: 'Open tariff Lidl' });
+    expect(within(duplicateNameAnchor).getAllByText(/^Lidl$/)).toHaveLength(1);
+    expect(screen.getByRole('link', { name: 'Open tariff Empty Provider' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open tariff Distinct Provider Lidl Plus' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open tariff missing-provider Fallback tariff' })).toBeInTheDocument();
+  });
+
+  it('opens app-owned edit mode from the main card anchor for pointer and Enter activation', async () => {
+    // Arrange: Render TariffList with its closed main-card anchor and an app callback.
     vi.mocked(useChargingPlans).mockReturnValue(buildHookValue());
     const onEditTariff = vi.fn();
     const user = userEvent.setup();
     renderTariffList({ onEditTariff });
 
-    // Act: Click "Edit Ionity Lidl".
-    await user.click(screen.getByRole('link', { name: /edit ionity lidl/i }));
+    // Act: Activate the card once by pointer and once through its native keyboard behavior.
+    const mainAnchor = screen.getByRole('link', { name: /open tariff ionity lidl/i });
+    await user.click(mainAnchor);
+    mainAnchor.focus();
+    await user.keyboard('{Enter}');
 
-    // Assert: onEditTariff receives the logical tariff key.
+    // Assert: Both ordinary activations reach the app-owned editor with the logical key.
+    expect(onEditTariff).toHaveBeenCalledTimes(2);
     expect(onEditTariff).toHaveBeenCalledWith('p1::lidl', expect.anything());
   });
 
-  it('renders the current tariff edit affordance as an app-owned location anchor and only intercepts ordinary activation', async () => {
+  it('keeps overflow as a sibling of the main anchor and never activates card navigation', async () => {
+    // Arrange: Render the navigable card and its exceptional-action trigger.
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue());
+    const onEditTariff = vi.fn();
+    const user = userEvent.setup();
+    renderTariffList({ onEditTariff });
+
+    // Act: Open the sibling overflow rather than activating the card itself.
+    const mainAnchor = screen.getByRole('link', { name: /open tariff ionity lidl/i });
+    const overflow = screen.getByRole('button', { name: /tariff actions for ionity lidl/i });
+    await user.click(overflow);
+
+    // Assert: The overflow remains outside the anchor and leaves editor navigation untouched.
+    expect(mainAnchor).not.toContainElement(overflow);
+    expect(onEditTariff).not.toHaveBeenCalled();
+  });
+
+  it('renders the current tariff main anchor as an app-owned location and only intercepts ordinary activation', async () => {
     // Arrange: Supply the app-owned encoded destination and activation callback.
     vi.mocked(useChargingPlans).mockReturnValue(buildHookValue());
     const onEditTariff = vi.fn();
@@ -455,12 +510,12 @@ describe('TariffList', () => {
     renderTariffList({ onEditTariff, getTariffEditHref: (logicalTariffKey) => `#tariffs/edit/${encodeURIComponent(logicalTariffKey)}` });
 
     // Act: Use an ordinary primary click, then a modified click on the same concrete destination.
-    const editLink = screen.getByRole('link', { name: /edit ionity lidl/i });
-    await user.click(editLink);
-    fireEvent.click(editLink, { ctrlKey: true });
+    const mainAnchor = screen.getByRole('link', { name: /open tariff ionity lidl/i });
+    await user.click(mainAnchor);
+    fireEvent.click(mainAnchor, { ctrlKey: true });
 
     // Assert: The anchor is loadable and the app callback owns only ordinary in-app navigation.
-    expect(editLink).toHaveAttribute('href', '#tariffs/edit/p1%3A%3Alidl');
+    expect(mainAnchor).toHaveAttribute('href', '#tariffs/edit/p1%3A%3Alidl');
     expect(onEditTariff).toHaveBeenCalledTimes(2);
     expect(onEditTariff).toHaveBeenCalledWith('p1::lidl', expect.anything());
   });
@@ -472,7 +527,7 @@ describe('TariffList', () => {
 
     // Assert: "Edit Tariff" is visible and the tariff card is not visible.
     expect(screen.getByText(/tariff form:edit:lidl/i)).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /edit ionity lidl/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /open tariff ionity lidl/i })).not.toBeInTheDocument();
   });
 
   it('provides one responsive Add tariff action on the list and none while its focused form is open', () => {
@@ -648,6 +703,7 @@ describe('TariffList', () => {
     expect(retiredRegion).toHaveTextContent('0,47 €');
     expect(retiredRegion).toHaveTextContent('5,99 €');
     expect(within(retiredRegion).getByRole('button', { name: /create new from retired/i })).toBeInTheDocument();
+    expect(within(retiredRegion).queryByRole('link')).not.toBeInTheDocument();
     expect(within(retiredRegion).queryByRole('button', { name: /edit/i })).not.toBeInTheDocument();
     expect(within(retiredRegion).queryByRole('button', { name: /tariff actions/i })).not.toBeInTheDocument();
     expect(within(retiredRegion).queryByRole('button', {
@@ -873,7 +929,7 @@ describe('TariffList', () => {
     expect(screen.queryByRole('button', { name: /change price permanently/i })).not.toBeInTheDocument();
   });
 
-  it('restores list position and focus after cancel', async () => {
+  it('restores list position and focus to the main anchor after cancel', async () => {
     // Arrange: Render a closed list with a restoration request from the app shell.
     vi.mocked(useChargingPlans).mockReturnValue(buildHookValue());
     const onRestorationComplete = vi.fn();
@@ -885,12 +941,12 @@ describe('TariffList', () => {
     // Assert: The list scroll restore is applied and completion is acknowledged.
     await waitFor(() => {
       expect(window.scrollTo).toHaveBeenCalledWith({ top: 640, behavior: 'auto' });
-      expect(screen.getByRole('link', { name: /edit ionity lidl/i })).toHaveFocus();
+      expect(screen.getByRole('link', { name: /open tariff ionity lidl/i })).toHaveFocus();
       expect(onRestorationComplete).toHaveBeenCalled();
     });
   });
 
-  it('waits to complete tariff focus restoration until the saved tariff appears', async () => {
+  it('waits to complete renamed-save focus restoration until the main anchor appears', async () => {
     // Arrange: Start with a post-save restoration request before the renamed card is present.
     const onRestorationComplete = vi.fn();
     vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({ logicalTariffs: [] }));
@@ -931,7 +987,7 @@ describe('TariffList', () => {
 
     // Assert: Completion is acknowledged only after focus lands on the refreshed card.
     await waitFor(() => {
-      expect(screen.getByRole('link', { name: /edit ionity renamed tariff/i })).toHaveFocus();
+      expect(screen.getByRole('link', { name: /open tariff ionity renamed tariff/i })).toHaveFocus();
       expect(onRestorationComplete).toHaveBeenCalledTimes(1);
     });
   });

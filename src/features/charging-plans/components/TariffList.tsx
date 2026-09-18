@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Info, Plus } from 'lucide-react';
 import { formatCurrency } from '../../../shared/lib';
-import { PageActionSlab, Slab } from '../../../shared/ui';
+import { EntitySlab, PageActionSlab, Slab } from '../../../shared/ui';
 import { useAuth } from '../../auth';
 import type { HydrationTableState } from '../../offline-sync';
 import type { ChargingPlan, Provider } from '../../../infra/db';
@@ -92,9 +92,9 @@ function shouldRenderFeeAmount(amount: number | undefined): amount is number {
 
 function CurrentPricingRows({ plan }: CurrentPricingRowsProps) {
   return (
-    <div className="grid max-w-3xl grid-cols-1 gap-x-8 gap-y-2 text-sm md:grid-cols-2">
+    <div className="grid w-full grid-cols-1 gap-y-2 text-sm">
       {shouldRenderAmount(plan?.ac_price_per_kwh) && (
-        <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
+        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
           <span>Domestic AC</span>
           <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
             {formatCurrency(plan.ac_price_per_kwh)}
@@ -102,7 +102,7 @@ function CurrentPricingRows({ plan }: CurrentPricingRowsProps) {
         </div>
       )}
       {shouldRenderAmount(plan?.dc_price_per_kwh) && (
-        <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
+        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
           <span>Domestic DC</span>
           <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
             {formatCurrency(plan.dc_price_per_kwh)}
@@ -110,7 +110,7 @@ function CurrentPricingRows({ plan }: CurrentPricingRowsProps) {
         </div>
       )}
       {shouldRenderAmount(plan?.roaming_ac_price_per_kwh) && (
-        <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
+        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
           <span>Roaming AC</span>
           <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
             {formatCurrency(plan.roaming_ac_price_per_kwh)}
@@ -118,7 +118,7 @@ function CurrentPricingRows({ plan }: CurrentPricingRowsProps) {
         </div>
       )}
       {shouldRenderAmount(plan?.roaming_dc_price_per_kwh) && (
-        <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
+        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
           <span>Roaming DC</span>
           <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
             {formatCurrency(plan.roaming_dc_price_per_kwh)}
@@ -126,7 +126,7 @@ function CurrentPricingRows({ plan }: CurrentPricingRowsProps) {
         </div>
       )}
       {shouldRenderFeeAmount(plan?.monthly_base_fee) && (
-        <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
+        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
           <span>Monthly Base Fee</span>
           <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
             {formatCurrency(plan.monthly_base_fee)}
@@ -134,7 +134,7 @@ function CurrentPricingRows({ plan }: CurrentPricingRowsProps) {
         </div>
       )}
       {shouldRenderFeeAmount(plan?.session_fee) && (
-        <div className="grid w-fit grid-cols-[auto_auto] items-baseline justify-start gap-x-3">
+        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
           <span>Session Fee</span>
           <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
             {formatCurrency(plan.session_fee)}
@@ -158,7 +158,16 @@ function formatUpcomingPreviewCopy(
 }
 
 function getLogicalTariffLabel(providerName: string, tariffName: string): string {
-  return tariffName ? `${providerName} ${tariffName}` : providerName;
+  const provider = providerName.trim();
+  const tariff = tariffName.trim();
+  if (!tariff || tariff === provider) return provider;
+  return `${provider} ${tariff}`;
+}
+
+function getDisplayIdentity(providerName: string, tariffName: string): { provider: string; tariff: string } {
+  const provider = providerName.trim();
+  const tariff = tariffName.trim();
+  return { provider, tariff: tariff === provider ? '' : tariff };
 }
 
 function buildRetiredTariffCloneDefaults(logicalTariff: LogicalTariff): Partial<ChargingPlan> | null {
@@ -228,7 +237,7 @@ export function TariffList({
   const [pendingPaidTariffSwitch, setPendingPaidTariffSwitch] = useState<PendingPaidTariffSwitch | null>(null);
   const [paidTariffSwitchPending, setPaidTariffSwitchPending] = useState(false);
   const [paidTariffSwitchError, setPaidTariffSwitchError] = useState<string | null>(null);
-  const editButtonElementsRef = useRef<Record<string, HTMLElement | null>>({});
+  const editButtonElementsRef = useRef<Record<string, HTMLAnchorElement | null>>({});
   const retiredCreateButtonElementsRef = useRef<Record<string, HTMLButtonElement | null>>({});
   const createTariffFormRef = useRef<HTMLDivElement>(null);
 
@@ -320,18 +329,26 @@ export function TariffList({
     if (restorationRequest.type === 'position') {
       window.scrollTo({ top: restorationRequest.scrollY, behavior: 'auto' });
       const focusKey = restorationRequest.focusTariffKey;
-      if (focusKey) {
-        editButtonElementsRef.current[focusKey]?.focus();
+      if (!focusKey) {
+        onRestorationComplete();
+        return;
       }
-      onRestorationComplete();
+      const editButton = editButtonElementsRef.current[focusKey];
+      if (!editButton) return;
+      window.setTimeout(() => {
+        editButtonElementsRef.current[focusKey]?.focus();
+        onRestorationComplete();
+      }, 0);
       return;
     }
 
     if (restorationRequest.type === 'tariff') {
       const editButton = editButtonElementsRef.current[restorationRequest.tariffKey];
       if (!editButton) return;
-      editButton.focus();
-      onRestorationComplete();
+      window.setTimeout(() => {
+        editButtonElementsRef.current[restorationRequest.tariffKey]?.focus();
+        onRestorationComplete();
+      }, 0);
     }
   }, [logicalTariffs, onRestorationComplete, restorationRequest]);
 
@@ -613,6 +630,7 @@ export function TariffList({
 
       {!isShellOwnedFormVisible && mainLogicalTariffs.map((logicalTariff) => {
         const providerName = providerNameById.get(logicalTariff.providerId) ?? logicalTariff.providerId;
+        const identity = getDisplayIdentity(providerName, logicalTariff.name);
         const logicalTariffLabel = getLogicalTariffLabel(providerName, logicalTariff.name);
         const upcomingPreviewCopy = logicalTariff.upcomingVisibility.kind === 'preview'
           ? formatUpcomingPreviewCopy(logicalTariff.upcomingVisibility)
@@ -621,32 +639,50 @@ export function TariffList({
           && logicalTariff.lifecycle.kind === 'current';
 
         return (
-          <Slab key={logicalTariff.key} className="space-y-4 p-6">
-            <div className="flex items-start justify-between gap-4">
-              <div className="space-y-1">
-                <h2 className="text-xl font-semibold text-primary">{providerName}</h2>
-                {logicalTariff.name && (
-                  <p className="text-sm text-secondary">{logicalTariff.name}</p>
-                )}
-                {logicalTariff.lifecycle.kind === 'ending_today' && (
-                  <p className="text-sm font-medium text-primary">Ends today</p>
-                )}
-                {logicalTariff.badge?.kind === 'promo' && (
-                  <p className="text-sm font-medium text-primary">{logicalTariff.badge.label}</p>
-                )}
-              </div>
-              <div className="flex items-start gap-2 pt-1">
-                <a
-                  href={getTariffEditHref(logicalTariff.key)}
-                  ref={(element) => {
-                    editButtonElementsRef.current[logicalTariff.key] = element;
-                  }}
-                  onClick={(event) => onEditTariff(logicalTariff.key, event)}
-                  aria-label={`Edit ${logicalTariffLabel}`}
-                  className="inline-flex min-h-[44px] items-center justify-center rounded-xl bg-secondary/10 px-4 py-2 font-bold text-primary transition-all hover:bg-secondary/20"
-                >
-                  Edit
-                </a>
+          <EntitySlab
+            key={logicalTariff.key}
+            main={(
+              <a
+                href={getTariffEditHref(logicalTariff.key)}
+                ref={(element) => {
+                  editButtonElementsRef.current[logicalTariff.key] = element;
+                }}
+                onClick={(event) => onEditTariff(logicalTariff.key, event)}
+                aria-label={`Open tariff ${logicalTariffLabel}`}
+                className="block min-w-0 rounded-xl [overflow-wrap:anywhere] transition-[background-color,transform] duration-150 hover:bg-secondary/5 active:scale-[0.995] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent motion-reduce:transform-none motion-reduce:transition-none"
+              >
+                <div className="space-y-4">
+                  <div className="space-y-1">
+                    <h2 className="text-xl font-semibold text-primary">{identity.provider}</h2>
+                    {identity.tariff && (
+                      <p className="text-sm text-secondary">{identity.tariff}</p>
+                    )}
+                    {logicalTariff.lifecycle.kind === 'ending_today' && (
+                      <p className="text-sm font-medium text-primary">Ends today</p>
+                    )}
+                    {logicalTariff.badge?.kind === 'promo' && (
+                      <p className="text-sm font-medium text-primary">{logicalTariff.badge.label}</p>
+                    )}
+                  </div>
+                  <CurrentPricingRows plan={logicalTariff.currentVersion} />
+                  {logicalTariff.upcomingVisibility.kind === 'indicator' && (
+                    <p className="w-fit rounded-full bg-accent/10 px-3 py-2 text-xs font-semibold tabular-nums text-accent">
+                      {logicalTariff.upcomingVisibility.label}
+                    </p>
+                  )}
+                  {logicalTariff.upcomingVisibility.kind === 'preview' && (
+                    <div className="space-y-3">
+                      <div className="h-px bg-secondary/20" />
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold tabular-nums text-secondary">{logicalTariff.upcomingVisibility.label}</p>
+                        {upcomingPreviewCopy && <p className="text-sm tabular-nums text-primary">{upcomingPreviewCopy}</p>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </a>
+            )}
+            trailing={(
                 <TariffVersionActionMenu
                   label={logicalTariffLabel}
                   onRetire={canRetire ? () => {
@@ -669,36 +705,11 @@ export function TariffList({
                     });
                     setSurface({ kind: 'retire', key: logicalTariff.key });
                   } : undefined}
-                  onPromotion={() => setSurface({ kind: 'promotion', key: logicalTariff.key })}
-                  onDelete={() => setSurface({ kind: 'delete', key: logicalTariff.key })}
+                    onPromotion={() => setSurface({ kind: 'promotion', key: logicalTariff.key })}
+                    onDelete={() => setSurface({ kind: 'delete', key: logicalTariff.key })}
                 />
-              </div>
-            </div>
-
-            <CurrentPricingRows plan={logicalTariff.currentVersion} />
-
-            {logicalTariff.upcomingVisibility.kind === 'indicator' && (
-              <p className="w-fit rounded-full bg-accent/10 px-3 py-2 text-xs font-semibold tabular-nums text-accent">
-                {logicalTariff.upcomingVisibility.label}
-              </p>
             )}
-
-            {logicalTariff.upcomingVisibility.kind === 'preview' && (
-              <div className="space-y-3">
-                <div className="h-px bg-secondary/20" />
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold tabular-nums text-secondary">
-                    {logicalTariff.upcomingVisibility.label}
-                  </p>
-                  {upcomingPreviewCopy && (
-                    <p className="text-sm tabular-nums text-primary">
-                      {upcomingPreviewCopy}
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
-          </Slab>
+          />
         );
       })}
 

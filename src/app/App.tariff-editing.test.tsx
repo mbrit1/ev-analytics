@@ -24,7 +24,7 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
     tariffFormState: { mode: 'closed' } | { mode: 'create' } | { mode: 'edit'; logicalTariffKey: string };
     restorationRequest?: { type: 'position'; scrollY: number; focusTariffKey?: string | null } | { type: 'tariff'; tariffKey: string };
     onCreateTariff: () => void;
-    onEditTariff: (logicalTariffKey: string, event: React.MouseEvent<HTMLButtonElement>) => void;
+    onEditTariff: (logicalTariffKey: string, event: React.MouseEvent<HTMLAnchorElement>) => void;
     onCloseForm: () => void;
     onSaveComplete: (logicalTariffKey: string) => void;
     onRestorationComplete: () => void;
@@ -32,7 +32,7 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
   }) => {
     const [currentTariffKey, setCurrentTariffKey] = React.useState('provider-1::lidl');
     const [focusTariffKey, setFocusTariffKey] = React.useState<string | null>(null);
-    const editButtonRef = React.useRef<HTMLButtonElement | null>(null);
+    const mainAnchorRef = React.useRef<HTMLAnchorElement | null>(null);
 
     React.useEffect(() => {
       if (!restorationRequest) {
@@ -42,7 +42,7 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
       if (restorationRequest.type === 'position') {
         window.scrollTo({ top: restorationRequest.scrollY, behavior: 'auto' });
         setFocusTariffKey(restorationRequest.focusTariffKey ?? null);
-        editButtonRef.current?.focus();
+        mainAnchorRef.current?.focus();
       } else {
         setCurrentTariffKey(restorationRequest.tariffKey);
         setFocusTariffKey(restorationRequest.tariffKey);
@@ -56,12 +56,12 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
         return;
       }
 
-      editButtonRef.current?.focus();
+      mainAnchorRef.current?.focus();
     }, [currentTariffKey, focusTariffKey]);
 
     const currentLabel = currentTariffKey === 'provider-1::lidl plus'
-      ? 'Edit Ionity Lidl Plus'
-      : 'Edit Ionity Lidl';
+      ? 'Open tariff Ionity Lidl Plus'
+      : 'Open tariff Ionity Lidl';
 
     return (
       <div>
@@ -72,13 +72,13 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
           </button>
         ) : null}
         {tariffFormState.mode === 'closed' ? (
-          <button
-            ref={editButtonRef}
-            type="button"
-            onClick={(event) => onEditTariff(currentTariffKey, event as never)}
+          <a
+            ref={mainAnchorRef}
+            href={`#tariffs/edit/${encodeURIComponent(currentTariffKey)}`}
+            onClick={(event) => onEditTariff(currentTariffKey, event)}
           >
             {currentLabel}
-          </button>
+          </a>
         ) : null}
         {tariffFormState.mode === 'edit' ? (
           <section aria-label="Tariff Form Surface">
@@ -241,17 +241,17 @@ describe('App tariff editing', () => {
     await user.click(screen.getByRole('button', { name: 'Tariffs' }));
     expect(await screen.findByRole('heading', { name: 'Tariffs' })).toBeInTheDocument();
 
-    // Act: Click "Edit Ionity Lidl", then click "Cancel".
-    await user.click(screen.getByRole('button', { name: 'Edit Ionity Lidl' }));
+    // Act: Activate the main card anchor, then click "Cancel".
+    await user.click(screen.getByRole('link', { name: 'Open tariff Ionity Lidl' }));
     expect(await screen.findByRole('heading', { name: 'Edit Tariff' })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Tariffs' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
-    // Assert: "Edit Tariff" replaces "Tariffs", then "Tariffs" returns and focus is restored.
+    // Assert: "Edit Tariff" replaces "Tariffs", then focus returns to the main card anchor.
     expect(await screen.findByRole('heading', { name: 'Tariffs' })).toBeInTheDocument();
     await waitFor(() => {
       expect(mockScrollTo).toHaveBeenCalledWith({ top: 640, behavior: 'auto' });
-      expect(screen.getByRole('button', { name: 'Edit Ionity Lidl' })).toHaveFocus();
+      expect(screen.getByRole('link', { name: 'Open tariff Ionity Lidl' })).toHaveFocus();
     });
   });
 
@@ -262,14 +262,14 @@ describe('App tariff editing', () => {
     await user.click(screen.getByRole('button', { name: 'Tariffs' }));
     expect(await screen.findByRole('heading', { name: 'Tariffs' })).toBeInTheDocument();
 
-    // Act: Open edit and submit a mocked form payload that renames it to "Lidl Plus".
-    await user.click(screen.getByRole('button', { name: 'Edit Ionity Lidl' }));
+    // Act: Open edit from the main anchor and submit a mocked rename to "Lidl Plus".
+    await user.click(screen.getByRole('link', { name: 'Open tariff Ionity Lidl' }));
     await user.click(screen.getByRole('button', { name: 'Save Tariff' }));
 
-    // Assert: List mode returns and focus lands on "Edit Ionity Lidl Plus".
+    // Assert: List mode returns and focus lands on the renamed main anchor.
     expect(await screen.findByRole('heading', { name: 'Tariffs' })).toBeInTheDocument();
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Edit Ionity Lidl Plus' })).toHaveFocus();
+      expect(screen.getByRole('link', { name: 'Open tariff Ionity Lidl Plus' })).toHaveFocus();
     });
   });
 
@@ -281,7 +281,7 @@ describe('App tariff editing', () => {
     const historyLengthBeforeEdit = window.history.length;
 
     // Act: Activate the available tariff editor from the list.
-    await user.click(screen.getByRole('button', { name: 'Edit Ionity Lidl' }));
+    await user.click(screen.getByRole('link', { name: 'Open tariff Ionity Lidl' }));
 
     // Assert: The concrete edit destination is encoded and retains the foreign state namespace.
     expect(window.location.hash).toBe('#tariffs/edit/provider-1%3A%3Alidl');
@@ -307,7 +307,7 @@ describe('App tariff editing', () => {
     pushState.mockClear();
 
     // Act: Open edit. The outgoing list entry must be updated before the edit entry is pushed.
-    await user.click(screen.getByRole('button', { name: 'Edit Ionity Lidl' }));
+    await user.click(screen.getByRole('link', { name: 'Open tariff Ionity Lidl' }));
 
     // Assert: The current list marker records the actual position instead of leaving its initial zero snapshot.
     expect(replaceState).toHaveBeenCalledWith(
@@ -335,7 +335,7 @@ describe('App tariff editing', () => {
     expect(await screen.findByRole('heading', { name: 'Tariffs' })).toBeInTheDocument();
     await waitFor(() => {
       expect(mockScrollTo).toHaveBeenCalledWith({ top: 480, behavior: 'auto' });
-      expect(screen.getByRole('button', { name: 'Edit Ionity Lidl' })).toHaveFocus();
+      expect(screen.getByRole('link', { name: 'Open tariff Ionity Lidl' })).toHaveFocus();
     });
     const restorationCountAfterFirstBack = mockScrollTo.mock.calls.length;
 
@@ -382,7 +382,7 @@ describe('App tariff editing', () => {
     expect(await screen.findByRole('heading', { name: 'Tariffs' })).toBeInTheDocument();
     await waitFor(() => {
       expect(mockScrollTo).toHaveBeenCalledWith({ top: 777, behavior: 'auto' });
-      expect(screen.getByRole('button', { name: 'Edit Ionity Lidl' })).toHaveFocus();
+      expect(screen.getByRole('link', { name: 'Open tariff Ionity Lidl' })).toHaveFocus();
     });
     replaceState.mockRestore();
     pushState.mockRestore();
@@ -393,7 +393,7 @@ describe('App tariff editing', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Tariffs' }));
-    await user.click(screen.getByRole('button', { name: 'Edit Ionity Lidl' }));
+    await user.click(screen.getByRole('link', { name: 'Open tariff Ionity Lidl' }));
     expect(screen.getByRole('heading', { name: 'Edit Tariff' })).toBeInTheDocument();
 
     // Act: Replay the browser locations for the list and then the editor.
@@ -436,7 +436,7 @@ describe('App tariff editing', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Tariffs' }));
-    await user.click(screen.getByRole('button', { name: 'Edit Ionity Lidl' }));
+    await user.click(screen.getByRole('link', { name: 'Open tariff Ionity Lidl' }));
 
     // Act: Save the renamed tariff.
     await user.click(screen.getByRole('button', { name: 'Save Tariff' }));
@@ -445,7 +445,7 @@ describe('App tariff editing', () => {
     expect(window.location.hash).toBe('#tariffs');
     await waitFor(() => {
       expect(mockScrollTo).toHaveBeenCalledWith({ top: 640, behavior: 'auto' });
-      expect(screen.getByRole('button', { name: 'Edit Ionity Lidl Plus' })).toHaveFocus();
+      expect(screen.getByRole('link', { name: 'Open tariff Ionity Lidl Plus' })).toHaveFocus();
     });
   });
 
@@ -454,7 +454,7 @@ describe('App tariff editing', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Tariffs' }));
-    await user.click(screen.getByRole('button', { name: 'Edit Ionity Lidl' }));
+    await user.click(screen.getByRole('link', { name: 'Open tariff Ionity Lidl' }));
 
     // Act: Select another top-level tab.
     await user.click(screen.getByRole('button', { name: 'Analytics' }));
