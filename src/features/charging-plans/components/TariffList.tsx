@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Info, Plus } from 'lucide-react';
 import { formatCurrency } from '../../../shared/lib';
-import { Slab } from '../../../shared/ui';
+import { PageActionSlab, Slab } from '../../../shared/ui';
 import { useAuth } from '../../auth';
 import type { ChargingPlan, Provider } from '../../../infra/db';
 import { useChargingPlans } from '../hooks/useChargingPlans';
@@ -452,21 +452,26 @@ export function TariffList({
   return (
     <div className="space-y-4">
       {!isShellOwnedFormVisible && (
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold tracking-tight text-primary">Tariffs</h1>
-          <button
-            type="button"
-            onClick={() => {
-              setRetiredTariffCloneDraft(null);
-              setRetiredCloneRestoreFocusKey(null);
-              onCreateTariff();
-            }}
-            className="hidden min-h-[44px] items-center rounded-xl bg-accent px-4 py-2 font-bold text-white shadow-md shadow-accent/20 transition-all hover:opacity-90 md:flex"
-          >
-            <Plus className="mr-2 h-5 w-5" />
-            Add Tariff
-          </button>
-        </div>
+        <PageActionSlab
+          heading="Tariffs"
+          description="Manage charging prices"
+          className="bg-surface shadow-slab"
+          action={(
+            <button
+              type="button"
+              aria-label="Add tariff"
+              onClick={() => {
+                setRetiredTariffCloneDraft(null);
+                setRetiredCloneRestoreFocusKey(null);
+                onCreateTariff();
+              }}
+              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-accent px-3 py-2 font-bold text-white shadow-md shadow-accent/20 transition-all hover:opacity-90 md:px-4"
+            >
+              <Plus aria-hidden="true" className="h-5 w-5" />
+              <span className="hidden md:inline md:pl-2">Add tariff</span>
+            </button>
+          )}
+        />
       )}
 
       {isCreateOpen && (

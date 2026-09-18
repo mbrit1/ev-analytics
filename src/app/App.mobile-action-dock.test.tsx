@@ -173,22 +173,19 @@ vi.mock('../shared/ui', () => ({
   MobileContextAction: ({
     activeTab,
     onAddSession,
-    onAddTariff,
     isVisible = true,
   }: {
     activeTab: 'sessions' | 'tariffs' | 'analytics';
     onAddSession: () => void;
-    onAddTariff: () => void;
     isVisible?: boolean;
   }) => {
-    if (!isVisible || activeTab === 'analytics') {
+    if (!isVisible || activeTab !== 'sessions') {
       return null
     }
 
     return (
       <div>
-        {activeTab === 'sessions' ? <button type="button" onClick={onAddSession}>Add Session Pill</button> : null}
-        {activeTab === 'tariffs' ? <button type="button" onClick={onAddTariff}>Add Tariff Pill</button> : null}
+        <button type="button" onClick={onAddSession}>Add Session Pill</button>
       </div>
     )
   },
@@ -414,6 +411,23 @@ describe('App mobile action dock', () => {
     expect(screen.queryByText('Edit Session Form')).not.toBeInTheDocument();
   });
 
+  it('keeps Tariffs dock-only without a mobile contextual create action', async () => {
+    // Arrange: Render the authenticated shell and navigate to Tariffs.
+    const user = userEvent.setup();
+    const { container } = render(<App />);
+
+    // Act: Enter the Tariffs destination.
+    await user.click(screen.getByRole('button', { name: 'Tariffs' }));
+
+    // Assert: Tariffs has no shell-owned mobile action and reserves only navigation-dock clearance.
+    expect(screen.queryByText('Add Tariff Pill')).not.toBeInTheDocument();
+    expect(container.querySelector('main')).toHaveAttribute('data-has-mobile-context-action', 'false');
+    expect(container.querySelector('main')).toHaveClass(
+      'pb-[var(--mobile-content-clearance-dock-only)]',
+      'md:pb-8',
+    );
+  });
+
   it('opens the selected session and cancel returns to history without persistence', async () => {
     // Arrange: open edit mode.
     const user = userEvent.setup();
@@ -504,25 +518,25 @@ describe('App mobile action dock', () => {
     expect(screen.queryByText('Edit Session Form')).not.toBeInTheDocument();
   });
 
-  it('opens the tariff form when Add Tariff is invoked from mobile contextual action', async () => {
-    // Arrange: Switch to tariffs so the tariff pill is visible.
+  it('opens the tariff form from Tariffs instead of a mobile contextual action', async () => {
+    // Arrange: Switch to Tariffs, which owns its create action in the page content.
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Tariffs' }));
 
-    // Act: Trigger the contextual tariff create action.
-    await user.click(screen.getByText('Add Tariff Pill'));
+    // Act: Trigger the list-owned create action.
+    await user.click(screen.getByRole('button', { name: 'Open Tariff Form' }));
 
     // Assert: TariffList receives the create request and opens its existing form.
     expect(screen.getByText('Tariff Form')).toBeInTheDocument();
   });
 
   it('closes tariff create mode when leaving the tariffs tab', async () => {
-    // Arrange: Open the tariff form from the mobile add action.
+    // Arrange: Open the tariff form from the Tariffs page action.
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Tariffs' }));
-    await user.click(screen.getByText('Add Tariff Pill'));
+    await user.click(screen.getByRole('button', { name: 'Open Tariff Form' }));
     expect(screen.getByText('Tariff Form')).toBeInTheDocument();
 
     // Act: Leave the tariffs tab.

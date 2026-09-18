@@ -68,10 +68,8 @@ function App() {
   const [historyRestoreRequest, setHistoryRestoreRequest] = useState<HistoryRestoreRequest | null>(null)
   const [tariffFormState, setTariffFormState] = useState<TariffFormState>({ mode: 'closed' })
   const [tariffRestoreRequest, setTariffRestoreRequest] = useState<TariffRestoreRequest | null>(null)
-  const [isTariffFormOpen, setIsTariffFormOpen] = useState(false)
   const [logoutError, setLogoutError] = useState<string | null>(null)
   const isSessionFormOpen = sessionFormState.mode !== 'closed'
-  const isTariffFormVisible = tariffFormState.mode !== 'closed'
   const historyScrollSnapshotRef = useRef(0)
   const tariffScrollSnapshotRef = useRef(0)
 
@@ -228,9 +226,7 @@ function App() {
   const canResolveProviderConflict = syncStatus.blockingFailureKind === 'provider-name-conflict'
     && syncStatus.blockingOutboxId != null
     && syncStatus.blockingProviderId != null
-  const isMobileContextActionVisible =
-    (activeTab === 'sessions' && !isSessionFormOpen) ||
-    (activeTab === 'tariffs' && !isTariffFormVisible && !isTariffFormOpen)
+  const isMobileContextActionVisible = activeTab === 'sessions' && !isSessionFormOpen
   const mobileMainPaddingClass = activeTab === 'analytics'
     ? 'pb-[calc(var(--mobile-dock-height)+env(safe-area-inset-bottom)+32px)]'
     : isMobileContextActionVisible
@@ -260,10 +256,6 @@ function App() {
         <MobileContextAction
           activeTab={activeTab}
           onAddSession={handleOpenCreateSession}
-          onAddTariff={() => {
-            setActiveTab('tariffs')
-            handleOpenCreateTariff()
-          }}
           isVisible={isMobileContextActionVisible}
         />
 
@@ -372,7 +364,6 @@ function App() {
                     onCloseForm={handleCloseTariffForm}
                     onSaveComplete={handleTariffSaveComplete}
                     onRestorationComplete={() => setTariffRestoreRequest(null)}
-                    onFormOpenChange={setIsTariffFormOpen}
                   />
                 </Suspense>
               ) : (

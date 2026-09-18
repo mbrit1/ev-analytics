@@ -1,4 +1,5 @@
 export * from './Slab'
+export * from './PageActionSlab'
 export * from './ThinInput'
 export * from './TactileMatrix'
 export * from './DatePicker'

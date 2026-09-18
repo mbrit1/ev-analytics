@@ -447,6 +447,25 @@ describe('TariffList', () => {
     expect(screen.queryByRole('button', { name: /edit ionity lidl/i })).not.toBeInTheDocument();
   });
 
+  it('provides one responsive Add tariff action on the list and none while its focused form is open', () => {
+    // Arrange: Render the normal Tariffs list before any focused form is visible.
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue());
+    const { rerender } = renderTariffList();
+
+    // Assert: One action remains accessible at compact and regular widths without duplicating the create control.
+    const addTariffActions = screen.getAllByRole('button', { name: 'Add tariff' });
+    expect(addTariffActions).toHaveLength(1);
+    expect(addTariffActions[0]).toHaveAttribute('aria-label', 'Add tariff');
+    expect(addTariffActions[0]).toHaveClass('min-h-[44px]', 'min-w-[44px]');
+    expect(screen.getByText('Add tariff')).toHaveClass('hidden', 'md:inline');
+
+    // Act: Open the app-owned focused create form.
+    rerender(tariffListElement({ tariffFormState: { mode: 'create' } }));
+
+    // Assert: The form owns the focused surface, so no list create action remains available.
+    expect(screen.queryByRole('button', { name: 'Add tariff' })).not.toBeInTheDocument();
+  });
+
   it('dispatches updateCurrentVersion when edit submit keeps valid from unchanged', async () => {
     // Arrange: Render edit mode with a mocked TariffFormLoader submission intent "update_current".
     const updateCurrentVersion = vi.fn();
