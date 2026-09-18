@@ -2,8 +2,8 @@
 
 ## Status
 
-Proposed. Not implemented. Acceptance requires human approval before the Tariffs
-redesign implementation begins.
+Accepted and implemented. This ADR records the durable navigation, overlay, and
+shared-surface contract for the Tariffs redesign.
 
 ## Date
 
@@ -12,26 +12,21 @@ redesign implementation begins.
 ## Context
 
 The chosen Tariffs design separates page creation, ordinary entity navigation,
-exceptional entity actions, and persistent app navigation. The application does
-not yet provide that separation.
+exceptional entity actions, and persistent app navigation. The implementation
+provides that separation without changing the offline-first service contracts.
 
-`App.tsx` currently owns the active tab, tariff create/edit form state, scroll
-snapshots, and focus-restoration requests entirely in React state. The
-application has no router and no loadable tariff URL. A current-tariff card is a
-non-interactive slab with a permanent Edit button. Giving the slab a fake
-`href="#"`, `role="link"`, or card-wide button would look navigable without
-supporting reload, new-tab, modified-click, or browser-history behavior. Adding
-a full routing package for two Tariffs locations would add a broad dependency
-and migration that the application does not otherwise need.
+`App.tsx` owns the active tab, tariff create/edit form state, scroll snapshots,
+and focus-restoration requests. A small app-owned history adapter gives Tariffs
+two loadable hash locations without introducing a general router. Each current
+tariff uses a native main anchor inside a non-interactive Entity Slab, with its
+overflow trigger as a sibling. This avoids fake links, card-wide buttons, and
+nested controls while preserving reload, new-tab, modified-click, and browser
+history behavior.
 
-Exceptional tariff actions currently use one card-local, downward-only menu at
-every viewport and input capability. At compact height it can extend below the
-viewport and behind the fixed Tariffs create action and mobile dock. It does
-not implement menu keyboard semantics, and Escape fails while an action has
-focus. Retire and paid-tariff-switch confirmations already demonstrate
+Exceptional tariff actions use capability-selected sheet/popover overlays with
+collision-aware placement. Retire and paid-tariff-switch confirmations provide
 body-level portals, background isolation, scroll locking, focus trapping, and
-restoration. Delete is still a local fixed layer below the dock and does not
-provide those modal guarantees.
+restoration. Delete uses the same modal guarantees.
 
 This decision is presentation and client-navigation only. Tariff writes must
 remain local-first through the existing Dexie and outbox contracts. Existing
@@ -46,15 +41,14 @@ design and interaction seams without changing Sessions in this implementation.
 
 ## Decision
 
-If this ADR is accepted, the application will add two opt-in, domain-neutral
-shared surface primitives, one app-owned tariff-location adapter, and one
-charging-plans-owned action-overlay implementation. No router, positioning
-library, browser runner, or visual-regression dependency will be added for this
-work.
+The application provides two opt-in, domain-neutral shared surface primitives,
+one app-owned tariff-location adapter, and one charging-plans-owned
+action-overlay implementation. No router, positioning library, browser runner,
+or visual-regression dependency is required.
 
 ### Reusable Tariffs design building blocks
 
-Tariffs will be the first consumer of a small shared surface family under
+Tariffs is the first consumer of a small shared surface family under
 `src/shared/ui`. The shared layer owns reusable structure and styling roles; it
 never owns tariff/session data, navigation state, action eligibility,
 confirmation meaning, or persistence callbacks.
@@ -85,14 +79,14 @@ concise JSDoc and focused tests. If a proposed abstraction needs a
 Tariffs-specific conditional, it remains feature-local behind the same slot
 boundary instead of contaminating `shared`.
 
-The Tariffs refactor introduces and proves the shared contracts with its own
-consumer. It must not import from Sessions or modify `ChargingHistory`. After
-Tariffs is complete, a separately specified Sessions change may adopt the same
-Page Action Slab and Entity Slab. Sessions retains its own content, navigation
-contract, restoration keys, form behavior, and domain semantics.
+The Tariffs implementation proves the shared contracts with its own consumer.
+It does not import from Sessions or modify `ChargingHistory`. A separately
+specified Sessions change may adopt the same Page Action Slab and Entity Slab.
+Sessions retains its own content, navigation contract, restoration keys, form
+behavior, and domain semantics.
 
-Responsive action presentation is deliberately not a shared component in the
-Tariffs change. Sessions has no corresponding exceptional-action contract, so a
+Responsive action presentation is deliberately not a shared component.
+Sessions has no corresponding exceptional-action contract, so a
 shared sheet/popover API would speculate about a second consumer. Tariffs keeps
 the action descriptors, capability adapter, placement helper, sheet, popover,
 confirmation handoff, and focus policy feature-local but free of service logic
@@ -102,7 +96,7 @@ behavior-preserving change before Sessions adopts it.
 
 ### App-owned tariff locations
 
-The adapter will recognize exactly these hash locations while preserving the
+The adapter recognizes exactly these hash locations while preserving the
 existing pathname and query string:
 
 - `#tariffs` identifies the Tariffs list; and
@@ -111,8 +105,8 @@ existing pathname and query string:
 
 The adapter belongs under `src/app` because it coordinates browser history,
 authentication and hydration gates, top-level tabs, and app-owned form state.
-The charging-plans feature will receive a concrete edit `href` and an activation
-callback. Hash parsing and history effects will not enter domain models,
+The charging-plans feature receives a concrete edit `href` and an activation
+callback. Hash parsing and history effects do not enter domain models,
 services, `shared`, or `infra`.
 
 The adapter also owns a namespaced `history.state` marker containing the app
@@ -193,9 +187,9 @@ read-only and keeps Create new from retired as an explicit creation workflow.
 
 ### Charging-plans-owned responsive action policy
 
-The charging-plans feature will own one action definition and one overlay state
-machine together with the sheet/popover presentation mechanics. `src/app` will
-not inspect tariff action availability, and shared UI will not acquire
+The charging-plans feature owns one action definition and one overlay state
+machine together with the sheet/popover presentation mechanics. `src/app` does
+not inspect tariff action availability, and shared UI does not acquire
 Tariffs-specific policies. The tariff action definition preserves existing
 eligibility and callbacks and renders, in order:
 
@@ -229,7 +223,7 @@ and pending actions remain perceivable and non-dispatching in both forms.
 
 ### Tariffs modal action-sheet mechanics
 
-The compact presentation will be a labeled dialog in a body-level portal
+The compact presentation is a labeled dialog in a body-level portal
 above the mobile dock. It owns an opaque action slab, separate Cancel slab,
 scrim, bottom safe-area padding, bounded height, and internal scrolling. Opening
 it must not reflow the document or change the saved scroll position.
@@ -243,7 +237,7 @@ destructive workflow already requires that guard.
 
 ### Tariffs anchored-menu mechanics
 
-The regular fine-pointer presentation will be a body-level portal using fixed
+The regular fine-pointer presentation is a body-level portal using fixed
 coordinates. A pure feature-local placement helper receives the trigger
 rectangle, measured overlay size, visual viewport rectangle including non-zero
 offsets, edge gap, and any visible mobile-dock exclusion rectangle. It prefers
@@ -271,7 +265,7 @@ handoff so final cancellation, success, or failure restoration can resolve a
 connected target. If live data removes the trigger, restoration falls back
 safely without recreating the entity.
 
-Delete will move to a body portal and gain the same isolation, scroll, focus,
+Delete is a body portal with the same isolation, scroll, focus,
 Escape, pending, error, and restoration guarantees as the proven confirmation
 pattern. Retire keeps its irreversible warning, final-active-date and version
 snapshot semantics. Both destructive confirmations use destructive treatment
@@ -304,19 +298,19 @@ a separate architecture decision.
 ### Opt-in shared design family and staged Sessions adoption
 
 The chosen Tariffs design's page/entity radii, opaque Floating Slab surfaces,
-spacing, interactive card states, and preferred font order are a Tariffs
-**local exception** during the first implementation and a **promote to master
-candidate** for the later Sessions change. The shared Page Action Slab and
-Entity Slab expose the opt-in structure without changing any existing consumer.
+spacing, interactive card states, and preferred font order remain a Tariffs
+**local exception** and a **promote to master candidate** for a later Sessions
+change. The shared Page Action Slab and Entity Slab expose the opt-in structure
+without changing any existing consumer.
 Tariffs supplies its visual variant using existing shared color, edge, shadow,
 and accent roles. It does not globally restyle `Slab`, Sessions, or Analytics.
 Tariffs action-overlay geometry remains feature-local and is not promoted merely
 because Sessions is the next visual consumer.
 
-Tariffs is the proving consumer. Its implementation and Browser evidence must
-stabilize both shared structures and the visual variant before Sessions work
-begins. Reuse by Sessions is the evidence needed to promote those visual values
-from candidate to shared baseline; the Tariffs ADR alone does not promote them.
+Tariffs is the proving consumer. Its implementation and Browser evidence
+stabilize both shared structures and the visual variant. Reuse by Sessions is
+the evidence needed to promote those visual values from candidate to shared
+baseline; the Tariffs ADR alone does not promote them.
 
 The follow-up Sessions change requires its own audit/specification, task plan,
 routing, tests, Browser evidence, and explicit authorization. It should reuse
@@ -346,7 +340,7 @@ shared shell behavior rather than silently bundled into the Sessions follow-up.
   service and confirmation meaning. Removing it needs separate product approval.
 - Retired history stays immutable; Create new from retired creates an ordinary
   new tariff and is not an undo operation.
-- The Tariffs change does not alter Sessions markup, behavior, tests, or stored
+- The Tariffs implementation does not alter Sessions markup, behavior, tests, or stored
   data. Sessions adoption is a later product change with its own authorization.
 - No Supabase schema, RLS, RPC, migration, production-data, authentication, or
   service-role change is part of this decision.
@@ -425,7 +419,7 @@ and snapshot safeguards.
   Slab structures. Shared tests prove those generic contracts; Tariffs tests and
   Browser geometry/focus validation prove the first consumer. Component tests
   alone cannot prove collision freedom.
-- The original mobile collision and Escape failure can be fixed without moving
+- The original mobile collision and Escape failure are fixed without moving
   creation into the dock or changing ordinary tariff services.
 - Hash locations remain compatible with static SPA hosting and preserve the
   pathname/query string, but other features remain state-only until a separate
@@ -448,14 +442,7 @@ and snapshot safeguards.
 
 ## Implementation and Acceptance Boundary
 
-This ADR records a proposed contract, not implemented behavior. Acceptance does
-not authorize later work automatically. After human approval, each
-implementation slice retains its own routing, RED, acknowledgement, GREEN,
-review, and validation gate. No product implementation, publication, or merge
-is authorized by this ADR alone.
-
-Before Task 2 begins, the implementation tracker must be reconciled with this
-revised shared-surface boundary in a separate tracker-only documentation change.
-That update must preserve the existing task gates and re-slice any work that
-would otherwise exceed the five-file task limit. It must not start the Sessions
-follow-up or modify product code.
+This ADR records implemented behavior and remains the durable governing
+contract. The implementation tracker may sequence maintenance work, but it is
+not a dependency of this document. Sessions adoption remains a separate,
+explicitly authorized change.
