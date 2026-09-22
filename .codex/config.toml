@@ -15,23 +15,15 @@ parallelizable read-only investigation is non-trivial and follows the routing
 gate. Before any other non-trivial task that may modify tracked files or require
 debugging, investigation, or multi-step verification,
 inspect only the relevant repository context and calculate the routing score
-below. Before implementation, report one compact routing line containing only
-the non-zero factors, total, calculated route, actual route, and any override
+defined in the repository root AGENTS.md. Before implementation, report one
+compact routing line containing only the non-zero factors, total, calculated
+route, actual route, and any override
 reason. This gate is mandatory even when delegation is unavailable, prohibited,
 unnecessary, or overridden. Do not begin implementation until the routing
 decision is reported.
 
-Score routing decisions consistently: add 2 for an unclear root cause, 2 for
-architecture or cross-subsystem impact, 2 for auth/RLS, migrations, concurrency,
-or transactions, 1 for more than five likely files, 1 for unfamiliar external API
-or framework behavior, 1 for weak coverage, 1 for costly-to-detect regressions,
-and 2 after Luna validation fails only when the root cause remains unclear, the
-scope expands, or the same correction fails again. Do not count weak coverage
-merely because live-browser validation is required, and do not double-count weak
-coverage and regression cost when they describe the same evidence. Route scores
-0-2 to implement_luna, 3-6 to implement_mid, and 7+ to implement_sol. These
-are task tiers, not distinct model families. Use implement_mid only after the
-root cause and required decisions are clear. For an unclear cross-module cause,
+Use the routing factors and thresholds in AGENTS.md. Use implement_mid only after
+the root cause and required decisions are clear. For an unclear cross-module cause,
 gather evidence locally or through investigate_sol, then re-score the bounded
 implementation.
 
@@ -52,7 +44,7 @@ unclear cross-module causes, use investigate_sol for a bounded read-only evidenc
 report before implementation. Conflict-free Git history maintenance with an
 exact, approved rewrite plan may route to a Luna worker; conflicts, ambiguous
 commit ownership, unexpected tree differences, and recovery route to
-implement_sol. Use implement_sol for score 7+ execution only after the
+implement_sol. Use implement_sol for the highest implementation tier only after the
 primary supervisor has resolved any architecture, product, security, or routing
 decision needed to bound the assignment.
 
@@ -63,7 +55,7 @@ stop condition: planning or diagnosis-only assignments
 stop before edits and return the result for parent acknowledgement; implementation
 assignments stop after their acceptance criteria and validation command complete.
 
-For score 7+ delegation, select the exact custom agent role `implement_sol`. A
+For `implement_sol` delegation, select that exact custom agent role. A
 generic or default worker is not an equivalent substitute. If the custom role
 cannot be selected or loaded, stop and report the routing failure rather than
 silently inheriting the parent or default agent settings.
@@ -104,10 +96,8 @@ slice to the primary supervisor for a local decision or user input; do not creat
 another worker for unchanged scope. Before any replacement, inspect the shared
 worktree, revoke prior ownership, and establish the replacement's starting diff.
 
-Require an explicit RED pause and parent acknowledgement for score 3+ work and
-for domain, security, sync, persistence, migration, transaction, or concurrency
-behavior. For score 0-2 work, Luna may complete RED and GREEN in one assignment
-and report both results. Every TypeScript implementation slice must run
+Require the RED pause and parent acknowledgement specified in AGENTS.md. Every
+TypeScript implementation slice must run
 `npm run typecheck` before GREEN. Parent acknowledgement may rely on the
 subagent's exact RED command and failure evidence; rerun RED only when that
 evidence is ambiguous or inconsistent, or when shared worktree state changed.

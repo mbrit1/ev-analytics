@@ -30,8 +30,8 @@ These instructions apply to the entire repository. Human contributors should sta
 
 - Inspect the worktree before editing. Preserve existing user changes and avoid unrelated cleanup.
 - Work on a semantic feature branch such as `feat/...`, `fix/...`, or `docs/...`. Never commit on `main`; if work starts there, branch before editing.
+- Do not commit, push, open a pull request, or merge without explicit human authorization.
 - Keep changes small and scoped. For structural refactors, move first without changing behavior, then make behavioral changes separately with targeted tests.
-- Do not push, open a pull request, or merge without explicit human authorization.
 - Follow the current design baseline in `docs/design/design-system-baseline.html` and the checklist in `docs/design/governance-checklist.md` for UI work.
 
 Trivial-task exemption: short read-only work answerable through one bounded
@@ -54,7 +54,7 @@ all non-trivial work.
 - `investigate_sol` handles bounded read-only investigation of unclear cross-module problems; it returns evidence and a testable root-cause hypothesis before any fix.
 - The top-level user-facing agent is the primary supervisor regardless of its active model. The primary supervisor is responsible for:
   - Creating the implementation plan and making architecture decisions.
-  - Calculating and reporting the routing score defined in `.codex/config.toml` as one compact line containing only non-zero factors before non-trivial implementation.
+  - Calculating and reporting the routing score defined below as one compact line containing only non-zero factors before non-trivial implementation.
   - Using the calculated execution tier by default and reporting any permitted override reason.
   - Ensuring workers have no overlapping file ownership.
   - Reviewing every completed diff.
@@ -63,6 +63,7 @@ all non-trivial work.
 - The routing gate applies even when delegation is unavailable, prohibited, unnecessary, or overridden. Do not begin non-trivial implementation until the compact factor list, total, calculated route, actual route, and override reason are reported.
 - The primary supervisor is the sole routing authority. Workers report only changed files, each exact validation command and result, and any blocker or residual risk; do not restate route, task, or prior evidence unless asked.
 - Recalculate an independently discovered fix only when its likely route threshold or owned scope materially differs from the active slice. Clear corrections with unchanged scope stay with the current owner.
+- Score routing decisions consistently: add 2 for an unclear root cause, 2 for architecture or cross-subsystem impact, 2 for auth/RLS, migrations, concurrency, or transactions, 1 for more than five likely files, 1 for unfamiliar external API or framework behavior, 1 for weak coverage, 1 for costly-to-detect regressions, and 2 after Luna validation fails only when the root cause remains unclear, the scope expands, or the same correction fails again. Do not count weak coverage merely because live-browser validation is required, and do not double-count weak coverage and regression cost when they describe the same evidence.
 - Route scores 0-2 to `implement_luna`, 3-6 to `implement_mid`, and 7+ to `implement_sol`. These are task tiers, not distinct model families. Use `implement_mid` only after the root cause and required decisions are clear. For an unclear cross-module cause, gather evidence locally or through `investigate_sol`, then re-score the bounded implementation. Treat the calculated route as the target execution tier. When it matches the primary supervisor's active model and effort, execute locally; otherwise delegate to the matching implementation role unless the user prohibits delegation, the required agent or tooling is unavailable, the slice changes routing authority or worker permissions, the task meets the trivial-task exemption, or the primary supervisor must first resolve an architecture, product, or security decision.
 - For score 7+ delegation, select the exact custom agent role `implement_sol`. A generic or default worker is not an equivalent substitute. If the custom role cannot be selected or loaded, stop and report the routing failure rather than silently inheriting the parent or default agent settings.
 - Use `scan_luna` for focused read-only exploration and `investigate_sol` for bounded read-only cross-module diagnosis when the root cause remains unclear. Neither is an implementation tier or may receive write work.
