@@ -612,14 +612,13 @@ function App() {
                       <PageActionSlab
                         heading="Charging History"
                         description="Review your charging sessions and add a new session."
-                        className="flex-row items-center justify-between gap-3 bg-surface p-[18px_20px] shadow-slab sm:p-6"
                         action={(
                           <button
                             type="button"
                             ref={addSessionButtonRef}
                             onClick={handleOpenCreateSession}
                             aria-label="Add Session"
-                            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-accent px-3 py-2 font-bold text-white transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-reduce:transition-none md:px-4"
+                            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-accent px-3 py-2 font-bold text-white transition-opacity [@media(hover:hover)_and_(pointer:fine)]:hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-reduce:transition-none md:px-4"
                           >
                             <Plus aria-hidden="true" className="h-5 w-5" />
                             <span className="hidden md:inline md:pl-2">Add Session</span>

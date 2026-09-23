@@ -324,6 +324,21 @@ Any shared dock-token adjustment remains separate from the surface family. It
 must be validated atomically across all three destinations and documented as
 shared shell behavior rather than silently bundled into the Sessions follow-up.
 
+### Sessions follow-up outcome (2026-09-23)
+
+PR #229 completed the separately authorized Sessions follow-up. Sessions adopted
+the shared Page Action Slab for its in-flow create action and supplied the second
+consumer evidence needed to promote that page-level structure to the design
+baseline. Copy, visibility, callbacks, and focus-restoration state remain owned
+by each consumer.
+
+The follow-up did not adopt `EntitySlab`, Tariffs hash navigation, exceptional
+actions, the capability selector, sheet/popover presentation, or confirmation
+handoff. Sessions retains chronological groups and native whole-card buttons in
+`Slab`; those differences are intentional rather than incomplete Tariffs reuse.
+Accordingly, `EntitySlab` remains opt-in and Tariffs action overlays remain
+feature-local. No shared API change or global slab restyle was required.
+
 ## Preserved Product and Data Contracts
 
 - Creation and editing remain available offline and persist through existing
@@ -444,5 +459,5 @@ and snapshot safeguards.
 
 This ADR records implemented behavior and remains the durable governing
 contract. The implementation tracker may sequence maintenance work, but it is
-not a dependency of this document. Sessions adoption remains a separate,
-explicitly authorized change.
+not a dependency of this document. Sessions adoption was completed as the
+separate, explicitly authorized change recorded above.

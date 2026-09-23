@@ -2,488 +2,651 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Enyaq Suite">
+  <meta name="apple-mobile-web-app-title" content="EV Analytics">
 
-  <title>Enyaq Suite Design System - Enterprise Sandbox</title>
-  
+  <title>EV Analytics Design System Baseline</title>
+
   <style>
-    /* ----------------------------------------------------
-       1. DESIGN SYSTEM TOKENS (ADAPTIVE TOKENS)
-       ---------------------------------------------------- */
     :root {
-      /* Light Mode Tokens */
-      --bg-environment: #F5F5F7;
-      --surface-slab: #FFFFFF;
-      --primary-typography: #1D1D1F;
-      --secondary-typography: #86868B;
+      color-scheme: light dark;
+      --bg-environment: #f5f5f7;
+      --surface-slab: #ffffff;
+      --primary-typography: #1d1d1f;
+      --secondary-typography: #86868b;
+      --universal-accent: #007aff;
+      --accent-contrast: #ffffff;
+      --matrix-node-bg: #f5f5f7;
+      --matrix-node-active-bg: #1d1d1f;
+      --matrix-node-active-text: #ffffff;
+      --slab-border-color: rgba(0, 0, 0, 0.08);
       --slab-drop-shadow: 0 10px 30px rgba(0, 0, 0, 0.04);
-      --edge-border: 1px solid rgba(0, 0, 0, 0.08);
-      
-      /* Shared Tokens */
-      --universal-accent: #007AFF;
-      --matrix-node-bg: #F5F5F7;
-      --matrix-node-active-bg: #1D1D1F;
-      --matrix-node-active-text: #FFFFFF;
-      --border-color: rgba(0, 0, 0, 0.08); /* Fallback for inputs */
+      --focus-ring: rgba(0, 122, 255, 0.72);
+      --radius-slab: 28px;
+      --radius-control: 12px;
+      --content-width: 1024px;
     }
 
     @media (prefers-color-scheme: dark) {
       :root {
-        /* Dark Mode Tokens */
         --bg-environment: #000000;
-        --surface-slab: #1C1C1E;
-        --primary-typography: #F5F5F7;
-        --secondary-typography: #8E8E93;
+        --surface-slab: #1c1c1e;
+        --primary-typography: #f5f5f7;
+        --secondary-typography: #8e8e93;
+        --matrix-node-bg: #2c2c2e;
+        --matrix-node-active-bg: #ffffff;
+        --matrix-node-active-text: #1d1d1f;
+        --slab-border-color: rgba(255, 255, 255, 0.1);
         --slab-drop-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-        --edge-border: 1px solid rgba(255, 255, 255, 0.1);
-        --border-color: rgba(255, 255, 255, 0.1);
-        
-        /* Shared Overrides for Dark Mode Symmetry */
-        --matrix-node-bg: #2C2C2E;
-        --matrix-node-active-bg: #FFFFFF;
-        --matrix-node-active-text: #1D1D1F;
       }
     }
 
-    /* ----------------------------------------------------
-       2. BASE RESET, FONTS & iOS SAFE AREAS
-       ---------------------------------------------------- */
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
+
     body {
-      background-color: var(--bg-environment);
+      min-width: 0;
+      margin: 0;
+      padding:
+        max(24px, env(safe-area-inset-top, 0px))
+        max(20px, env(safe-area-inset-right, 0px))
+        max(40px, env(safe-area-inset-bottom, 0px))
+        max(20px, env(safe-area-inset-left, 0px));
+      background: var(--bg-environment);
       color: var(--primary-typography);
       font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Rounded", sans-serif;
-      margin: 0;
-      /* Integrate Apple Safe Area Insets for modern iPhones */
-      padding: env(safe-area-inset-top, 40px) 20px env(safe-area-inset-bottom, 40px) 20px;
-      display: flex;
-      justify-content: center;
-      transition: background-color 0.3s ease, color 0.3s ease;
       -webkit-font-smoothing: antialiased;
     }
 
-    .sandbox-wrapper {
-      width: 100%;
-      max-width: 1024px; /* Desktop Constraint */
-      display: flex;
-      flex-direction: column;
-      gap: 48px;
+    button,
+    input,
+    select {
+      font: inherit;
     }
 
-    @media (min-width: 768px) {
-      .sandbox-wrapper { padding: 40px 0; }
+    button {
+      -webkit-tap-highlight-color: transparent;
     }
 
-    .sandbox-section {
-      border-bottom: var(--edge-border);
-      padding-bottom: 32px;
-    }
-
-    .sandbox-section:last-child { border-bottom: none; }
-
-    .sandbox-title {
-      font-size: 14px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--secondary-typography);
-      margin-bottom: 24px;
-      display: block;
-    }
-
-    /* ----------------------------------------------------
-       3. TYPOGRAPHY ARCHITECTURE
-       ---------------------------------------------------- */
-    .typo-row {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      margin-bottom: 16px;
-    }
-    
-    .display-large { font-size: 54px; font-weight: 600; margin: 0; }
-    .display-medium { font-size: 36px; font-weight: 500; margin: 0; }
-    .body-headline { font-size: 17px; font-weight: 600; margin: 0; }
-    .body-text { font-size: 15px; font-weight: 400; margin: 0; color: var(--secondary-typography); }
-    .meta-label { 
-      font-size: 12px; 
-      font-weight: 600; 
-      text-transform: uppercase; 
-      letter-spacing: 0.05em; 
-      margin: 0 0 8px 0; 
-      color: var(--secondary-typography); 
-      display: block;
-    }
-    
-    .tabular { font-variant-numeric: tabular-nums; }
-
-    /* ----------------------------------------------------
-       4. INTERACTIVE SWATCHES & BUTTON MATRIX
-       ---------------------------------------------------- */
-    .color-grid {
+    .baseline {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      width: min(100%, var(--content-width));
+      margin: 0 auto;
+      gap: 40px;
+    }
+
+    .baseline-header {
+      display: grid;
+      gap: 8px;
+    }
+
+    .eyebrow,
+    .section-label,
+    .meta-label {
+      margin: 0;
+      color: var(--secondary-typography);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .baseline-title {
+      margin: 0;
+      font-size: clamp(32px, 8vw, 54px);
+      font-weight: 600;
+      letter-spacing: -0.04em;
+      line-height: 1;
+    }
+
+    .baseline-intro,
+    .body-text,
+    .supporting-copy {
+      margin: 0;
+      color: var(--secondary-typography);
+      line-height: 1.5;
+    }
+
+    .baseline-intro {
+      max-width: 68ch;
+      font-size: 16px;
+    }
+
+    .baseline-section {
+      display: grid;
+      gap: 20px;
+      padding-top: 32px;
+      border-top: 1px solid var(--slab-border-color);
+    }
+
+    .section-heading {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    .section-copy {
+      display: grid;
+      gap: 6px;
+    }
+
+    .token-grid,
+    .example-grid {
+      display: grid;
+      grid-template-columns: 1fr;
       gap: 16px;
     }
 
-    .color-swatch {
-      height: 80px;
-      border-radius: 12px;
-      border: var(--edge-border);
-      display: flex;
-      flex-direction: column;
-      justify-content: flex-end;
-      padding: 12px;
-      font-size: 12px;
-      font-weight: 600;
+    .token {
+      display: grid;
+      min-height: 92px;
+      align-content: end;
+      gap: 4px;
+      padding: 16px;
+      border: 1px solid var(--slab-border-color);
+      border-radius: 16px;
+      background: var(--token-color);
+      color: var(--token-text);
     }
 
-    /* Zero-Typing Tactile Button Matrix */
+    .token-name {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .token-value {
+      font-size: 12px;
+      opacity: 0.76;
+    }
+
+    .slab {
+      border: 1px solid var(--slab-border-color);
+      border-radius: var(--radius-slab);
+      background: var(--surface-slab);
+      box-shadow: var(--slab-drop-shadow);
+    }
+
+    .page-action {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 18px 20px;
+    }
+
+    .page-action-copy {
+      min-width: 0;
+    }
+
+    .page-action-title {
+      margin: 0;
+      font-size: 24px;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      line-height: 1.2;
+    }
+
+    .supporting-copy {
+      margin-top: 4px;
+      font-size: 14px;
+    }
+
+    .primary-action,
+    .secondary-action,
+    .matrix-node {
+      min-height: 44px;
+      border: 0;
+      border-radius: var(--radius-control);
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    .primary-action {
+      display: inline-flex;
+      min-width: 44px;
+      flex: 0 0 auto;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 10px 12px;
+      background: var(--universal-accent);
+      color: var(--accent-contrast);
+      transition: opacity 150ms ease;
+    }
+
+    .primary-action-label {
+      display: none;
+    }
+
+    .plus-icon {
+      width: 20px;
+      height: 20px;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-width: 2;
+    }
+
+    .content-slab {
+      padding: 24px;
+    }
+
+    .content-slab-title {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.25;
+    }
+
+    .metric-row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      margin-top: 18px;
+    }
+
+    .metric-value {
+      margin: 0;
+      font-size: clamp(34px, 10vw, 48px);
+      font-weight: 600;
+      letter-spacing: -0.04em;
+      white-space: nowrap;
+    }
+
+    .tabular {
+      font-variant-numeric: tabular-nums;
+    }
+
+    .form-example {
+      display: grid;
+      gap: 28px;
+      padding: 24px;
+    }
+
+    .field {
+      display: grid;
+      gap: 8px;
+    }
+
+    .input-row {
+      display: flex;
+      align-items: baseline;
+      border-bottom: 1px solid var(--slab-border-color);
+    }
+
+    .main-input {
+      min-width: 0;
+      width: 100%;
+      padding: 8px 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--primary-typography);
+      font-size: 32px;
+      font-variant-numeric: tabular-nums;
+      font-weight: 500;
+    }
+
+    .input-row:focus-within {
+      border-bottom-color: var(--universal-accent);
+      box-shadow: 0 1px 0 var(--universal-accent);
+    }
+
+    .unit-tag {
+      margin-left: 8px;
+      color: var(--secondary-typography);
+      font-size: 18px;
+      font-weight: 500;
+    }
+
     .button-matrix {
       display: grid;
-      grid-template-columns: repeat(4, 1fr);
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 8px;
-      max-width: 400px;
     }
 
     .matrix-node {
+      padding: 10px;
       background: var(--matrix-node-bg);
-      border: none;
       color: var(--primary-typography);
-      font-size: 14px;
-      font-weight: 600;
-      padding: 14px 0;
-      border-radius: 12px;
-      cursor: pointer;
-      font-variant-numeric: tabular-nums;
-      min-height: 44px; /* Apple HIG: Minimum Touch Target */
-      transition: all 0.2s ease;
+      transition: background-color 150ms ease, color 150ms ease, transform 150ms ease;
     }
 
-    .matrix-node.active {
+    .matrix-node[aria-pressed="true"] {
       background: var(--matrix-node-active-bg);
       color: var(--matrix-node-active-text);
     }
 
-    /* Interaction States (Mobile Tap vs Desktop Hover/Focus) */
-    .matrix-node:active { transform: scale(0.96); }
-    
-    .matrix-node:focus-visible {
-      outline: 2px solid var(--universal-accent);
-      outline-offset: 2px;
+    .matrix-node:active,
+    .secondary-action:active {
+      transform: scale(0.98);
     }
 
-    @media (hover: hover) and (pointer: fine) {
-      .matrix-node:hover:not(.active) { background: rgba(134, 134, 139, 0.2); }
-    }
-
-    /* ----------------------------------------------------
-       5. FORM INPUTS (THIN UNDERLINE PARADIGM)
-       ---------------------------------------------------- */
-    .input-wrapper {
-      position: relative;
-      display: flex;
-      align-items: baseline;
-      max-width: 400px;
-    }
-
-    .main-input {
-      width: 100%;
-      background: transparent;
-      border: none;
-      border-bottom: 1px solid var(--border-color);
-      font-size: 36px; /* Prevents iOS Auto-Zoom */
-      font-weight: 500;
-      color: var(--primary-typography);
-      padding: 8px 0;
-      outline: none;
-      font-variant-numeric: tabular-nums;
-      transition: border-color 0.2s ease;
-      opacity: 0.8;
-      font-family: inherit;
-    }
-
-    .main-input:focus {
-      border-bottom-color: var(--universal-accent);
-      opacity: 1;
-    }
-
-    .unit-tag {
-      font-size: 18px;
-      color: var(--secondary-typography);
-      margin-left: 8px;
-      font-weight: 500;
-    }
-
-    /* ----------------------------------------------------
-       6. THE COMPONENT VAULT (FLOATING SLABS)
-       ---------------------------------------------------- */
-    .component-grid {
-      display: grid;
-      grid-template-columns: 1fr; /* Mobile Default Stack */
-      gap: 24px;
-    }
-
-    @media (min-width: 768px) {
-      .component-grid { grid-template-columns: repeat(2, 1fr); } /* Desktop Reflow */
-    }
-
-    .floating-slab {
-      background: var(--surface-slab);
-      border: var(--edge-border);
-      box-shadow: var(--slab-drop-shadow);
-      border-radius: 28px;
-      padding: 32px;
-      box-sizing: border-box;
-      transition: background 0.3s ease, border 0.3s ease, box-shadow 0.3s ease;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-    }
-
-    .btn-submit {
-      width: 100%;
-      background: var(--universal-accent);
-      color: #FFFFFF;
-      border: none;
-      padding: 16px;
-      border-radius: 14px;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      margin-top: 24px;
-      min-height: 44px; /* Apple HIG */
-      box-shadow: 0 4px 15px rgba(0, 122, 255, 0.2);
-      opacity: 1;
-      transition: all 0.2s ease;
-    }
-
-    .btn-secondary {
-      width: 100%;
-      background: rgba(134, 134, 139, 0.12);
-      color: var(--primary-typography);
-      border: none;
-      padding: 16px;
-      border-radius: 14px;
-      font-size: 16px;
-      font-weight: 600;
-      cursor: pointer;
-      min-height: 44px;
-      transition: all 0.2s ease;
-    }
-
-    .btn-secondary:hover { background: rgba(134, 134, 139, 0.2); }
-
-    .actions-row {
+    .action-row {
       display: grid;
       grid-template-columns: 1fr;
       gap: 12px;
-      margin-top: 24px;
     }
 
-    @media (min-width: 640px) {
-      .actions-row { grid-template-columns: repeat(2, 1fr); }
+    .action-row .primary-action,
+    .secondary-action {
+      width: 100%;
     }
 
-    .meta-section-title {
-      font-size: 13px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--secondary-typography);
-      margin: 0 0 16px 0;
+    .action-row .primary-action-label {
+      display: inline;
     }
 
-    .form-section { margin-bottom: 32px; }
-
-    .policy-note {
-      padding: 16px;
-      border-radius: 12px;
-      border: var(--edge-border);
-      background: rgba(0, 122, 255, 0.06);
+    .secondary-action {
+      padding: 10px 16px;
+      background: rgba(134, 134, 139, 0.12);
       color: var(--primary-typography);
-      font-size: 14px;
+      transition: background-color 150ms ease, transform 150ms ease;
+    }
+
+    .status-example {
+      display: grid;
+      justify-items: center;
+      gap: 16px;
+      min-height: 190px;
+      align-content: center;
+      padding: 32px;
+      text-align: center;
+    }
+
+    .skeleton {
+      display: grid;
+      justify-items: center;
+      gap: 12px;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    .skeleton-circle,
+    .skeleton-line {
+      background: rgba(134, 134, 139, 0.2);
+    }
+
+    .skeleton-circle {
+      width: 48px;
+      height: 48px;
+      border-radius: 999px;
+    }
+
+    .skeleton-line {
+      width: 128px;
+      height: 16px;
+      border-radius: 8px;
+    }
+
+    .pattern-note {
+      padding: 16px;
+      border: 1px solid var(--slab-border-color);
+      border-radius: var(--radius-control);
+      background: rgba(0, 122, 255, 0.06);
       line-height: 1.5;
     }
 
+    .pattern-note strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    :where(button, input, select):focus-visible {
+      outline: 2px solid var(--focus-ring);
+      outline-offset: 2px;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.45; }
+    }
+
     @media (hover: hover) and (pointer: fine) {
-      .btn-submit:hover {
+      .primary-action:hover {
         opacity: 0.9;
+      }
+
+      .secondary-action:hover,
+      .matrix-node:hover:not([aria-pressed="true"]) {
+        background: rgba(134, 134, 139, 0.2);
+      }
+    }
+
+    @media (min-width: 640px) {
+      .token-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .example-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .button-matrix {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .action-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (min-width: 768px) {
+      .baseline {
+        gap: 48px;
+      }
+
+      .page-action {
+        padding: 24px;
+      }
+
+      .primary-action {
+        padding-inline: 16px;
+      }
+
+      .primary-action-label {
+        display: inline;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+
+      .matrix-node:active,
+      .secondary-action:active {
+        transform: none;
       }
     }
   </style>
 </head>
 <body>
+  <main class="baseline">
+    <header class="baseline-header">
+      <p class="eyebrow">Current normative reference</p>
+      <h1 class="baseline-title">EV Analytics design system</h1>
+      <p class="baseline-intro">
+        Shared tokens and proven interaction patterns for the mobile-first PWA.
+        Feature-specific navigation and overlays remain documented exceptions.
+      </p>
+    </header>
 
-<main class="sandbox-wrapper">
-
-  <section class="sandbox-section">
-    <h2 class="sandbox-title">1. Color Palette Tokens</h2>
-    <div class="color-grid">
-      <div class="color-swatch" style="background: var(--bg-environment); color: var(--primary-typography);">Bg Env</div>
-      <div class="color-swatch" style="background: var(--surface-slab); color: var(--primary-typography);">Surface Slab</div>
-      <div class="color-swatch" style="background: var(--universal-accent); color: white;">Universal Accent</div>
-      <div class="color-swatch" style="background: var(--primary-typography); color: var(--surface-slab);">Primary Typo</div>
-      <div class="color-swatch" style="background: var(--secondary-typography); color: var(--surface-slab);">Secondary Typo</div>
-    </div>
-  </section>
-
-  <section class="sandbox-section">
-    <h2 class="sandbox-title">2. Typography Scale</h2>
-    <div class="typo-row">
-      <span class="meta-label" style="margin:0;">Display Large (Metric)</span>
-      <h1 class="display-large tabular">88%</h1>
-    </div>
-    <div class="typo-row">
-      <span class="meta-label" style="margin:0;">Display Medium (Input)</span>
-      <h2 class="display-medium tabular">142.5</h2>
-    </div>
-    <div class="typo-row">
-      <span class="meta-label" style="margin:0;">Body Headline</span>
-      <p class="body-headline">Ionity Charging Station</p>
-    </div>
-    <div class="typo-row">
-      <span class="meta-label" style="margin:0;">Body Text</span>
-      <p class="body-text">Enyaq 80x Suite Connected</p>
-    </div>
-  </section>
-
-  <section class="sandbox-section">
-    <h2 class="sandbox-title">3. Input Fields & Zero-Typing Tactile Rows</h2>
-    
-    <div style="margin-bottom: 32px;">
-      <label for="demo-input" class="meta-label">Thin Underline Field</label>
-      <div class="input-wrapper">
-        <input type="text" id="demo-input" class="main-input" placeholder="0.00" aria-label="Amount in Euros">
-        <span class="unit-tag" aria-hidden="true">€</span>
+    <section class="baseline-section" aria-labelledby="tokens-heading">
+      <div class="section-copy">
+        <p class="section-label">01 · Foundation</p>
+        <h2 class="section-heading" id="tokens-heading">Adaptive color roles</h2>
+        <p class="body-text">Use semantic roles in product code rather than copying literal colors.</p>
       </div>
-    </div>
-
-    <div>
-      <span class="meta-label" id="matrix-label">Tactile Button Grid (Zero Typing)</span>
-      <p class="body-text" style="margin: 0 0 12px 0;">Hover on inactive buttons uses a subtle neutral tint increase. No lift animation is used.</p>
-      <div class="button-matrix" role="group" aria-labelledby="matrix-label">
-        <button class="matrix-node" aria-pressed="false">AC</button>
-        <button class="matrix-node active" aria-pressed="true">DC</button>
-        <button class="matrix-node" aria-pressed="false">Ionity</button>
-        <button class="matrix-node" aria-pressed="false">Home</button>
-      </div>
-    </div>
-  </section>
-
-  <section class="sandbox-section">
-    <h2 class="sandbox-title">4. Live Architecture Components</h2>
-    <div class="component-grid">
-      
-      <article class="floating-slab">
-        <div>
-          <div style="display: flex; justify-content: space-between; margin-bottom: 24px;">
-            <span class="meta-label">Battery Engine</span>
-            <span class="meta-label" style="color: var(--universal-accent);">● Live</span>
-          </div>
-          <h3 class="display-large tabular" style="margin-bottom: 8px;">74%</h3>
-          <p class="body-text">Connected to Wallbox • 11 kW</p>
+      <div class="token-grid">
+        <div class="token" style="--token-color: var(--bg-environment); --token-text: var(--primary-typography);">
+          <span class="token-name">Environment</span>
+          <span class="token-value">bg-environment</span>
         </div>
-      </article>
+        <div class="token" style="--token-color: var(--surface-slab); --token-text: var(--primary-typography);">
+          <span class="token-name">Surface</span>
+          <span class="token-value">bg-surface</span>
+        </div>
+        <div class="token" style="--token-color: var(--universal-accent); --token-text: #ffffff;">
+          <span class="token-name">Accent</span>
+          <span class="token-value">bg-accent</span>
+        </div>
+      </div>
+    </section>
 
-      <article class="floating-slab">
-        <div>
-          <label for="log-input" class="meta-label">Session Log</label>
-          <div class="input-wrapper">
-            <input type="number" id="log-input" class="main-input" placeholder="45.2">
+    <section class="baseline-section" aria-labelledby="page-action-heading">
+      <div class="section-copy">
+        <p class="section-label">02 · Promoted pattern</p>
+        <h2 class="section-heading" id="page-action-heading">Page action surface</h2>
+        <p class="body-text">
+          Tariffs and Sessions share one in-flow heading, description, and primary-action structure.
+          Each feature continues to own its copy, callback, visibility, and focus restoration.
+        </p>
+      </div>
+      <section class="slab page-action" aria-labelledby="example-page-title">
+        <div class="page-action-copy">
+          <h3 class="page-action-title" id="example-page-title">Charging History</h3>
+          <p class="supporting-copy">Review your charging sessions and add a new session.</p>
+        </div>
+        <button class="primary-action" type="button" aria-label="Add Session">
+          <svg class="plus-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5v14M5 12h14"></path>
+          </svg>
+          <span class="primary-action-label">Add Session</span>
+        </button>
+      </section>
+    </section>
+
+    <section class="baseline-section" aria-labelledby="content-heading">
+      <div class="section-copy">
+        <p class="section-label">03 · Hierarchy and numbers</p>
+        <h2 class="section-heading" id="content-heading">Content surfaces</h2>
+        <p class="body-text">
+          Preserve each feature's information architecture. Apply tabular numerals only where stable alignment improves scanning.
+        </p>
+      </div>
+      <div class="example-grid">
+        <article class="slab content-slab">
+          <p class="meta-label">September 2026</p>
+          <div class="metric-row">
+            <div>
+              <h3 class="content-slab-title">IONITY</h3>
+              <p class="supporting-copy">Passport Power · DC</p>
+            </div>
+            <p class="metric-value tabular">€18.42</p>
+          </div>
+        </article>
+        <article class="slab content-slab">
+          <p class="meta-label">Monthly total</p>
+          <div class="metric-row">
+            <div>
+              <h3 class="content-slab-title">Provider billed energy</h3>
+              <p class="supporting-copy">Current local data</p>
+            </div>
+            <p class="metric-value tabular">142.5</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="baseline-section" aria-labelledby="form-heading">
+      <div class="section-copy">
+        <p class="section-label">04 · Data entry</p>
+        <h2 class="section-heading" id="form-heading">Inputs and tactile choices</h2>
+        <p class="body-text">
+          Keep labels stable, targets at least 44px, and selection available to pointer and keyboard users.
+        </p>
+      </div>
+      <div class="slab form-example">
+        <div class="field">
+          <label class="meta-label" for="energy-input">Energy billed</label>
+          <div class="input-row">
+            <input class="main-input" id="energy-input" inputmode="decimal" placeholder="0,00">
             <span class="unit-tag" aria-hidden="true">kWh</span>
           </div>
         </div>
-        <button class="btn-submit">Save to Suite</button>
-      </article>
-
-    </div>
-  </section>
-
-  <section class="sandbox-section">
-    <h2 class="sandbox-title">5. Production Patterns</h2>
-    <div class="component-grid">
-      <article class="floating-slab">
-        <div>
-          <h3 class="meta-section-title">Section Heading Hierarchy</h3>
-          <div class="form-section">
-            <label for="prod-provider" class="meta-label">Provider</label>
-            <div class="input-wrapper">
-              <select id="prod-provider" class="main-input" aria-label="Provider">
-                <option>Select Provider</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-section" style="margin-bottom: 0;">
-            <h4 class="meta-section-title">Dense Form Action Row</h4>
-            <div class="actions-row">
-              <button class="btn-submit">Save Tariff</button>
-              <button class="btn-secondary">Cancel</button>
-            </div>
+        <div class="field">
+          <span class="meta-label" id="charge-type-label">Charge type</span>
+          <div class="button-matrix" role="group" aria-labelledby="charge-type-label">
+            <button class="matrix-node" type="button" aria-pressed="true">AC</button>
+            <button class="matrix-node" type="button" aria-pressed="false">DC</button>
+            <button class="matrix-node" type="button" aria-pressed="false">Roaming</button>
           </div>
         </div>
-      </article>
-
-      <article class="floating-slab">
-        <div>
-          <h3 class="meta-section-title">Tactile Matrix Breakpoint Intent</h3>
-          <p class="body-text" style="margin-bottom: 12px;">Mobile: 2 columns. Small desktop and up: 3 columns. Use 4 columns only when option count and visual density require it.</p>
-          <p class="body-text" style="margin-bottom: 12px;">Hover behavior follows current app interaction model; avoid lift animations unless explicitly introduced in app first.</p>
-          <div>
-            <span class="meta-label" id="matrix-pattern-label">Matrix Pattern Example</span>
-            <div class="button-matrix" role="group" aria-labelledby="matrix-pattern-label" style="grid-template-columns: repeat(3, 1fr); max-width: none;">
-              <button class="matrix-node active" aria-pressed="true">Plan</button>
-              <button class="matrix-node" aria-pressed="false">Ad-Hoc</button>
-              <button class="matrix-node" aria-pressed="false">Roaming</button>
-            </div>
-          </div>
+        <div class="action-row">
+          <button class="primary-action" type="button">
+            <span class="primary-action-label">Save Session</span>
+          </button>
+          <button class="secondary-action" type="button">Cancel</button>
         </div>
-      </article>
-    </div>
-  </section>
+      </div>
+    </section>
 
-  <section class="sandbox-section">
-    <h2 class="sandbox-title">6. Deviation Policy</h2>
-    <p class="policy-note">
-      When a screen-specific pattern improves UX but differs from this master, record the deviation in handoff/PR notes and classify it as either a local exception or a promote-to-master candidate.
-    </p>
-  </section>
+    <section class="baseline-section" aria-labelledby="status-heading">
+      <div class="section-copy">
+        <p class="section-label">05 · Status and motion</p>
+        <h2 class="section-heading" id="status-heading">Loading communication</h2>
+        <p class="body-text">
+          Blocking loading has one concise polite status. Skeletons are decorative and motion is removed when requested.
+        </p>
+      </div>
+      <div class="slab status-example" role="status" aria-live="polite">
+        <span class="sr-only">Loading charging sessions</span>
+        <div class="skeleton" aria-hidden="true">
+          <span class="skeleton-circle"></span>
+          <span class="skeleton-line"></span>
+        </div>
+        <p class="supporting-copy" aria-hidden="true">Loading local history…</p>
+      </div>
+    </section>
 
-</main>
+    <section class="baseline-section" aria-labelledby="exceptions-heading">
+      <div class="section-copy">
+        <p class="section-label">06 · Governance</p>
+        <h2 class="section-heading" id="exceptions-heading">Local exceptions stay explicit</h2>
+      </div>
+      <div class="pattern-note">
+        <strong>Not promoted by this baseline</strong>
+        Tariffs retains provider-matrix usage, Entity Slab navigation, and responsive action overlays.
+        Sessions retains chronological grouping and native whole-card editing. Record future deviations as
+        either a local exception or a promote-to-master candidate.
+      </div>
+    </section>
+  </main>
 
-<script>
-  // Robust interaction handler for the tactile matrix
-  document.querySelectorAll('.matrix-node').forEach(button => {
-    
-    // Handle Touch / Mouse Click
-    button.addEventListener('click', activateNode);
-    
-    // Handle Keyboard Accessibility (Space or Enter)
-    button.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault(); // Prevent page scroll on Space
-        activateNode(e);
-      }
-    });
+  <script>
+    document.querySelectorAll('.button-matrix').forEach((group) => {
+      group.addEventListener('click', (event) => {
+        const selected = event.target.closest('.matrix-node');
+        if (!selected || !group.contains(selected)) return;
 
-    function activateNode(e) {
-      const target = e.currentTarget;
-      const group = target.parentNode;
-      
-      // Reset all buttons in this specific group
-      group.querySelectorAll('.matrix-node').forEach(b => {
-        b.classList.remove('active');
-        b.setAttribute('aria-pressed', 'false');
+        group.querySelectorAll('.matrix-node').forEach((button) => {
+          button.setAttribute('aria-pressed', String(button === selected));
+        });
       });
-      
-      // Activate the selected button
-      target.classList.add('active');
-      target.setAttribute('aria-pressed', 'true');
-    }
-  });
-</script>
+    });
+  </script>
 </body>
 </html>
