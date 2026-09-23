@@ -303,7 +303,7 @@ describe('SessionForm', () => {
 
     // Act: mount the form in the document.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    const heading = screen.getByRole('heading', { name: 'New Session' });
+    const heading = screen.getByRole('heading', { name: 'New Session', level: 1 });
 
     // Assert: the heading becomes the stable top anchor for edit/create mode.
     await waitFor(() => {
@@ -333,6 +333,7 @@ describe('SessionForm', () => {
     );
 
     // Assert: both controls expose the edit-specific wording.
+    expect(screen.getByRole('heading', { name: 'Edit Session', level: 1 })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Close session editor' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Discard changes' })).toBeInTheDocument();
   });

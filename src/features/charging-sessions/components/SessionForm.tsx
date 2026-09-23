@@ -801,9 +801,9 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     <Slab>
       <div className="flex items-center justify-between mb-8">
         <div className="flex flex-col">
-          <h2 ref={headingRef} tabIndex={-1} className="text-2xl font-bold text-primary">
+          <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-bold text-primary">
             {initialValues?.id ? 'Edit Session' : 'New Session'}
-          </h2>
+          </h1>
           <p className="text-sm text-secondary mt-1">
             <span className="text-primary font-medium" aria-hidden="true">*</span> Required fields
           </p>

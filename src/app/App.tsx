@@ -86,6 +86,8 @@ function App() {
   const [logoutError, setLogoutError] = useState<string | null>(null)
   const isSessionFormOpen = sessionFormState.mode !== 'closed'
   const historyScrollSnapshotRef = useRef(0)
+  const addSessionButtonRef = useRef<HTMLButtonElement>(null)
+  const shouldRestoreCreateFocusRef = useRef(false)
   const tariffScrollSnapshotRef = useRef(0)
   const principalIdRef = useRef<string | null>(null)
   const activeTariffEditKeyRef = useRef<string | null>(null)
@@ -273,6 +275,7 @@ function App() {
     setActiveTab(tab)
 
     if (tab !== 'sessions') {
+      shouldRestoreCreateFocusRef.current = false
       setSessionFormState({ mode: 'closed' })
       setHistoryRestoreRequest(null)
     }
@@ -308,6 +311,7 @@ function App() {
   }
 
   const handleOpenCreateSession = () => {
+    shouldRestoreCreateFocusRef.current = false
     historyScrollSnapshotRef.current = window.scrollY
     setHistoryRestoreRequest(null)
     setSessionFormState({ mode: 'create' })
@@ -329,6 +333,7 @@ function App() {
   }
 
   const handleCloseSessionForm = () => {
+    shouldRestoreCreateFocusRef.current = sessionFormState.mode === 'create'
     const focusSessionId = sessionFormState.mode === 'edit'
       ? sessionFormState.session.id
       : null
@@ -362,9 +367,24 @@ function App() {
         await saveSession(request.session)
       }
     }
+    shouldRestoreCreateFocusRef.current = false
     setSessionFormState({ mode: 'closed' })
     setHistoryRestoreRequest({ type: 'session', sessionId: request.session.id })
   }
+
+  useEffect(() => {
+    if (isSessionFormOpen || !shouldRestoreCreateFocusRef.current) {
+      return
+    }
+
+    const addSessionButton = addSessionButtonRef.current
+    if (addSessionButton == null) {
+      return
+    }
+
+    addSessionButton.focus({ preventScroll: true })
+    shouldRestoreCreateFocusRef.current = false
+  }, [isSessionFormOpen])
 
   const handleOpenCreateTariff = () => {
     tariffScrollSnapshotRef.current = window.scrollY
@@ -596,6 +616,7 @@ function App() {
                         action={(
                           <button
                             type="button"
+                            ref={addSessionButtonRef}
                             onClick={handleOpenCreateSession}
                             aria-label="Add Session"
                             className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-accent px-3 py-2 font-bold text-white transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-reduce:transition-none md:px-4"

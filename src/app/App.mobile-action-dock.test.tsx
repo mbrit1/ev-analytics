@@ -434,6 +434,25 @@ describe('App mobile action dock', () => {
     expect(screen.queryByText('Edit Session Form')).not.toBeInTheDocument();
   });
 
+  it('returns focus to the surviving Add Session button after cancelling create', async () => {
+    // Arrange: open the nonmodal create form from the page action slab.
+    const user = userEvent.setup();
+    render(<App />);
+    const addSessionButton = screen.getByRole('button', { name: 'Add Session' });
+    await user.click(addSessionButton);
+    expect(screen.getByText('Session Form')).toBeInTheDocument();
+    const focusSpy = vi.spyOn(HTMLButtonElement.prototype, 'focus');
+
+    // Act: cancel create, which re-renders the action slab and its button.
+    await user.click(screen.getByRole('button', { name: 'Cancel Session Form' }));
+
+    // Assert: focus returns to the newly mounted Add Session control.
+    const restoredAddSessionButton = screen.getByRole('button', { name: 'Add Session' });
+    expect(restoredAddSessionButton).toHaveFocus();
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+    focusSpy.mockRestore();
+  });
+
   it('keeps Tariffs dock-only without a mobile contextual create action', async () => {
     // Arrange: Render the authenticated shell and navigate to Tariffs.
     const user = userEvent.setup();

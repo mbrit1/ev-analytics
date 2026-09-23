@@ -49,8 +49,16 @@ function buildSessionEditLabel(session: ChargingSession): string {
     month: '2-digit',
     year: 'numeric',
   });
+  const sessionTime = new Date(session.session_timestamp).toLocaleTimeString('de-DE', {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const chargingContext = session.session_mode === 'ad_hoc'
+    ? 'Ad-Hoc'
+    : (session.price_snapshot?.label ?? session.charging_plan_name_snapshot ?? 'Charging Plan');
+  const energy = formatKwh(session.kwh_billed);
 
-  return `Edit session ${providerName} ${sessionDate}`;
+  return `Edit session ${providerName} on ${sessionDate} at ${sessionTime}, ${chargingContext} ${session.charging_type}, cost ${formatCurrency(session.total_cost)}, energy ${energy} kWh`;
 }
 
 /**
@@ -233,9 +241,9 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
         <section key={group.monthKey} className="space-y-4">
           <header className="border-t border-slab-border/70 px-2 pt-4 first:border-t-0 first:pt-0">
             <div className="flex flex-col gap-0.2">
-              <h3 className="text-sm font-semibold text-primary">
+              <h2 className="text-sm font-semibold text-primary">
                 {group.label}
-              </h3>
+              </h2>
               <p className="text-sm text-secondary tabular-nums">
                 {formatKwh(group.totalKwh)} kWh · {formatCurrency(group.totalCostCents)}
               </p>
@@ -255,9 +263,9 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
                         year: 'numeric',
                       })}
                     </div>
-                    <h3 className="break-words text-lg font-bold leading-tight text-primary">
+                    <p className="break-words text-lg font-bold leading-tight text-primary">
                       {session.provider_name_snapshot || 'Unknown Provider'}
-                    </h3>
+                    </p>
                     <div className="flex flex-wrap items-center gap-3">
                       <p className="text-sm text-secondary font-medium">
                         {(session.session_mode === 'ad_hoc'
