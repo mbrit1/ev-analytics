@@ -7,6 +7,16 @@ import { Slab } from '../../../shared/ui';
 import { type ChargingSession } from '../../../infra/db';
 import { type HydrationTableState } from '../../offline-sync';
 
+const sessionDateFormatter = new Intl.DateTimeFormat('de-DE', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+});
+const sessionTimeFormatter = new Intl.DateTimeFormat('de-DE', {
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
 interface SessionCardRestorationRequest {
   /** Unique key for one restoration attempt; defaults to the target session id. */
   requestKey?: string | number;
@@ -42,23 +52,23 @@ interface ChargingHistoryProps {
   onRetryHydration?: () => void;
 }
 
-function buildSessionEditLabel(session: ChargingSession): string {
+function buildSessionEditLabel(
+  session: ChargingSession,
+  sessionDate: string,
+  sessionTime: string | undefined,
+  sessionCost: string,
+): string {
   const providerName = session.provider_name_snapshot || 'Unknown provider';
-  const sessionDate = new Date(session.session_timestamp).toLocaleDateString('de-DE', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
-  const sessionTime = new Date(session.session_timestamp).toLocaleTimeString('de-DE', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
   const chargingContext = session.session_mode === 'ad_hoc'
     ? 'Ad-Hoc'
     : (session.price_snapshot?.label ?? session.charging_plan_name_snapshot ?? 'Charging Plan');
   const energy = formatKwh(session.kwh_billed);
 
-  return `Edit session ${providerName} on ${sessionDate} at ${sessionTime}, ${chargingContext} ${session.charging_type}, cost ${formatCurrency(session.total_cost)}, energy ${energy} kWh`;
+  const dateDescription = sessionTime == null
+    ? `on ${sessionDate}`
+    : `on ${sessionDate} at ${sessionTime}`;
+
+  return `Edit session ${providerName} ${dateDescription}, ${chargingContext} ${session.charging_type}, cost ${sessionCost}, energy ${energy} kWh`;
 }
 
 /**
@@ -253,16 +263,29 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
 
           <div className="space-y-4">
             {group.sessions.map((session) => {
+              const sessionTimestamp = new Date(session.session_timestamp);
+              const hasValidTimestamp = !Number.isNaN(sessionTimestamp.getTime());
+              const sessionDate = hasValidTimestamp
+                ? sessionDateFormatter.format(sessionTimestamp)
+                : 'Date unavailable';
+              const sessionTime = hasValidTimestamp
+                ? sessionTimeFormatter.format(sessionTimestamp)
+                : undefined;
+              const sessionCost = formatCurrency(session.total_cost);
+              const sessionEditLabel = onSelectSession == null
+                ? undefined
+                : buildSessionEditLabel(
+                  session,
+                  sessionDate,
+                  sessionTime,
+                  sessionCost,
+                );
               const cardContent = (
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0 flex-1 space-y-1.5">
                     <div className="flex items-center text-[10px] font-bold uppercase tracking-widest text-secondary tabular-nums">
                       <Calendar className="w-3 h-3 mr-1.5" />
-                      {new Date(session.session_timestamp).toLocaleDateString('de-DE', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        year: 'numeric',
-                      })}
+                      {sessionDate}
                     </div>
                     <p className="break-words text-lg font-bold leading-tight text-primary">
                       {session.provider_name_snapshot || 'Unknown Provider'}
@@ -298,7 +321,7 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
                   </div>
                   <div className="shrink-0 text-right">
                     <p className="text-4xl font-semibold text-primary tabular-nums tracking-tight">
-                      {formatCurrency(session.total_cost)}
+                      {sessionCost}
                     </p>
                     <div className="flex items-center justify-end text-lg font-medium text-secondary tabular-nums mt-1">
                       <Zap className="w-4 h-4 mr-1 text-accent" />
@@ -317,7 +340,7 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
                     <button
                       type="button"
                       onClick={() => onSelectSession(session)}
-                      aria-label={buildSessionEditLabel(session)}
+                      aria-label={sessionEditLabel}
                       id={`charging-session-${session.id}`}
                       data-session-id={session.id}
                       ref={(element) => {

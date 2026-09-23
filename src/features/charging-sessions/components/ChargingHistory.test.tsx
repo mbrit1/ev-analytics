@@ -459,6 +459,33 @@ describe('ChargingHistory', () => {
     expect(screen.getByText('Tesla')).toBeInTheDocument();
   });
 
+  it('shows an unavailable date for a malformed locally stored timestamp', async () => {
+    // Arrange: persist valid and malformed records as they may exist in the local cache.
+    const validSession = buildSession('session-valid-timestamp', '2026-05-30T10:00:00.000Z');
+    const malformedSession = {
+      ...buildSession('session-invalid-timestamp', '2026-05-30T10:00:00.000Z'),
+      session_timestamp: 'not-a-date',
+    } as unknown as ChargingSession;
+    await db.sessions.bulkAdd([validSession, malformedSession]);
+    render(<ChargingHistory onSelectSession={vi.fn()} />);
+
+    // Act: wait for both cached cards to render.
+    const malformedCard = await waitFor(() => {
+      const card = document.querySelector<HTMLButtonElement>('[data-session-id="session-invalid-timestamp"]');
+      expect(card).not.toBeNull();
+      return card as HTMLButtonElement;
+    });
+
+    // Assert: malformed dates have clear copy and their action name has no invented time.
+    expect(malformedCard).toHaveTextContent('Date unavailable');
+    expect(malformedCard).toHaveAccessibleName(expect.stringContaining('on Date unavailable'));
+    expect(malformedCard.getAttribute('aria-label')).not.toMatch(/ at \d{2}:\d{2}/);
+    const validCard = document.querySelector<HTMLButtonElement>('[data-session-id="session-valid-timestamp"]');
+    expect(validCard).not.toBeNull();
+    expect(validCard).toHaveTextContent('30.05.2026');
+    expect(validCard).toHaveAccessibleName(expect.stringContaining('30.05.2026 at'));
+  });
+
   it('emits the selected session when a history card is clicked', async () => {
     // Arrange: render and persist one visible session.
     const user = userEvent.setup();
