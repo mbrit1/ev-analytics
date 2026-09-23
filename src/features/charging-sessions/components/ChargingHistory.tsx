@@ -171,10 +171,11 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
     || (sessions.length === 0 && (hydrationState.status === 'idle' || hydrationState.status === 'loading'))
   ) {
     return (
-      <div className="flex items-center justify-center p-12">
-        <div className="animate-pulse flex flex-col items-center gap-4">
-          <div className="w-12 h-12 bg-slate-200 rounded-full"></div>
-          <div className="h-4 w-32 bg-slate-200 rounded"></div>
+      <div role="status" aria-live="polite" className="flex items-center justify-center p-12">
+        <span className="sr-only">Loading charging sessions</span>
+        <div className="animate-pulse motion-reduce:animate-none flex flex-col items-center gap-4">
+          <div aria-hidden="true" className="w-12 h-12 bg-slate-200 rounded-full"></div>
+          <div aria-hidden="true" className="h-4 w-32 bg-slate-200 rounded"></div>
         </div>
       </div>
     );
@@ -255,7 +256,7 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
               const cardContent = (
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0 flex-1 space-y-1.5">
-                    <div className="flex items-center text-[10px] font-bold uppercase tracking-widest text-secondary">
+                    <div className="flex items-center text-[10px] font-bold uppercase tracking-widest text-secondary tabular-nums">
                       <Calendar className="w-3 h-3 mr-1.5" />
                       {new Date(session.session_timestamp).toLocaleDateString('de-DE', {
                         day: '2-digit',
@@ -289,7 +290,7 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
                         );
                       })()}
                       {(session.start_soc_percentage != null || session.end_soc_percentage != null) && (
-                        <p className="text-xs text-secondary/80 font-medium">
+                        <p className="text-xs text-secondary/80 font-medium tabular-nums">
                           SoC {session.start_soc_percentage != null ? `${session.start_soc_percentage}%` : '—'} → {session.end_soc_percentage != null ? `${session.end_soc_percentage}%` : '—'}
                         </p>
                       )}
@@ -327,7 +328,7 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
 
                         sessionCardRefs.current.set(session.id, element);
                       }}
-                      className="group w-full min-h-[44px] cursor-pointer rounded-[inherit] p-6 text-left transition-colors hover:bg-secondary/5 active:bg-secondary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+                      className="group w-full min-h-[44px] cursor-pointer rounded-[inherit] p-6 text-left transition-colors motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:hover:bg-secondary/5 active:bg-secondary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
                     >
                       {cardContent}
                     </button>

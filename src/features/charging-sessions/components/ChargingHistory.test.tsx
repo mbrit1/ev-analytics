@@ -113,9 +113,32 @@ describe('ChargingHistory', () => {
       expect(screen.queryByText('No Sessions Yet')).not.toBeInTheDocument();
     });
 
-    // Assert: an unfinished hydration cannot be presented as a confirmed empty history.
-    expect(document.querySelector('.animate-pulse')).toBeInTheDocument();
+    // Assert: an unfinished hydration exposes one concise polite status while decorative skeletons stay hidden.
+    expect(screen.getByRole('status')).toHaveTextContent('Loading charging sessions');
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(document.querySelector('.animate-pulse')).toHaveClass('motion-reduce:animate-none');
+    expect(document.querySelectorAll('[aria-hidden="true"]')).toHaveLength(2);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps card interaction and numeric alignment contracts explicit', async () => {
+    // Arrange: persist a session with visible date and optional SoC values.
+    await act(async () => {
+      await saveSession(buildSession('session-contracts', '2026-05-30T10:00:00.000Z', {
+        start_soc_percentage: 21,
+        end_soc_percentage: 78,
+      }));
+    });
+
+    // Act: render an editable history card.
+    render(<ChargingHistory onSelectSession={vi.fn()} />);
+    const card = await screen.findByRole('button');
+
+    // Assert: interaction feedback is constrained to fine hover pointers and reduced motion, while date/SoC scan consistently.
+    expect(card).toHaveClass('[@media(hover:hover)_and_(pointer:fine)]:hover:bg-secondary/5');
+    expect(card).toHaveClass('active:bg-secondary/10', 'focus-visible:ring-2', 'motion-reduce:transition-none');
+    expect(screen.getByText('30.05.2026')).toHaveClass('tabular-nums');
+    expect(screen.getByText('SoC 21% → 78%')).toHaveClass('tabular-nums');
   });
 
   it('shows a retryable error instead of an empty history when session hydration fails', async () => {
