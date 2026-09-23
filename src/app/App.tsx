@@ -19,7 +19,7 @@ import {
   useSyncStatus,
 } from '../features/offline-sync'
 import { type ChargingSession } from '../infra/db'
-import { MobileContextAction, Navigation } from '../shared/ui'
+import { Navigation, PageActionSlab } from '../shared/ui'
 import { type NavigationTab } from '../shared/ui/Navigation/types'
 import { AnalyticsPage } from '../features/analytics'
 import {
@@ -437,10 +437,7 @@ function App() {
   const canResolveProviderConflict = syncStatus.blockingFailureKind === 'provider-name-conflict'
     && syncStatus.blockingOutboxId != null
     && syncStatus.blockingProviderId != null
-  const isMobileContextActionVisible = activeTab === 'sessions' && !isSessionFormOpen
-  const mobileMainPaddingClass = isMobileContextActionVisible
-    ? 'pb-[var(--mobile-content-clearance-with-action)]'
-    : 'pb-[var(--mobile-content-clearance-dock-only)]'
+  const mobileMainPaddingClass = 'pb-[var(--mobile-content-clearance-dock-only)]'
 
   if (loading) {
     return (
@@ -462,12 +459,6 @@ function App() {
           activeTab={activeTab}
           onTabChange={handleTabChange}
         />
-        <MobileContextAction
-          activeTab={activeTab}
-          onAddSession={handleOpenCreateSession}
-          isVisible={isMobileContextActionVisible}
-        />
-
         {/* Main Content Wrapper */}
         <div className="flex-1 flex flex-col min-w-0 bg-environment">
           {/* Mobile Header (Hidden on Desktop since Sidebar has the brand) */}
@@ -508,7 +499,7 @@ function App() {
           {/* Main Content */}
           <main
             className={`flex-1 w-full p-4 md:p-8 ${mobileMainPaddingClass} md:pb-8`}
-            data-has-mobile-context-action={isMobileContextActionVisible}
+            data-has-mobile-context-action="false"
           >
             <div
               className={activeTab === 'analytics'
@@ -590,19 +581,6 @@ function App() {
                 </Suspense>
               ) : (
                 <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h1 className="text-2xl font-bold tracking-tight text-primary">Charging History</h1>
-                    {!isSessionFormOpen && (
-                      <button
-                        onClick={handleOpenCreateSession}
-                        className="hidden md:flex items-center px-4 py-2 bg-accent text-white font-bold rounded-xl hover:opacity-90 transition-all shadow-md shadow-accent/20 min-h-[44px]"
-                      >
-                        <Plus className="w-5 h-5 mr-2" />
-                        Add Session
-                      </button>
-                    )}
-                  </div>
-
                   {isSessionFormOpen ? (
                     <SessionForm
                       onSubmit={handleSessionSubmit}
@@ -610,13 +588,31 @@ function App() {
                       initialValues={sessionFormState.mode === 'edit' ? sessionFormState.session : undefined}
                     />
                   ) : (
-                    <ChargingHistory
-                      onSelectSession={handleOpenEditSession}
-                      restorationRequest={historyRestoreRequest ?? undefined}
-                      onRestorationComplete={() => setHistoryRestoreRequest(null)}
-                      hydrationState={syncStatus.hydration.sessions}
-                      onRetryHydration={retryActiveSyncRuntime}
-                    />
+                    <>
+                      <PageActionSlab
+                        heading="Charging History"
+                        description="Review your charging sessions and add a new session."
+                        className="flex-row items-center justify-between gap-3 bg-surface p-[18px_20px] shadow-slab sm:p-6"
+                        action={(
+                          <button
+                            type="button"
+                            onClick={handleOpenCreateSession}
+                            aria-label="Add Session"
+                            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-accent px-3 py-2 font-bold text-white transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-reduce:transition-none md:px-4"
+                          >
+                            <Plus aria-hidden="true" className="h-5 w-5" />
+                            <span className="hidden md:inline md:pl-2">Add Session</span>
+                          </button>
+                        )}
+                      />
+                      <ChargingHistory
+                        onSelectSession={handleOpenEditSession}
+                        restorationRequest={historyRestoreRequest ?? undefined}
+                        onRestorationComplete={() => setHistoryRestoreRequest(null)}
+                        hydrationState={syncStatus.hydration.sessions}
+                        onRetryHydration={retryActiveSyncRuntime}
+                      />
+                    </>
                   )}
                 </div>
               )}

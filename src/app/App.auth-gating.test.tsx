@@ -116,8 +116,17 @@ vi.mock('../shared/ui', () => ({
       </button>
     </nav>
   ),
-  MobileContextAction: () => <div>Mobile Context Action</div>,
-  Slab: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  PageActionSlab: ({ heading, description, action }: {
+    heading: string;
+    description: string;
+    action: React.ReactNode;
+  }) => (
+    <section>
+      <h1>{heading}</h1>
+      <p>{description}</p>
+      {action}
+    </section>
+  ),
 }));
 vi.mock('../features/offline-sync', () => ({
   SyncStatusIndicator: () => <div>Sync Status</div>,
@@ -342,7 +351,7 @@ describe('App auth gating', () => {
 
     // Assert: The mobile content container reserves the dock clearance token budget.
     expect(main).not.toBeNull();
-    expect(main).toHaveClass('pb-[var(--mobile-content-clearance-with-action)]');
+    expect(main).toHaveClass('pb-[var(--mobile-content-clearance-dock-only)]');
     expect(main).toHaveClass('md:pb-8');
   });
 
