@@ -51,6 +51,11 @@ export function formatMonthLabel(year: number, month: number): string {
   }).format(new Date(year, month, 1));
 }
 
+const kwhFormatter = new Intl.NumberFormat('de-DE', {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 2,
+});
+
 /**
  * Formats kWh values with German locale decimals and no forced trailing zeroes.
  *
@@ -58,8 +63,5 @@ export function formatMonthLabel(year: number, month: number): string {
  * @returns Localized kWh string
  */
 export function formatKwh(kwh: number): string {
-  return new Intl.NumberFormat('de-DE', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(kwh);
+  return kwhFormatter.format(kwh);
 }

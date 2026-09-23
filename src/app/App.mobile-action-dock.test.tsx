@@ -184,25 +184,18 @@ vi.mock('../shared/ui', () => ({
       <button type="button" aria-pressed={activeTab === 'analytics'} onClick={() => onTabChange('analytics')}>Analytics</button>
     </nav>
   ),
-  MobileContextAction: ({
-    activeTab,
-    onAddSession,
-    isVisible = true,
-  }: {
-    activeTab: 'sessions' | 'tariffs' | 'analytics';
-    onAddSession: () => void;
-    isVisible?: boolean;
-  }) => {
-    if (!isVisible || activeTab !== 'sessions') {
-      return null
-    }
-
-    return (
-      <div>
-        <button type="button" onClick={onAddSession}>Add Session Pill</button>
-      </div>
-    )
-  },
+  PageActionSlab: ({ heading, description, className, action }: {
+    heading: string;
+    description: string;
+    className?: string;
+    action: React.ReactNode;
+  }) => (
+    <section aria-label={heading} className={className}>
+      <h1>{heading}</h1>
+      <p>{description}</p>
+      {action}
+    </section>
+  ),
   Slab: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 vi.mock('../features/offline-sync', () => ({
@@ -311,19 +304,34 @@ describe('App mobile action dock', () => {
     });
   });
 
-  it('keeps the inline Add Session action desktop-only while reserving dock clearance', () => {
+  it('renders one responsive Sessions action slab while reserving dock clearance', () => {
     // Arrange: Render the authenticated app shell.
     const { container } = render(<App />);
 
     // Assert: The shell keeps the current dock clearance token budget.
     const main = container.querySelector('main');
     expect(main).not.toBeNull();
-    expect(main).toHaveClass('pb-[var(--mobile-content-clearance-with-action)]');
+    expect(main).toHaveClass('pb-[var(--mobile-content-clearance-dock-only)]');
     expect(main).toHaveClass('md:pb-8');
 
-    const inlineAddSession = screen.getByRole('button', { name: 'Add Session' });
-    expect(inlineAddSession).toHaveClass('hidden');
-    expect(inlineAddSession).toHaveClass('md:flex');
+    expect(screen.getByRole('heading', { name: 'Charging History' })).toBeInTheDocument();
+    const actionSlab = screen.getByRole('region', { name: 'Charging History' });
+    expect(actionSlab).toHaveClass(
+      'flex-row',
+      'bg-surface',
+      'p-[18px_20px]',
+      'shadow-slab',
+      'sm:p-6',
+    );
+    const addSessionButton = screen.getByRole('button', { name: 'Add Session' });
+    expect(addSessionButton).toHaveClass(
+      'min-h-[44px]',
+      'min-w-[44px]',
+      'justify-center',
+    );
+    expect(addSessionButton.querySelector('svg')).toHaveClass('h-5', 'w-5');
+    expect(screen.getByText('Add Session', { selector: 'span' })).toHaveClass('hidden', 'md:inline', 'md:pl-2');
+    expect(screen.queryByText('Add Session Pill')).not.toBeInTheDocument();
   });
 
   it('switches between sessions and tariffs views through the navigation controls', async () => {
@@ -351,7 +359,7 @@ describe('App mobile action dock', () => {
     await user.click(screen.getByRole('button', { name: 'Analytics' }));
 
     // Assert: The mobile create pill stays hidden on analytics.
-    expect(screen.queryByText('Add Session Pill')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add Session' })).toBeInTheDocument();
     expect(screen.queryByText('Add Tariff Pill')).not.toBeInTheDocument();
     expect(screen.queryByText('Analytics is planned and will be available in a future update.')).not.toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
@@ -413,17 +421,36 @@ describe('App mobile action dock', () => {
     expect(screen.queryByRole('tabpanel', { name: 'Monthly' })).not.toBeInTheDocument();
   });
 
-  it('opens the session form when Add Session is invoked from mobile contextual action', async () => {
-    // Arrange: Render the authenticated shell and the mock contextual action.
+  it('opens the session form when Add Session is invoked from the page action slab', async () => {
+    // Arrange: Render the authenticated shell and its Sessions action slab.
     const user = userEvent.setup();
     render(<App />);
 
     // Act: Trigger the contextual add action.
-    await user.click(screen.getByText('Add Session Pill'));
+    await user.click(screen.getByRole('button', { name: 'Add Session' }));
 
     // Assert: The existing Add Session flow opens the session form surface.
     expect(screen.getByText('Session Form')).toBeInTheDocument();
     expect(screen.queryByText('Edit Session Form')).not.toBeInTheDocument();
+  });
+
+  it('returns focus to the surviving Add Session button after cancelling create', async () => {
+    // Arrange: open the nonmodal create form from the page action slab.
+    const user = userEvent.setup();
+    render(<App />);
+    const addSessionButton = screen.getByRole('button', { name: 'Add Session' });
+    await user.click(addSessionButton);
+    expect(screen.getByText('Session Form')).toBeInTheDocument();
+    const focusSpy = vi.spyOn(HTMLButtonElement.prototype, 'focus');
+
+    // Act: cancel create, which re-renders the action slab and its button.
+    await user.click(screen.getByRole('button', { name: 'Cancel Session Form' }));
+
+    // Assert: focus returns to the newly mounted Add Session control.
+    const restoredAddSessionButton = screen.getByRole('button', { name: 'Add Session' });
+    expect(restoredAddSessionButton).toHaveFocus();
+    expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+    focusSpy.mockRestore();
   });
 
   it('keeps Tariffs dock-only without a mobile contextual create action', async () => {
@@ -502,7 +529,7 @@ describe('App mobile action dock', () => {
     expect(screen.getByTestId('restore-session')).toHaveTextContent('Restore Session session-existing');
 
     // Act: reopen create mode after returning to history.
-    await user.click(screen.getByText('Add Session Pill'));
+    await user.click(screen.getByRole('button', { name: 'Add Session' }));
 
     // Assert: edit state does not leak into the blank create form.
     expect(screen.getByText('Session Form')).toBeInTheDocument();

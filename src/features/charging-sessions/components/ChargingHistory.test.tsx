@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { ChargingHistory } from './ChargingHistory';
 import { db, type ChargingSession } from '../../../infra/db';
 import { saveSession } from '../services/sessionService';
+import { formatKwh } from '../../../shared/lib';
 
 vi.mock('../../auth', () => ({
   useAuth: () => ({ user: { id: 'user-1' } }),
@@ -112,9 +113,32 @@ describe('ChargingHistory', () => {
       expect(screen.queryByText('No Sessions Yet')).not.toBeInTheDocument();
     });
 
-    // Assert: an unfinished hydration cannot be presented as a confirmed empty history.
-    expect(document.querySelector('.animate-pulse')).toBeInTheDocument();
+    // Assert: an unfinished hydration exposes one concise polite status while decorative skeletons stay hidden.
+    expect(screen.getByRole('status')).toHaveTextContent('Loading charging sessions');
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(document.querySelector('.animate-pulse')).toHaveClass('motion-reduce:animate-none');
+    expect(document.querySelectorAll('[aria-hidden="true"]')).toHaveLength(2);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('keeps card interaction and numeric alignment contracts explicit', async () => {
+    // Arrange: persist a session with visible date and optional SoC values.
+    await act(async () => {
+      await saveSession(buildSession('session-contracts', '2026-05-30T10:00:00.000Z', {
+        start_soc_percentage: 21,
+        end_soc_percentage: 78,
+      }));
+    });
+
+    // Act: render an editable history card.
+    render(<ChargingHistory onSelectSession={vi.fn()} />);
+    const card = await screen.findByRole('button');
+
+    // Assert: interaction feedback is constrained to fine hover pointers and reduced motion, while date/SoC scan consistently.
+    expect(card).toHaveClass('[@media(hover:hover)_and_(pointer:fine)]:hover:bg-secondary/5');
+    expect(card).toHaveClass('active:bg-secondary/10', 'focus-visible:ring-2', 'motion-reduce:transition-none');
+    expect(screen.getByText('30.05.2026')).toHaveClass('tabular-nums');
+    expect(screen.getByText('SoC 21% → 78%')).toHaveClass('tabular-nums');
   });
 
   it('shows a retryable error instead of an empty history when session hydration fails', async () => {
@@ -234,7 +258,7 @@ describe('ChargingHistory', () => {
     render(<ChargingHistory />);
 
     // Assert: commercial roles are presented with the required hierarchy and copy.
-    expect(await screen.findByRole('heading', { name: 'Cariqa' })).toBeInTheDocument();
+    expect(await screen.findByText('Cariqa')).toBeInTheDocument();
     expect(screen.getByText('Operated by TEAG')).toBeInTheDocument();
     expect(screen.queryByText(/^TEAG$/)).not.toBeInTheDocument();
   });
@@ -280,8 +304,8 @@ describe('ChargingHistory', () => {
     render(<ChargingHistory />);
 
     // Assert: no invented or duplicate operator line is shown.
-    expect(await screen.findByRole('heading', { name: 'Cariqa' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'FastNet' })).toBeInTheDocument();
+    expect(await screen.findByText('Cariqa')).toBeInTheDocument();
+    expect(screen.getByText('FastNet')).toBeInTheDocument();
     expect(screen.queryByText(/Operated by/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/Unknown/i)).not.toBeInTheDocument();
   });
@@ -312,7 +336,7 @@ describe('ChargingHistory', () => {
     render(<ChargingHistory />);
 
     // Assert: the complete name remains visible and may wrap instead of overflowing.
-    const heading = await screen.findByRole('heading', { name: longName });
+    const heading = await screen.findByText(longName);
     expect(heading).toHaveClass('break-words');
     expect(heading.parentElement).toHaveClass('min-w-0');
   });
@@ -360,6 +384,59 @@ describe('ChargingHistory', () => {
     expect(screen.getByText('0,00 €')).toBeInTheDocument();
   });
 
+  it('uses level-two month headings and rich, distinguishable names for editable cards', async () => {
+    // Arrange: save same-provider/same-date sessions with unavailable optional values.
+    await act(async () => {
+      await saveSession(buildSession('session-same-day-1', '2026-05-30T10:00:00.000Z', {
+        total_cost: 500,
+        kwh_billed: 12.5,
+        charging_plan_name_snapshot: 'Standard',
+        start_soc_percentage: undefined,
+        end_soc_percentage: undefined,
+      }));
+      await saveSession(buildSession('session-same-day-2', '2026-05-30T16:00:00.000Z', {
+        total_cost: 700,
+        kwh_billed: 17.5,
+        charging_plan_name_snapshot: 'Standard',
+        start_soc_percentage: undefined,
+        end_soc_percentage: undefined,
+      }));
+    });
+
+    // Act: render the editable history.
+    render(<ChargingHistory onSelectSession={vi.fn()} />);
+
+    // Assert: month groups follow the page heading and card names contain actionable context.
+    expect(await screen.findByRole('heading', { level: 2, name: 'Mai 2026' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 3, name: 'Mai 2026' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Tesla' })).not.toBeInTheDocument();
+    const firstCard = document.querySelector<HTMLButtonElement>('[data-session-id="session-same-day-1"]');
+    const secondCard = document.querySelector<HTMLButtonElement>('[data-session-id="session-same-day-2"]');
+    expect(firstCard).not.toBeNull();
+    expect(secondCard).not.toBeNull();
+    if (firstCard == null || secondCard == null) {
+      throw new Error('Expected both same-day session cards to render');
+    }
+    const firstLocalTime = new Date('2026-05-30T10:00:00.000Z').toLocaleTimeString('de-DE', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    const secondLocalTime = new Date('2026-05-30T16:00:00.000Z').toLocaleTimeString('de-DE', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+    expect(firstCard).toHaveAccessibleName(expect.stringContaining(`Edit session Tesla on 30.05.2026 at ${firstLocalTime}`));
+    expect(firstCard).toHaveAccessibleName(expect.stringContaining('Tesla Standard AC'));
+    expect(firstCard).toHaveAccessibleName(expect.stringContaining('cost 5,00 €'));
+    expect(firstCard).toHaveAccessibleName(expect.stringContaining(`energy ${formatKwh(12.5)} kWh`));
+    expect(secondCard).toHaveAccessibleName(expect.stringContaining(`Edit session Tesla on 30.05.2026 at ${secondLocalTime}`));
+    expect(secondCard).toHaveAccessibleName(expect.stringContaining('Tesla Standard AC'));
+    expect(secondCard).toHaveAccessibleName(expect.stringContaining('cost 7,00 €'));
+    expect(secondCard).toHaveAccessibleName(expect.stringContaining(`energy ${formatKwh(17.5)} kWh`));
+    expect(firstCard).not.toHaveAccessibleName(expect.stringMatching(/SoC.*0/));
+    expect(firstCard.getAttribute('aria-label')).not.toBe(secondCard.getAttribute('aria-label'));
+  });
+
   it('keeps session cards non-interactive when no selection handler is provided', async () => {
     // Arrange: render the history without an edit handler and persist one session.
     render(<ChargingHistory />);
@@ -377,9 +454,36 @@ describe('ChargingHistory', () => {
 
     // Assert: the card stays visible without exposing an inert button.
     expect(screen.queryByRole('button', {
-      name: 'Edit session Tesla 30.05.2026',
+      name: /Edit session Tesla/,
     })).not.toBeInTheDocument();
     expect(screen.getByText('Tesla')).toBeInTheDocument();
+  });
+
+  it('shows an unavailable date for a malformed locally stored timestamp', async () => {
+    // Arrange: persist valid and malformed records as they may exist in the local cache.
+    const validSession = buildSession('session-valid-timestamp', '2026-05-30T10:00:00.000Z');
+    const malformedSession = {
+      ...buildSession('session-invalid-timestamp', '2026-05-30T10:00:00.000Z'),
+      session_timestamp: 'not-a-date',
+    } as unknown as ChargingSession;
+    await db.sessions.bulkAdd([validSession, malformedSession]);
+    render(<ChargingHistory onSelectSession={vi.fn()} />);
+
+    // Act: wait for both cached cards to render.
+    const malformedCard = await waitFor(() => {
+      const card = document.querySelector<HTMLButtonElement>('[data-session-id="session-invalid-timestamp"]');
+      expect(card).not.toBeNull();
+      return card as HTMLButtonElement;
+    });
+
+    // Assert: malformed dates have clear copy and their action name has no invented time.
+    expect(malformedCard).toHaveTextContent('Date unavailable');
+    expect(malformedCard).toHaveAccessibleName(expect.stringContaining('on Date unavailable'));
+    expect(malformedCard.getAttribute('aria-label')).not.toMatch(/ at \d{2}:\d{2}/);
+    const validCard = document.querySelector<HTMLButtonElement>('[data-session-id="session-valid-timestamp"]');
+    expect(validCard).not.toBeNull();
+    expect(validCard).toHaveTextContent('30.05.2026');
+    expect(validCard).toHaveAccessibleName(expect.stringContaining('30.05.2026 at'));
   });
 
   it('emits the selected session when a history card is clicked', async () => {
@@ -395,7 +499,7 @@ describe('ChargingHistory', () => {
     });
 
     const trigger = await screen.findByRole('button', {
-      name: 'Edit session Tesla 30.05.2026',
+      name: /Edit session Tesla/,
     });
 
     // Act: inspect the interactive card shell, then activate it.
@@ -423,7 +527,7 @@ describe('ChargingHistory', () => {
     });
 
     const trigger = await screen.findByRole('button', {
-      name: 'Edit session Tesla 30.05.2026',
+      name: /Edit session Tesla/,
     });
 
     // Act: focus with Tab and activate with Enter, then Space.
@@ -465,7 +569,7 @@ describe('ChargingHistory', () => {
     });
 
     const trigger = await screen.findByRole('button', {
-      name: 'Edit session Tesla 30.05.2026',
+      name: /Edit session Tesla/,
     });
 
     // Assert: restoration waits for the card, avoids smooth scrolling, focuses it, and completes once.
@@ -528,7 +632,7 @@ describe('ChargingHistory', () => {
     );
 
     await screen.findByRole('button', {
-      name: 'Edit session Tesla 30.05.2026',
+      name: /Edit session Tesla/,
     });
 
     await waitFor(() => {
@@ -574,7 +678,7 @@ describe('ChargingHistory', () => {
     );
 
     await screen.findByRole('button', {
-      name: 'Edit session Tesla 30.05.2026',
+      name: /Edit session Tesla/,
     });
     await waitFor(() => {
       expect(onRestorationComplete).toHaveBeenCalledTimes(1);
@@ -623,7 +727,7 @@ describe('ChargingHistory', () => {
     );
 
     await screen.findByRole('button', {
-      name: 'Edit session Tesla 30.05.2026',
+      name: /Edit session Tesla/,
     });
     await waitFor(() => {
       expect(onRestorationComplete).toHaveBeenCalledTimes(1);
@@ -686,7 +790,7 @@ describe('ChargingHistory', () => {
     );
 
     const trigger = await screen.findByRole('button', {
-      name: 'Edit session Tesla 30.05.2026',
+      name: /Edit session Tesla/,
     });
 
     // Assert: the previous window offset is restored without smooth scrolling and the card regains focus.
@@ -724,7 +828,7 @@ describe('ChargingHistory', () => {
     });
 
     const trigger = await screen.findByRole('button', {
-      name: 'Edit session Tesla 30.05.2026',
+      name: /Edit session Tesla/,
     });
 
     // Assert: the request restores position only after the card can also take focus.

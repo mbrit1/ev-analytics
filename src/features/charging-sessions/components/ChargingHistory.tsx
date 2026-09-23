@@ -7,6 +7,16 @@ import { Slab } from '../../../shared/ui';
 import { type ChargingSession } from '../../../infra/db';
 import { type HydrationTableState } from '../../offline-sync';
 
+const sessionDateFormatter = new Intl.DateTimeFormat('de-DE', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+});
+const sessionTimeFormatter = new Intl.DateTimeFormat('de-DE', {
+  hour: '2-digit',
+  minute: '2-digit',
+});
+
 interface SessionCardRestorationRequest {
   /** Unique key for one restoration attempt; defaults to the target session id. */
   requestKey?: string | number;
@@ -42,15 +52,23 @@ interface ChargingHistoryProps {
   onRetryHydration?: () => void;
 }
 
-function buildSessionEditLabel(session: ChargingSession): string {
+function buildSessionEditLabel(
+  session: ChargingSession,
+  sessionDate: string,
+  sessionTime: string | undefined,
+  sessionCost: string,
+): string {
   const providerName = session.provider_name_snapshot || 'Unknown provider';
-  const sessionDate = new Date(session.session_timestamp).toLocaleDateString('de-DE', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  });
+  const chargingContext = session.session_mode === 'ad_hoc'
+    ? 'Ad-Hoc'
+    : (session.price_snapshot?.label ?? session.charging_plan_name_snapshot ?? 'Charging Plan');
+  const energy = formatKwh(session.kwh_billed);
 
-  return `Edit session ${providerName} ${sessionDate}`;
+  const dateDescription = sessionTime == null
+    ? `on ${sessionDate}`
+    : `on ${sessionDate} at ${sessionTime}`;
+
+  return `Edit session ${providerName} ${dateDescription}, ${chargingContext} ${session.charging_type}, cost ${sessionCost}, energy ${energy} kWh`;
 }
 
 /**
@@ -163,10 +181,11 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
     || (sessions.length === 0 && (hydrationState.status === 'idle' || hydrationState.status === 'loading'))
   ) {
     return (
-      <div className="flex items-center justify-center p-12">
-        <div className="animate-pulse flex flex-col items-center gap-4">
-          <div className="w-12 h-12 bg-slate-200 rounded-full"></div>
-          <div className="h-4 w-32 bg-slate-200 rounded"></div>
+      <div role="status" aria-live="polite" className="flex items-center justify-center p-12">
+        <span className="sr-only">Loading charging sessions</span>
+        <div className="animate-pulse motion-reduce:animate-none flex flex-col items-center gap-4">
+          <div aria-hidden="true" className="w-12 h-12 bg-slate-200 rounded-full"></div>
+          <div aria-hidden="true" className="h-4 w-32 bg-slate-200 rounded"></div>
         </div>
       </div>
     );
@@ -233,9 +252,9 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
         <section key={group.monthKey} className="space-y-4">
           <header className="border-t border-slab-border/70 px-2 pt-4 first:border-t-0 first:pt-0">
             <div className="flex flex-col gap-0.2">
-              <h3 className="text-sm font-semibold text-primary">
+              <h2 className="text-sm font-semibold text-primary">
                 {group.label}
-              </h3>
+              </h2>
               <p className="text-sm text-secondary tabular-nums">
                 {formatKwh(group.totalKwh)} kWh · {formatCurrency(group.totalCostCents)}
               </p>
@@ -244,20 +263,33 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
 
           <div className="space-y-4">
             {group.sessions.map((session) => {
+              const sessionTimestamp = new Date(session.session_timestamp);
+              const hasValidTimestamp = !Number.isNaN(sessionTimestamp.getTime());
+              const sessionDate = hasValidTimestamp
+                ? sessionDateFormatter.format(sessionTimestamp)
+                : 'Date unavailable';
+              const sessionTime = hasValidTimestamp
+                ? sessionTimeFormatter.format(sessionTimestamp)
+                : undefined;
+              const sessionCost = formatCurrency(session.total_cost);
+              const sessionEditLabel = onSelectSession == null
+                ? undefined
+                : buildSessionEditLabel(
+                  session,
+                  sessionDate,
+                  sessionTime,
+                  sessionCost,
+                );
               const cardContent = (
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0 flex-1 space-y-1.5">
-                    <div className="flex items-center text-[10px] font-bold uppercase tracking-widest text-secondary">
+                    <div className="flex items-center text-[10px] font-bold uppercase tracking-widest text-secondary tabular-nums">
                       <Calendar className="w-3 h-3 mr-1.5" />
-                      {new Date(session.session_timestamp).toLocaleDateString('de-DE', {
-                        day: '2-digit',
-                        month: '2-digit',
-                        year: 'numeric',
-                      })}
+                      {sessionDate}
                     </div>
-                    <h3 className="break-words text-lg font-bold leading-tight text-primary">
+                    <p className="break-words text-lg font-bold leading-tight text-primary">
                       {session.provider_name_snapshot || 'Unknown Provider'}
-                    </h3>
+                    </p>
                     <div className="flex flex-wrap items-center gap-3">
                       <p className="text-sm text-secondary font-medium">
                         {(session.session_mode === 'ad_hoc'
@@ -281,7 +313,7 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
                         );
                       })()}
                       {(session.start_soc_percentage != null || session.end_soc_percentage != null) && (
-                        <p className="text-xs text-secondary/80 font-medium">
+                        <p className="text-xs text-secondary/80 font-medium tabular-nums">
                           SoC {session.start_soc_percentage != null ? `${session.start_soc_percentage}%` : '—'} → {session.end_soc_percentage != null ? `${session.end_soc_percentage}%` : '—'}
                         </p>
                       )}
@@ -289,7 +321,7 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
                   </div>
                   <div className="shrink-0 text-right">
                     <p className="text-4xl font-semibold text-primary tabular-nums tracking-tight">
-                      {formatCurrency(session.total_cost)}
+                      {sessionCost}
                     </p>
                     <div className="flex items-center justify-end text-lg font-medium text-secondary tabular-nums mt-1">
                       <Zap className="w-4 h-4 mr-1 text-accent" />
@@ -308,7 +340,7 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
                     <button
                       type="button"
                       onClick={() => onSelectSession(session)}
-                      aria-label={buildSessionEditLabel(session)}
+                      aria-label={sessionEditLabel}
                       id={`charging-session-${session.id}`}
                       data-session-id={session.id}
                       ref={(element) => {
@@ -319,7 +351,7 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
 
                         sessionCardRefs.current.set(session.id, element);
                       }}
-                      className="group w-full min-h-[44px] cursor-pointer rounded-[inherit] p-6 text-left transition-colors hover:bg-secondary/5 active:bg-secondary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+                      className="group w-full min-h-[44px] cursor-pointer rounded-[inherit] p-6 text-left transition-colors motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:hover:bg-secondary/5 active:bg-secondary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
                     >
                       {cardContent}
                     </button>

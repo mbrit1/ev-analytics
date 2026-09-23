@@ -115,6 +115,17 @@ vi.mock('../features/charging-sessions', () => ({
 }));
 vi.mock('../features/analytics', () => ({ AnalyticsPage: () => <div>Analytics</div> }));
 vi.mock('../shared/ui', () => ({
+  PageActionSlab: ({ heading, description, action }: {
+    heading: string;
+    description: string;
+    action: React.ReactNode;
+  }) => (
+    <section aria-label={heading}>
+      <h1>{heading}</h1>
+      <p>{description}</p>
+      {action}
+    </section>
+  ),
   Navigation: ({
     activeTab,
     onTabChange,
