@@ -29,7 +29,7 @@ export function PageActionSlab({
   return (
     <section
       aria-labelledby={headingId}
-      className={`flex flex-col gap-4 rounded-slab border border-slab-border p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6 ${className}`.trim()}
+      className={`flex flex-row items-center justify-between gap-3 rounded-slab border border-slab-border bg-surface p-[18px_20px] shadow-slab sm:p-6 ${className}`.trim()}
     >
       <div className="space-y-1">
         <h1 id={headingId} aria-describedby={descriptionId} className="text-2xl font-bold tracking-tight text-primary">

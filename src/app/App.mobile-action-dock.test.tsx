@@ -184,13 +184,12 @@ vi.mock('../shared/ui', () => ({
       <button type="button" aria-pressed={activeTab === 'analytics'} onClick={() => onTabChange('analytics')}>Analytics</button>
     </nav>
   ),
-  PageActionSlab: ({ heading, description, className, action }: {
+  PageActionSlab: ({ heading, description, action }: {
     heading: string;
     description: string;
-    className?: string;
     action: React.ReactNode;
   }) => (
-    <section aria-label={heading} className={className}>
+    <section aria-label={heading}>
       <h1>{heading}</h1>
       <p>{description}</p>
       {action}
@@ -315,14 +314,6 @@ describe('App mobile action dock', () => {
     expect(main).toHaveClass('md:pb-8');
 
     expect(screen.getByRole('heading', { name: 'Charging History' })).toBeInTheDocument();
-    const actionSlab = screen.getByRole('region', { name: 'Charging History' });
-    expect(actionSlab).toHaveClass(
-      'flex-row',
-      'bg-surface',
-      'p-[18px_20px]',
-      'shadow-slab',
-      'sm:p-6',
-    );
     const addSessionButton = screen.getByRole('button', { name: 'Add Session' });
     expect(addSessionButton).toHaveClass(
       'min-h-[44px]',

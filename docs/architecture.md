@@ -68,10 +68,34 @@ only one Tariffs modal owns inert background, scroll lock, Escape, and focus at 
 time. Provider-conflict recovery is an app-shell exclusion handshake and cannot
 overlap a Tariffs modal.
 
-The Tariffs page/entity visual treatment and action-overlay geometry are local
-exceptions to the shared design baseline. The shared slab primitives are
-domain-neutral and remain opt-in; promotion to a broader baseline requires a
-separate consumer and review.
+The shared page-action surface is part of the current design baseline after
+independent Tariffs and Sessions adoption. Tariffs entity navigation, provider
+matrix usage, and action-overlay geometry remain local exceptions. `EntitySlab`
+stays domain-neutral and opt-in; no Tariffs navigation or action policy enters
+the shared layer.
+
+## Sessions presentation and continuity
+
+The app shell owns Sessions create/edit form state, captured scroll position,
+and post-form focus requests. The Sessions list uses the shared
+`PageActionSlab` for one responsive, in-flow Add Session action. Cancelling
+creation restores focus only after that live action re-renders; edit completion
+or cancellation restores the relevant session context without a stale-node,
+document-body, or arbitrary-control fallback.
+
+Sessions intentionally retains chronological month groups and native whole-card
+buttons inside `Slab`. It does not adopt Tariffs hashes, `EntitySlab`, overflow
+actions, or responsive action overlays. Month headings form the section
+hierarchy, card names use current formatted session values, and unavailable
+measurements remain unavailable rather than being announced as zero.
+
+Blocking empty-cache loading exposes one polite status while decorative
+skeletons stay hidden from assistive technology. Cached refresh failures remain
+separate from blocking failure and settled-empty states. Session cards gate
+hover-only feedback on fine hover-capable pointers, preserve active and visible
+focus feedback, honor reduced-motion preferences, and apply tabular numerals
+only where they improve scanning. Malformed locally persisted timestamps render
+as `Date unavailable` without inventing a time.
 
 ## Local Write Path
 

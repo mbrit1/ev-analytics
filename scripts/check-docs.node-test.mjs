@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, it } from 'node:test'
-import { findActiveMarkdownFiles, findDocumentationProblems, slugifyHeading } from './check-docs.mjs'
+import { findActiveDocumentationFiles, findDocumentationProblems, slugifyHeading } from './check-docs.mjs'
 
 const temporaryRoots = []
 
@@ -26,22 +26,24 @@ async function createTemporaryRoot() {
  * references produce actionable failures.
  */
 describe('check-docs', () => {
-  it('includes all permanent Markdown documentation and excludes temporary trackers', async () => {
+  it('includes permanent Markdown and HTML documentation while excluding temporary trackers', async () => {
     // Arrange: Create permanent documents in root and nested documentation folders.
     const root = await createTemporaryRoot()
     await mkdir(path.join(root, 'docs', 'design'), { recursive: true })
     await writeFile(path.join(root, 'README.md'), '# README\n')
     await writeFile(path.join(root, 'docs', 'architecture.md'), '# Architecture\n')
     await writeFile(path.join(root, 'docs', 'design', 'governance-checklist.md'), '# Checklist\n')
+    await writeFile(path.join(root, 'docs', 'design', 'design-system-baseline.html'), '<h1>Design baseline</h1>\n')
     await writeFile(path.join(root, 'docs', 'TEMP-tracker.md'), '# Temporary tracker\n')
 
     // Act: Discover the active documentation set.
-    const files = await findActiveMarkdownFiles(root)
+    const files = await findActiveDocumentationFiles(root)
 
     // Assert: Nested permanent documentation is checked while temporary work is not.
     assert.deepEqual(files, [
       'README.md',
       'docs/architecture.md',
+      'docs/design/design-system-baseline.html',
       'docs/design/governance-checklist.md',
     ])
   })
@@ -65,7 +67,7 @@ describe('check-docs', () => {
     const root = await createTemporaryRoot()
     await writeFile(
       path.join(root, 'README.md'),
-      '[Missing](./docs/missing.md)\n[Bad anchor](./docs/architecture.md#missing)\nSee GEMINI.md and src/features/tariffs.\n',
+      '[Missing](./docs/missing.md)\n[Bad anchor](./docs/architecture.md#missing)\nSee GEMINI.md, src/features/tariffs, and 2026-05-16-Design-System-Sandbox-v2.0.html.\n',
     )
     await writeFile(path.join(root, 'docs', 'architecture.md'), '# Architecture\n')
 
@@ -77,5 +79,6 @@ describe('check-docs', () => {
     assert.ok(problems.some((problem) => problem.includes('missing anchor #missing')))
     assert.ok(problems.some((problem) => problem.includes('removed GEMINI.md')))
     assert.ok(problems.some((problem) => problem.includes('obsolete src/features/tariffs path')))
+    assert.ok(problems.some((problem) => problem.includes('obsolete design-system baseline filename')))
   })
 })

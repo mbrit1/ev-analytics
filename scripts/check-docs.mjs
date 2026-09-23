@@ -9,23 +9,32 @@ const FORBIDDEN_ACTIVE_REFERENCES = [
   { pattern: /IMPLEMENTATION_PLAN\.md/g, description: 'removed IMPLEMENTATION_PLAN.md' },
   { pattern: /GEMINI\.md/g, description: 'removed GEMINI.md' },
   { pattern: /src\/features\/tariffs(?:\/|\b)/g, description: 'obsolete src/features/tariffs path' },
+  {
+    pattern: /2026-05-16-Design-System-Sandbox-v2\.0\.html/g,
+    description: 'obsolete design-system baseline filename',
+  },
 ]
 
 function toPosix(value) {
   return value.split(path.sep).join('/')
 }
 
-async function walkMarkdown(root, directory) {
+function isActiveDocumentationFile(entry, includeHtml) {
+  if (!entry.isFile() || entry.name.startsWith('TEMP-')) return false
+  return entry.name.endsWith('.md') || (includeHtml && entry.name.endsWith('.html'))
+}
+
+async function walkDocumentation(root, directory, includeHtml = false) {
   const entries = await readdir(path.join(root, directory), { withFileTypes: true })
   const files = []
 
   for (const entry of entries) {
     const relativePath = path.join(directory, entry.name)
     if (entry.isDirectory()) {
-      files.push(...await walkMarkdown(root, relativePath))
+      files.push(...await walkDocumentation(root, relativePath, includeHtml))
     // Temporary trackers may name stale artifacts as cleanup work; permanent
     // active documents are the enforcement surface.
-    } else if (entry.isFile() && entry.name.endsWith('.md') && !entry.name.startsWith('TEMP-')) {
+    } else if (isActiveDocumentationFile(entry, includeHtml)) {
       files.push(relativePath)
     }
   }
@@ -33,17 +42,17 @@ async function walkMarkdown(root, directory) {
   return files
 }
 
-/** Returns Markdown files treated as active documentation by the checker. */
-export async function findActiveMarkdownFiles(root = DEFAULT_ROOT) {
+/** Returns permanent Markdown and design HTML treated as active documentation. */
+export async function findActiveDocumentationFiles(root = DEFAULT_ROOT) {
   const rootEntries = await readdir(root, { withFileTypes: true })
   const rootMarkdown = rootEntries
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.md') && !entry.name.startsWith('TEMP-'))
+    .filter((entry) => isActiveDocumentationFile(entry, false))
     .map((entry) => entry.name)
 
   return [
     ...rootMarkdown,
-    ...await walkMarkdown(root, 'docs'),
-    ...await walkMarkdown(root, '.github'),
+    ...await walkDocumentation(root, 'docs', true),
+    ...await walkDocumentation(root, '.github'),
   ].sort()
 }
 
@@ -96,7 +105,7 @@ async function pathExists(targetPath) {
 
 /** Checks active documentation for broken local links/anchors and stale references. */
 export async function findDocumentationProblems(root = DEFAULT_ROOT, suppliedFiles) {
-  const files = suppliedFiles ?? await findActiveMarkdownFiles(root)
+  const files = suppliedFiles ?? await findActiveDocumentationFiles(root)
   const problems = []
   const anchorCache = new Map()
 
@@ -150,7 +159,7 @@ export async function findDocumentationProblems(root = DEFAULT_ROOT, suppliedFil
 }
 
 async function main() {
-  const files = await findActiveMarkdownFiles(DEFAULT_ROOT)
+  const files = await findActiveDocumentationFiles(DEFAULT_ROOT)
   const problems = await findDocumentationProblems(DEFAULT_ROOT, files)
 
   if (problems.length > 0) {
@@ -160,7 +169,7 @@ async function main() {
     return
   }
 
-  console.log(`Documentation check passed for ${files.length} active Markdown files.`)
+  console.log(`Documentation check passed for ${files.length} active documentation files.`)
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

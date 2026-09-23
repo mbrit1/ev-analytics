@@ -31,8 +31,16 @@ describe('PageActionSlab', () => {
     const heading = screen.getByRole('heading', { name: 'Tariffs', level: 1 });
     const description = screen.getByText('Manage charging prices');
     const action = screen.getByRole('button', { name: 'Add tariff' });
+    const surface = screen.getByRole('region', { name: 'Tariffs' });
     expect(heading).toHaveAttribute('aria-describedby', description.id);
     expect(description).toHaveAttribute('id');
+    expect(surface).toHaveClass(
+      'flex-row',
+      'bg-surface',
+      'p-[18px_20px]',
+      'shadow-slab',
+      'sm:p-6',
+    );
     expect(action).toHaveClass('min-h-[44px]', 'min-w-[44px]');
   });
 });
