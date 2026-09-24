@@ -186,7 +186,9 @@ async function insertProbe(client, table, body, token) {
 async function verifyTableMatrix(client, table, owner, other, payload, ownerRow, log) {
   const id = ownerRow.id
   const anonymous = await client.rest(`${table}?select=id&limit=1`)
-  assert(anonymous.status === 401 || (Array.isArray(anonymous.json) && anonymous.json.length === 0), `Unauthenticated read exposed ${table} rows.`)
+  const deniedByTableGrant = anonymous.status === 403 && anonymous.json?.code === '42501'
+  const deniedByRls = anonymous.status === 200 && Array.isArray(anonymous.json) && anonymous.json.length === 0
+  assert(anonymous.status === 401 || deniedByTableGrant || deniedByRls, `Unauthenticated read exposed ${table} rows.`)
 
   await readOne(client, table, id, owner.accessToken, `Owner could not read own ${table} row.`)
   const ownerUpdate = await client.rest(`${table}?id=eq.${id}`, {

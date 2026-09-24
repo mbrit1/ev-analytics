@@ -147,4 +147,84 @@ describe('verify-rls-live', () => {
       return true
     })
   })
+
+  it('accepts an anonymous read denied with PostgreSQL insufficient_privilege code 42501', async () => {
+    // Arrange: Deny only the anonymous REST read with PostgreSQL's permission error.
+    const mock = createFetchMock()
+    const logs = []
+    const config = resolveConfig({}, {
+      SUPABASE_URL: 'https://example.test', SUPABASE_ANON_KEY: 'publishable-test-key',
+      RLS_USER1_EMAIL: 'owner@example.test', RLS_USER1_PASSWORD: 'owner-password',
+      RLS_USER2_EMAIL: 'other@example.test', RLS_USER2_PASSWORD: 'other-password',
+    })
+    const fetchImpl = async (input, init = {}) => {
+      const url = new URL(input)
+      if (url.pathname === '/rest/v1/providers' && !init.headers?.Authorization) {
+        return jsonResponse(403, { code: '42501', message: 'permission denied for table providers' })
+      }
+      return mock.fetch(input, init)
+    }
+
+    // Act: Run the normal verifier with that single expected-denial response.
+    await runVerification({ config, fetchImpl, log: (message) => logs.push(message), idFactory: (() => {
+      const values = ['50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002']
+      return () => values.shift()
+    })() })
+
+    // Assert: The verifier accepts the grant-level denial and continues its matrix.
+    assert.ok(logs.some((line) => line.includes('[ok] providers: anonymous denial')))
+    assert.ok(logs.some((line) => line.includes('[ok] charging_sessions: anonymous denial')))
+  })
+
+  it('rejects an anonymous 403 that does not carry code 42501', async () => {
+    // Arrange: Return an unrelated authorization failure for the anonymous read.
+    const mock = createFetchMock()
+    const config = resolveConfig({}, {
+      SUPABASE_URL: 'https://example.test', SUPABASE_ANON_KEY: 'publishable-test-key',
+      RLS_USER1_EMAIL: 'owner@example.test', RLS_USER1_PASSWORD: 'owner-password',
+      RLS_USER2_EMAIL: 'other@example.test', RLS_USER2_PASSWORD: 'other-password',
+    })
+    const fetchImpl = async (input, init = {}) => {
+      const url = new URL(input)
+      if (url.pathname === '/rest/v1/providers' && !init.headers?.Authorization) {
+        return jsonResponse(403, { code: 'PGRST301', message: 'JWT claim invalid' })
+      }
+      return mock.fetch(input, init)
+    }
+
+    // Act and assert: An unrelated 403 must remain a failed authorization check.
+    const values = ['50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002']
+    await assert.rejects(runVerification({ config, fetchImpl, idFactory: () => values.shift() }), /Unauthenticated read exposed providers rows\./)
+  })
+
+  it('accepts an empty 200 anonymous read and rejects a nonempty 200 response', async () => {
+    // Arrange: Run the verifier with a chosen response for its anonymous providers read.
+    const runWithAnonymousResponse = async (anonymousResponse) => {
+      const mock = createFetchMock()
+      const logs = []
+      const config = resolveConfig({}, {
+        SUPABASE_URL: 'https://example.test', SUPABASE_ANON_KEY: 'publishable-test-key',
+        RLS_USER1_EMAIL: 'owner@example.test', RLS_USER1_PASSWORD: 'owner-password',
+        RLS_USER2_EMAIL: 'other@example.test', RLS_USER2_PASSWORD: 'other-password',
+      })
+      const fetchImpl = async (input, init = {}) => {
+        const url = new URL(input)
+        if (url.pathname === '/rest/v1/providers' && !init.headers?.Authorization) return anonymousResponse
+        return mock.fetch(input, init)
+      }
+      const values = ['50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002']
+      await runVerification({ config, fetchImpl, log: (message) => logs.push(message), idFactory: () => values.shift() })
+      return logs
+    }
+
+    // Act: Verify both empty and row-bearing successful HTTP responses.
+    const logs = await runWithAnonymousResponse(jsonResponse(200, []))
+
+    // Assert: Empty results pass, while any exposed anonymous row fails verification.
+    assert.ok(logs.some((line) => line.includes('[ok] providers: anonymous denial')))
+    await assert.rejects(
+      runWithAnonymousResponse(jsonResponse(200, [{ id: 'unexpected-row' }])),
+      /Unauthenticated read exposed providers rows\./,
+    )
+  })
 })
