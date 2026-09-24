@@ -52,8 +52,23 @@ Use a new or empty Supabase project for the clean import path below. `supabase/s
    - `provider_plan_selections`
    - `charging_sessions`
 5. Verify that RLS is enabled on all four tables and that their policies restrict access with `auth.uid() = user_id`.
-6. In **Authentication > Users**, create the application user manually.
-7. Copy the project URL and publishable key from the Supabase project settings into the local or deployment environment.
+6. Verify that `authenticated` has explicit `SELECT`, `INSERT`, `UPDATE`, and `DELETE` table grants on each table:
+
+   ```sql
+   SELECT grantee, table_name, privilege_type
+   FROM information_schema.role_table_grants
+   WHERE table_schema = 'public'
+     AND table_name IN (
+       'providers', 'charging_plans',
+       'provider_plan_selections', 'charging_sessions'
+     )
+     AND grantee IN ('authenticated', 'anon', 'service_role')
+   ORDER BY table_name, grantee, privilege_type;
+   ```
+
+   Require all four CRUD privileges for `authenticated` on each table. This canonical schema does not add grants for `anon` or `service_role`, but it also does not revoke grants that may already exist from project defaults or opt-in configuration; any such grants are outside this change. Anonymous rows remain denied by RLS. RLS policies still determine which rows authenticated users can access. If an authenticated grant is missing in a cleanly provisioned project, apply the corresponding individual `GRANT` statement from the canonical schema as the project owner.
+7. In **Authentication > Users**, create the application user manually.
+8. Copy the project URL and publishable key from the Supabase project settings into the local or deployment environment.
 
 Do not run `supabase/seed.sql` in production. It is development-only fixture data and requires an existing authenticated user.
 
@@ -78,6 +93,14 @@ node scripts/verify-rls-live.mjs
 ```
 
 The verifier uses `SUPABASE_URL`, one publishable/anon key (`SUPABASE_KEY`, `SUPABASE_ANON_KEY`, or `VITE_SUPABASE_PUBLISHABLE_KEY`), plus `RLS_USER1_EMAIL`, `RLS_USER1_PASSWORD`, `RLS_USER2_EMAIL`, and `RLS_USER2_PASSWORD`. It checks owner CRUD, anonymous and cross-user denial, spoofed ownership, and ownership-scoped foreign keys for all domain tables. It cannot prove the policies deployed to a different project; run it separately against each disposable deployment under review.
+
+For anonymous reads, the verifier accepts an HTTP 401, an HTTP 403 whose JSON
+`code` is `42501`, or an HTTP 200 empty array. An anonymous `42501` is expected
+when `anon` has no table grant: the canonical schema grants CRUD to
+`authenticated`, and RLS denies anonymous rows. If an authenticated operation
+returns `42501`, check the authenticated table grants and deployed RLS policies.
+Other 403 responses are not treated as successful RLS denial and should be
+diagnosed from their error code and the deployed grants and policies.
 
 ## Production Active-Tariff Preflight (Read Only)
 

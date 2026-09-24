@@ -23,6 +23,11 @@ CREATE TABLE IF NOT EXISTS public.providers (
 
 ALTER TABLE public.providers ENABLE ROW LEVEL SECURITY;
 
+GRANT SELECT ON TABLE public.providers TO authenticated;
+GRANT INSERT ON TABLE public.providers TO authenticated;
+GRANT UPDATE ON TABLE public.providers TO authenticated;
+GRANT DELETE ON TABLE public.providers TO authenticated;
+
 DROP POLICY IF EXISTS "Users can manage their own providers" ON public.providers;
 CREATE POLICY "Users can manage their own providers"
   ON public.providers FOR ALL TO authenticated
@@ -86,6 +91,11 @@ CREATE TABLE IF NOT EXISTS public.charging_plans (
 
 ALTER TABLE public.charging_plans ENABLE ROW LEVEL SECURITY;
 
+GRANT SELECT ON TABLE public.charging_plans TO authenticated;
+GRANT INSERT ON TABLE public.charging_plans TO authenticated;
+GRANT UPDATE ON TABLE public.charging_plans TO authenticated;
+GRANT DELETE ON TABLE public.charging_plans TO authenticated;
+
 DROP POLICY IF EXISTS "Users can manage their own charging plans" ON public.charging_plans;
 CREATE POLICY "Users can manage their own charging plans"
   ON public.charging_plans FOR ALL TO authenticated
@@ -115,6 +125,11 @@ CREATE TABLE IF NOT EXISTS public.provider_plan_selections (
 );
 
 ALTER TABLE public.provider_plan_selections ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT ON TABLE public.provider_plan_selections TO authenticated;
+GRANT INSERT ON TABLE public.provider_plan_selections TO authenticated;
+GRANT UPDATE ON TABLE public.provider_plan_selections TO authenticated;
+GRANT DELETE ON TABLE public.provider_plan_selections TO authenticated;
 
 DROP POLICY IF EXISTS "Users can select own provider plan selections" ON public.provider_plan_selections;
 CREATE POLICY "Users can select own provider plan selections"
@@ -236,6 +251,11 @@ ALTER TABLE public.charging_sessions
     );
 
 ALTER TABLE public.charging_sessions ENABLE ROW LEVEL SECURITY;
+
+GRANT SELECT ON TABLE public.charging_sessions TO authenticated;
+GRANT INSERT ON TABLE public.charging_sessions TO authenticated;
+GRANT UPDATE ON TABLE public.charging_sessions TO authenticated;
+GRANT DELETE ON TABLE public.charging_sessions TO authenticated;
 
 DROP POLICY IF EXISTS "Users can manage their own charging sessions" ON public.charging_sessions;
 CREATE POLICY "Users can manage their own charging sessions"
