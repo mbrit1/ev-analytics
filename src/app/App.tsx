@@ -1,4 +1,4 @@
-import { BatteryCharging, Loader2, LogOut, Plus } from 'lucide-react'
+import { BatteryCharging, Loader2, LogOut } from 'lucide-react'
 import { useState, useEffect, lazy, Suspense, useCallback, useRef } from 'react'
 import { useAuth, LoginForm } from '../features/auth'
 import {
@@ -612,18 +612,9 @@ function App() {
                       <PageActionSlab
                         heading="Charging History"
                         description="Review your charging sessions and add a new session."
-                        action={(
-                          <button
-                            type="button"
-                            ref={addSessionButtonRef}
-                            onClick={handleOpenCreateSession}
-                            aria-label="Add Session"
-                            className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-accent px-3 py-2 font-bold text-white transition-opacity [@media(hover:hover)_and_(pointer:fine)]:hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-reduce:transition-none md:px-4"
-                          >
-                            <Plus aria-hidden="true" className="h-5 w-5" />
-                            <span className="hidden md:inline md:pl-2">Add Session</span>
-                          </button>
-                        )}
+                        actionLabel="Add Session"
+                        onAction={handleOpenCreateSession}
+                        actionRef={addSessionButtonRef}
                       />
                       <ChargingHistory
                         onSelectSession={handleOpenEditSession}

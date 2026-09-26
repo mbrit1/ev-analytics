@@ -116,15 +116,20 @@ vi.mock('../shared/ui', () => ({
       </button>
     </nav>
   ),
-  PageActionSlab: ({ heading, description, action }: {
+  PageActionSlab: ({ heading, description, action, actionLabel, onAction, actionRef }: {
     heading: string;
     description: string;
-    action: React.ReactNode;
+    action?: React.ReactNode;
+    actionLabel?: string;
+    onAction?: () => void;
+    actionRef?: React.Ref<HTMLButtonElement>;
   }) => (
     <section>
       <h1>{heading}</h1>
       <p>{description}</p>
-      {action}
+      {actionLabel ? (
+        <button type="button" aria-label={actionLabel} onClick={onAction} ref={actionRef}>{actionLabel}</button>
+      ) : action}
     </section>
   ),
 }));
