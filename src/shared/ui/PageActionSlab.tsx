@@ -1,30 +1,58 @@
-import { useId, type ReactNode } from 'react';
+import { Plus } from 'lucide-react';
+import { useId, type ReactNode, type Ref } from 'react';
 
 /**
- * Properties for the domain-neutral page action surface.
+ * Shared page context and either its standard button action or a custom action.
  */
-export interface PageActionSlabProps {
-  /** Primary page heading shown in the surface. */
+type PageActionSlabBaseProps = {
   heading: string;
-  /** Supporting copy associated with the primary heading. */
   description: string;
-  /** Consumer-owned primary action rendered beside the page context. */
-  action: ReactNode;
-  /** Optional local visual treatment for a consuming feature. */
   className?: string;
-}
+};
+
+type PageActionSlabStandardActionProps = {
+  actionLabel: string;
+  onAction: () => void;
+  actionRef?: Ref<HTMLButtonElement>;
+  action?: never;
+};
+
+type PageActionSlabCustomActionProps = {
+  action: ReactNode;
+  actionLabel?: never;
+  onAction?: never;
+  actionRef?: never;
+};
+
+export type PageActionSlabProps = PageActionSlabBaseProps &
+  (PageActionSlabStandardActionProps | PageActionSlabCustomActionProps);
 
 /**
- * Renders a page heading, associated description, and consumer-owned action slot.
+ * Renders page context with a shared standard button or consumer-owned custom action.
  */
 export function PageActionSlab({
   heading,
   description,
-  action,
   className = '',
+  action,
+  actionLabel,
+  onAction,
+  actionRef,
 }: PageActionSlabProps) {
   const headingId = useId();
   const descriptionId = useId();
+  const renderedAction = typeof actionLabel === 'string' ? (
+    <button
+      type="button"
+      aria-label={actionLabel}
+      onClick={onAction}
+      ref={actionRef}
+      className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-accent px-3 py-2 font-bold text-white transition-opacity [@media(hover:hover)_and_(pointer:fine)]:hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-reduce:transition-none md:px-4"
+    >
+      <Plus aria-hidden="true" className="h-5 w-5" />
+      <span className="hidden md:inline md:pl-2">{actionLabel}</span>
+    </button>
+  ) : action;
 
   return (
     <section
@@ -39,7 +67,7 @@ export function PageActionSlab({
           {description}
         </p>
       </div>
-      <div className="shrink-0">{action}</div>
+      <div className="shrink-0">{renderedAction}</div>
     </section>
   );
 }
