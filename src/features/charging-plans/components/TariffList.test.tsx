@@ -635,7 +635,8 @@ describe('TariffList', () => {
   it('provides one responsive Add tariff action on the list and none while its focused form is open', () => {
     // Arrange: Render the normal Tariffs list before any focused form is visible.
     vi.mocked(useChargingPlans).mockReturnValue(buildHookValue());
-    const { rerender } = renderTariffList();
+    const onCreateTariff = vi.fn();
+    const { rerender } = renderTariffList({ onCreateTariff });
 
     // Assert: One action remains accessible at compact and regular widths without duplicating the create control.
     const addTariffActions = screen.getAllByRole('button', { name: 'Add tariff' });
@@ -643,6 +644,13 @@ describe('TariffList', () => {
     expect(addTariffActions[0]).toHaveAttribute('aria-label', 'Add tariff');
     expect(addTariffActions[0]).toHaveClass('min-h-[44px]', 'min-w-[44px]');
     expect(screen.getByText('Add tariff')).toHaveClass('hidden', 'md:inline');
+    expect(addTariffActions[0].querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+
+    // Act: Use the shared page action.
+    fireEvent.click(addTariffActions[0]);
+
+    // Assert: The action still opens the create flow exactly once.
+    expect(onCreateTariff).toHaveBeenCalledTimes(1);
 
     // Act: Open the app-owned focused create form.
     rerender(tariffListElement({ tariffFormState: { mode: 'create' } }));

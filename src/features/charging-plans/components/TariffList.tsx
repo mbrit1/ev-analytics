@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronRight, Info, Plus } from 'lucide-react';
+import { ChevronRight, Info } from 'lucide-react';
 import { formatCurrency } from '../../../shared/lib';
 import { EntitySlab, PageActionSlab, Slab } from '../../../shared/ui';
 import { useAuth } from '../../auth';
@@ -561,21 +561,12 @@ export function TariffList({
         <PageActionSlab
           heading="Tariffs"
           description="Manage charging prices"
-          action={(
-            <button
-              type="button"
-              aria-label="Add tariff"
-              onClick={() => {
-                setRetiredTariffCloneDraft(null);
-                setRetiredCloneRestoreFocusKey(null);
-                onCreateTariff();
-              }}
-              className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl bg-accent px-3 py-2 font-bold text-white transition-opacity [@media(hover:hover)_and_(pointer:fine)]:hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-reduce:transition-none md:px-4"
-            >
-              <Plus aria-hidden="true" className="h-5 w-5" />
-              <span className="hidden md:inline md:pl-2">Add tariff</span>
-            </button>
-          )}
+          actionLabel="Add tariff"
+          onAction={() => {
+            setRetiredTariffCloneDraft(null);
+            setRetiredCloneRestoreFocusKey(null);
+            onCreateTariff();
+          }}
         />
       )}
 
