@@ -29,12 +29,21 @@ vi.mock('../features/charging-sessions', () => ({
 }))
 vi.mock('../features/analytics', () => ({ AnalyticsPage: () => React.createElement('h1', null, 'Analytics') }))
 vi.mock('../shared/ui', () => ({
-  PageActionSlab: ({ heading, description, action }: { heading: string; description: string; action: React.ReactNode }) => React.createElement(
+  PageActionSlab: ({ heading, description, action, actionLabel, onAction, actionRef }: {
+    heading: string;
+    description: string;
+    action?: React.ReactNode;
+    actionLabel?: string;
+    onAction?: () => void;
+    actionRef?: React.Ref<HTMLButtonElement>;
+  }) => React.createElement(
     'section',
     { 'aria-label': heading },
     React.createElement('h1', null, heading),
     React.createElement('p', null, description),
-    action,
+    actionLabel
+      ? React.createElement('button', { type: 'button', 'aria-label': actionLabel, onClick: onAction, ref: actionRef }, actionLabel)
+      : action,
   ),
   Navigation: ({ activeTab, onTabChange }: { activeTab: string; onTabChange: (tab: 'sessions' | 'tariffs' | 'analytics') => void }) => React.createElement(
     'nav',

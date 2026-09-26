@@ -59,15 +59,20 @@ vi.mock('../features/charging-sessions', () => ({
   SessionForm: () => <div>Session Form</div>,
 }));
 vi.mock('../shared/ui', () => ({
-  PageActionSlab: ({ heading, description, action }: {
+  PageActionSlab: ({ heading, description, action, actionLabel, onAction, actionRef }: {
     heading: string;
     description: string;
-    action: React.ReactNode;
+    action?: React.ReactNode;
+    actionLabel?: string;
+    onAction?: () => void;
+    actionRef?: React.Ref<HTMLButtonElement>;
   }) => (
     <section aria-label={heading}>
       <h1>{heading}</h1>
       <p>{description}</p>
-      {action}
+      {actionLabel ? (
+        <button type="button" aria-label={actionLabel} onClick={onAction} ref={actionRef}>{actionLabel}</button>
+      ) : action}
     </section>
   ),
   Navigation: ({ onTabChange }: { onTabChange: (tab: 'sessions' | 'tariffs' | 'analytics') => void }) => (

@@ -184,15 +184,27 @@ vi.mock('../shared/ui', () => ({
       <button type="button" aria-pressed={activeTab === 'analytics'} onClick={() => onTabChange('analytics')}>Analytics</button>
     </nav>
   ),
-  PageActionSlab: ({ heading, description, action }: {
+  PageActionSlab: ({ heading, description, action, actionLabel, onAction, actionRef }: {
     heading: string;
     description: string;
-    action: React.ReactNode;
+    action?: React.ReactNode;
+    actionLabel?: string;
+    onAction?: () => void;
+    actionRef?: React.Ref<HTMLButtonElement>;
   }) => (
     <section aria-label={heading}>
       <h1>{heading}</h1>
       <p>{description}</p>
-      {action}
+      {typeof actionLabel === 'string' ? (
+        <button
+          type="button"
+          aria-label={actionLabel}
+          onClick={onAction}
+          ref={actionRef}
+        >
+          {actionLabel}
+        </button>
+      ) : action}
     </section>
   ),
   Slab: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -303,7 +315,7 @@ describe('App mobile action dock', () => {
     });
   });
 
-  it('renders one responsive Sessions action slab while reserving dock clearance', () => {
+  it('renders the Sessions action while reserving dock clearance', () => {
     // Arrange: Render the authenticated app shell.
     const { container } = render(<App />);
 
@@ -314,14 +326,7 @@ describe('App mobile action dock', () => {
     expect(main).toHaveClass('md:pb-8');
 
     expect(screen.getByRole('heading', { name: 'Charging History' })).toBeInTheDocument();
-    const addSessionButton = screen.getByRole('button', { name: 'Add Session' });
-    expect(addSessionButton).toHaveClass(
-      'min-h-[44px]',
-      'min-w-[44px]',
-      'justify-center',
-    );
-    expect(addSessionButton.querySelector('svg')).toHaveClass('h-5', 'w-5');
-    expect(screen.getByText('Add Session', { selector: 'span' })).toHaveClass('hidden', 'md:inline', 'md:pl-2');
+    expect(screen.getByRole('button', { name: 'Add Session' })).toBeInTheDocument();
     expect(screen.queryByText('Add Session Pill')).not.toBeInTheDocument();
   });
 
@@ -432,6 +437,7 @@ describe('App mobile action dock', () => {
     const addSessionButton = screen.getByRole('button', { name: 'Add Session' });
     await user.click(addSessionButton);
     expect(screen.getByText('Session Form')).toBeInTheDocument();
+    expect(addSessionButton.isConnected).toBe(false);
     const focusSpy = vi.spyOn(HTMLButtonElement.prototype, 'focus');
 
     // Act: cancel create, which re-renders the action slab and its button.
@@ -439,8 +445,11 @@ describe('App mobile action dock', () => {
 
     // Assert: focus returns to the newly mounted Add Session control.
     const restoredAddSessionButton = screen.getByRole('button', { name: 'Add Session' });
+    expect(restoredAddSessionButton).toBeInstanceOf(HTMLButtonElement);
+    expect(restoredAddSessionButton.isConnected).toBe(true);
     expect(restoredAddSessionButton).toHaveFocus();
     expect(focusSpy).toHaveBeenCalledWith({ preventScroll: true });
+    expect(focusSpy.mock.contexts).toContain(restoredAddSessionButton);
     focusSpy.mockRestore();
   });
 
