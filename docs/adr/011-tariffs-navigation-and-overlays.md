@@ -339,6 +339,16 @@ handoff. Sessions retains chronological groups and native whole-card buttons in
 Accordingly, `EntitySlab` remains opt-in and Tariffs action overlays remain
 feature-local. No shared API change or global slab restyle was required.
 
+### Page action contract refinement (2026-09-26)
+
+The shared `PageActionSlab` contract now includes a standard responsive primary
+button path with an accessible name and optional live button ref, while
+preserving the custom action-node path. Shared UI owns the standard button
+presentation and page-level heading/description hierarchy. Consumers continue
+to own action copy, visibility, callback behavior, and focus-restoration state.
+This clarifies the boundary established by the Tariffs and Sessions adoption;
+it does not move domain action policy or focus orchestration into shared UI.
+
 ## Preserved Product and Data Contracts
 
 - Creation and editing remain available offline and persist through existing

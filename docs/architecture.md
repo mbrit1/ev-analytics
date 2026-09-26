@@ -68,8 +68,12 @@ only one Tariffs modal owns inert background, scroll lock, Escape, and focus at 
 time. Provider-conflict recovery is an app-shell exclusion handshake and cannot
 overlap a Tariffs modal.
 
-The shared page-action surface is part of the current design baseline after
-independent Tariffs and Sessions adoption. Tariffs entity navigation, provider
+The shared `PageActionSlab` owns the common heading and description hierarchy
+and the standard responsive primary-button presentation, including its
+accessible name and optional live button ref. Each consumer owns action copy, visibility,
+callback behavior, and focus-restoration state. The page-action surface is part
+of the current design baseline after independent Tariffs and Sessions adoption.
+Tariffs entity navigation, provider
 matrix usage, and action-overlay geometry remain local exceptions. `EntitySlab`
 stays domain-neutral and opt-in; no Tariffs navigation or action policy enters
 the shared layer.

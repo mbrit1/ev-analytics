@@ -15,10 +15,10 @@ Use this checklist for every UI-facing change. The default baseline is
 - Inputs in forms follow the thin-underline paradigm with uppercase meta labels and consistent focus state. The Tariffs provider control is a documented local tactile-matrix exception.
 
 ## 3) Shared page-action surface
-- A screen with one primary create action uses the shared `PageActionSlab` structure: one `h1`, associated description, and one consumer-owned action.
+- A screen with one primary create action uses the shared `PageActionSlab`: it owns the `h1`, associated description, and standard responsive button presentation, accessible name, and optional live button ref. A consumer may instead provide a custom action node.
 - The surface remains in normal document flow rather than competing with persistent mobile navigation.
 - The action has an accessible name and a minimum 44×44px target. Icon-only compact presentation may reveal its visible label from the `md` breakpoint.
-- Tariffs and Sessions own their copy, visibility, callbacks, and focus-restoration state; the shared structure owns the common page-level hierarchy.
+- Tariffs and Sessions own action copy, visibility, callback behavior, and focus-restoration state; shared UI owns only the standard presentation and page-level hierarchy.
 
 ## 4) Spacing and rhythm
 - Form sections keep consistent vertical rhythm (section spacing + control spacing).
