@@ -39,11 +39,20 @@ inspection and bounded documentation-only changes across at most three files
 without executable content or architecture, product, security, or policy
 decisions stay with the primary supervisor and require neither routing
 calculation nor delegation.
+
+Routine Git finalization exemption: explicitly authorized staging, committing,
+branch renaming, fast-forwarding, and deleting a verified merged local branch
+stay with the primary supervisor once the relevant paths, refs, and preservation
+checks are established. These tasks require neither routing calculation nor
+delegation. History rewrites, conflicts, force deletion, and uncertain
+preservation follow the routing gate. Existing authorization requirements remain
+unchanged.
+
 Batch known adjacent documentation edits into one slice and one validation pass
 instead of creating separate worker handoffs for each file or follow-up.
 Substantial, repetitive, or independently parallelizable read-only investigation
 is non-trivial and follows the routing gate. The routing gate below applies to
-all non-trivial work.
+all non-trivial work outside these explicit exemptions.
 
 ## Agent Responsibilities
 
@@ -60,22 +69,22 @@ all non-trivial work.
   - Reviewing every completed diff.
   - Running integration-level validation.
   - Presenting the final result and making merge decisions.
-- The routing gate applies even when delegation is unavailable, prohibited, unnecessary, or overridden. Do not begin non-trivial implementation until the compact factor list, total, calculated route, actual route, and override reason are reported.
+- Outside the explicit exemptions above, the routing gate applies even when delegation is unavailable, prohibited, unnecessary, or overridden. Do not begin non-trivial implementation until the compact factor list, total, calculated route, actual route, and override reason are reported.
 - The primary supervisor is the sole routing authority. Workers report only changed files, each exact validation command and result, and any blocker or residual risk; do not restate route, task, or prior evidence unless asked.
 - Recalculate an independently discovered fix only when its likely route threshold or owned scope materially differs from the active slice. Clear corrections with unchanged scope stay with the current owner.
 - Score routing decisions consistently: add 2 for an unclear root cause, 2 for architecture or cross-subsystem impact, 2 for auth/RLS, migrations, concurrency, or transactions, 1 for more than five likely files, 1 for unfamiliar external API or framework behavior, 1 for weak coverage, 1 for costly-to-detect regressions, and 2 after Luna validation fails only when the root cause remains unclear, the scope expands, or the same correction fails again. Do not count weak coverage merely because live-browser validation is required, and do not double-count weak coverage and regression cost when they describe the same evidence.
-- Route scores 0-2 to `implement_luna`, 3-6 to `implement_mid`, and 7+ to `implement_sol`. These are task tiers, not distinct model families. Use `implement_mid` only after the root cause and required decisions are clear. For an unclear cross-module cause, gather evidence locally or through `investigate_sol`, then re-score the bounded implementation. Treat the calculated route as the target execution tier. When it matches the primary supervisor's active model and effort, execute locally; otherwise delegate to the matching implementation role unless the user prohibits delegation, the required agent or tooling is unavailable, the slice changes routing authority or worker permissions, the task meets the trivial-task exemption, or the primary supervisor must first resolve an architecture, product, or security decision.
+- Route scores 0-2 to `implement_luna`, 3-6 to `implement_mid`, and 7+ to `implement_sol`. These are task tiers, not distinct model families. Use `implement_mid` only after the root cause and required decisions are clear. For an unclear cross-module cause, gather evidence locally or through `investigate_sol`, then re-score the bounded implementation. Treat the calculated route as the target execution tier. When it matches the primary supervisor's active model and effort, execute locally; otherwise delegate to the matching implementation role unless the user prohibits delegation, the required agent or tooling is unavailable, the slice changes routing authority or worker permissions, the task meets an explicit exemption above, or the primary supervisor must first resolve an architecture, product, or security decision.
 - For score 7+ delegation, select the exact custom agent role `implement_sol`. A generic or default worker is not an equivalent substitute. If the custom role cannot be selected or loaded, stop and report the routing failure rather than silently inheriting the parent or default agent settings.
 - Use `scan_luna` for focused read-only exploration and `investigate_sol` for bounded read-only cross-module diagnosis when the root cause remains unclear. Neither is an implementation tier or may receive write work.
 - Every delegated prompt must include a terminal stop condition. Planning or diagnosis-only assignments stop before edits and return the result for parent acknowledgement; implementation assignments stop after their acceptance criteria and validation command complete.
 - Do not use `ultra` for project work unless the user explicitly requests it and the primary supervisor records why a lower effort level is insufficient. Prefer `high` or `xhigh` for demanding work and keep delegation bounded.
-- A small diff, routine handoff, or higher raw token count alone is not a sufficient override. For any other override, report concrete evidence that local execution has the lower total expected cost after price-weighted model usage, worker context setup, handoff and review overhead, latency, duplicate validation, and error or rework risk are considered; absent that evidence, use the calculated execution tier. Prefer reusing an active compatible worker or batching adjacent work when that amortizes the handoff cost.
+- Outside the explicit exemptions, a small diff or higher raw token count alone is not a sufficient override. For any other override, report concrete evidence that local execution has the lower total expected cost after price-weighted model usage, worker context setup, handoff and review overhead, latency, duplicate validation, and error or rework risk are considered; absent that evidence, use the calculated execution tier. Prefer reusing an active compatible worker or batching adjacent work when that amortizes the handoff cost.
 - Give focused workers bounded prompts with `fork_turns: "none"` unless the task genuinely requires surrounding conversation context; include the necessary context explicitly in the assignment.
 - Delegation depth is exactly one: primary supervisor to leaf worker. Every created worker is a leaf and must not create agents, delegate, fork tasks, recalculate routing, or approve escalation. At most two workers may be active concurrently, only for independent slices with non-overlapping ownership.
 - A worker that cannot finish must stop and return an escalation request with evidence to the primary supervisor. Escalation for the same slice is monotonic from `implement_luna` to `implement_mid` to `implement_sol` and never moves downward.
 - A Sol worker that cannot finish returns the slice to the primary supervisor for a local decision or user input. Do not create another worker for unchanged scope.
 - Only one agent may own a slice at a time. Before replacing a worker, the primary supervisor inspects the shared worktree, revokes the previous ownership, and establishes the replacement's starting diff.
-- Delegate Git history maintenance only after the parent defines the source and target refs, exact rewrite plan, recovery ref, expected final tree, and validation commands. Luna workers may execute a conflict-free plan; conflicts, ambiguous commit ownership, unexpected tree differences, and recovery needs escalate to `implement_sol`.
+- Delegate Git history rewrites only after the parent defines the source and target refs, exact rewrite plan, recovery ref, expected final tree, and validation commands. Luna workers may execute a conflict-free plan; conflicts, ambiguous commit ownership, unexpected tree differences, and recovery needs escalate to `implement_sol`. Routine Git finalization stays with the primary supervisor under the exemption above.
 - For explicitly authorized history maintenance, implementation workers may create rewritten commits but must not publish them. The primary supervisor reviews the final graph and tree and retains responsibility for push, pull-request, merge, and finalization decisions.
 - Test-driven delegated changes require a RED pause and parent acknowledgement for score 3+ work and for domain, security, sync, persistence, migration, transaction, or concurrency behavior. For score 0-2 work, Luna may report RED and GREEN together. TypeScript implementation slices must run `npm run typecheck` before GREEN.
 - Parent acknowledgement may rely on the subagent's exact RED command and failure evidence. Re-run RED only when that evidence is ambiguous or inconsistent, or when shared worktree state changed; final integration validation remains mandatory.
