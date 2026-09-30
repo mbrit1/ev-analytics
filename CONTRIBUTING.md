@@ -72,7 +72,7 @@ For structural refactors, move code first without changing behavior. Make behavi
 
 Use `docs/design/design-system-baseline.html` as the default token and component baseline. Apply `docs/design/governance-checklist.md` to UI changes.
 
-Verify affected mobile and desktop layouts and include screenshots with the pull request. If a screen intentionally improves on the baseline, identify the deviation in the handoff as either `local exception` or `promote to master`.
+Verify affected mobile and desktop layouts and provide screenshots or another evidence location with the pull request. Sanitize screenshots before sharing. If screenshots contain sensitive data, keep them local and state in the pull request why they are withheld and where the evidence is available to maintainers. Cover keyboard, focus, accessibility, and 44px touch targets. If a screen intentionally improves on the baseline, identify the deviation in the handoff as either `local exception` or `promote to master`.
 
 Data-entry workflows must remain practical one-handed and in poor connectivity. Use appropriate `inputMode` values for numeric fields, preserve localized decimal input, maintain touch targets of at least 44px, and keep offline and pending-sync state visible.
 
@@ -84,6 +84,8 @@ Data-entry workflows must remain practical one-handed and in poor connectivity. 
 4. Include a commit body that explains the motivation and meaningful trade-offs rather than repeating the diff.
 
 Do not commit directly to `main`. Automated coding agents must not push, open pull requests, or merge without explicit human authorization.
+
+Dependabot is an existing exception for non-draft development-dependency updates classified as semver-patch: configured automation may approve and auto-merge these updates, subject to the repository's configured GitHub merge requirements. This exception does not authorize agents to publish or merge their own changes.
 
 ## Verification
 
@@ -107,14 +109,14 @@ Report notable bundle-size changes or top chunk drivers. For project-structure c
 
 Pull requests should include:
 
-- a concise summary of the change and why it is needed;
-- verification commands and results;
-- linked issues, specifications, or ADRs;
-- screenshots for UI changes;
-- known risks, follow-up work, or intentional design deviations; and
+- the change type, a concise summary and reason, any linked issue, and an explanation of breaking impact;
+- exact verification commands and results, meaningful coverage added or updated where relevant, and omitted checks or validation gaps;
+- UI evidence for affected mobile and desktop layouts, keyboard/focus/accessibility behavior, and 44px touch targets; screenshots may be sanitized or kept locally with the reason and evidence location stated;
+- conditional domain and security evidence for offline persistence and sync, money and date semantics, authentication and owner-scoped access, privacy, secrets, and import boundaries;
+- canonical documentation or ADR updates, or why none were needed, plus known risks, follow-up work, operational steps, and intentional design deviations; and
 - moved paths and boundary impact for structural changes.
 
-When handing work to another contributor, summarize changed files, verification performed, remaining risks, and a suggested Conventional Commit message.
+When handing work to another contributor, summarize changed files, exact validation commands and results, omitted checks and gaps, relevant change and breaking type, conditional UI or domain evidence, remaining risks, and a suggested Conventional Commit message. A maintainer's local review counts as human review; it does not require updating a pull request checkbox or adding a mandatory review comment.
 
 ## Security and Infrastructure
 
