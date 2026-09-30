@@ -161,14 +161,16 @@ export const TactileMatrix: React.FC<TactileMatrixProps> = ({
               }}
               onKeyDown={(e) => handleKeyDown(e, index)}
               className={`
-                py-3 px-4 rounded-xl font-bold text-sm transition-all min-h-[44px] cursor-pointer
+                py-3 px-4 rounded-xl font-bold text-sm transition-all min-h-[44px] min-w-[44px] cursor-pointer
                 flex flex-col items-center justify-center text-center whitespace-pre-line
+                focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface
+                motion-reduce:transition-none
                 ${
                   option.disabled
                     ? 'bg-secondary/5 text-secondary/40 cursor-not-allowed'
                     : isActive
-                      ? 'bg-primary text-surface shadow-md scale-[1.02]'
-                      : 'bg-secondary/10 text-primary hover:bg-secondary/20'
+                      ? 'bg-primary text-surface shadow-md scale-[1.02] motion-reduce:scale-100'
+                      : 'bg-secondary/10 text-primary [@media(hover:hover)_and_(pointer:fine)]:hover:bg-secondary/20'
                 }
               `}
             >
