@@ -1,33 +1,27 @@
-# Description
-Please include a summary of the change and the issue it addresses, if applicable.
+## Summary
 
-No linked issue, or `Fixes #<issue-number>` if applicable.
+<!-- What changed and why? Link an issue if applicable. -->
 
-## Type of Change
-- [ ] Bug fix (non-breaking change which fixes an issue)
-- [ ] New feature (non-breaking change which adds functionality)
-- [ ] Breaking change (fix or feature that would cause existing functionality to not work as expected)
-- [ ] Refactor (internal structural or behavioral improvement without a user-facing feature or bug fix)
-- [ ] Documentation update
+- Change type: feature / fix / refactor / documentation / maintenance / dependencies
+- Breaking impact: none / explain
 
-## Quality Checklist
-- [ ] My code follows the style guidelines of this project
-- [ ] I have performed a self-review of my own code
-- [ ] I have commented my code, particularly in hard-to-understand areas
-- [ ] I have made corresponding changes to the documentation
-- [ ] My changes generate no new warnings
-- [ ] I have added tests that prove my fix is effective or that my feature works
-- [ ] New and existing unit tests pass locally with my changes
-- [ ] `npm run docs:check` passes when active documentation changed
+## Verification
 
-## Architectural Mandates (EV Analytics)
-- [ ] **Human Review Gate:** This PR has been reviewed by a human before merge.
-- [ ] **Offline-First:** Changes do not require active connectivity for core features.
-- [ ] **European Localization:** Currency, numeric input, and dates follow `CONTRIBUTING.md` and `docs/architecture.md`.
-- [ ] **Mobile-First:** UI elements meet the 44x44pt hit area requirement.
-- [ ] **Privacy:** No sensitive data is logged or exposed.
+<!-- List exact commands and results. Include meaningful coverage added or updated where relevant. Explain omitted checks and validation gaps. For documentation-only changes, see the canonical commands in CONTRIBUTING.md. -->
 
-## Documentation Impact
-- [ ] Active paths, commands, links, and terminology are current, or this change has no documentation impact.
-- [ ] Schema, RLS, runtime, analytics, or deployment changes update their canonical guide and relevant ADR/runbook, or are not applicable.
-- [ ] Historical plans/specs remain historical; new current-state policy is not duplicated into them.
+## UI evidence (when applicable)
+
+<!-- Include mobile and desktop evidence or its location. Cover keyboard, focus, accessibility, and 44px touch targets; identify design deviations as `local exception` or `promote to master`. Use sanitized screenshots. If screenshots are withheld or kept locally, explain why and where evidence is available. -->
+
+## Domain and security impact (when applicable)
+
+<!-- Cover offline behavior, persistence and sync; integer cents, localized input, UTC dates, pricing snapshots, and missing-value semantics; authentication, owner-scoped access, privacy, and secrets; and import boundaries. Write “None” if unaffected. -->
+
+## Documentation and risks
+
+<!-- Link canonical guides or ADRs updated, or explain why none were needed. Note risks, follow-ups, operational steps, and moved paths for structural changes. -->
+
+## Author checklist
+
+- [ ] I reviewed the final diff and validation evidence.
+- [ ] I addressed relevant contribution requirements and explained exceptions or unfinished checks.
