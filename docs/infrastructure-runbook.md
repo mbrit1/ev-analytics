@@ -39,6 +39,31 @@ Never commit `.env.local`, Supabase credentials, or Cloudflare credentials.
    npm run lint && npm run test -- --run && npm run build
    ```
 
+### Mock development
+
+Run the Vite development server with explicit mock mode:
+
+```bash
+VITE_ENABLE_MOCKS=true npm run dev
+```
+
+Mock mode is enabled only when both Vite's `DEV` flag and
+`VITE_ENABLE_MOCKS=true` are present. It supplies seeded authentication and
+data without a live backend. Generic REST `POST` writes receive a success
+acknowledgement but do not persist changes in the mock backend; the app still
+uses its real Dexie database and outbox for local writes and replay.
+
+The seeded analytics scenarios are `ready`, `empty`, `missing-history`, and
+`overlap`. Select one with `VITE_MOCK_ANALYTICS_SCENARIO` when starting Vite.
+Before switching fixtures, clear `EVAnalyticsDB` only on a dedicated mock-mode
+origin; this deletes local writes stored for that origin. Hydration upserts
+returned rows and does not remove rows omitted by a fixture.
+
+Normal development startup unregisters service workers registered for that
+origin and may reload the page once. Use `npm run preview` or a deployment to
+check the production PWA worker. Mock mode is not enabled in preview or
+production builds.
+
 ## Provision Supabase
 
 Use a new or empty Supabase project for the clean import path below. `supabase/schema.sql` is the canonical remote schema, not an incremental migration.
@@ -455,6 +480,16 @@ The application is deployed with Wrangler using the configuration in `wrangler.j
    - an offline local write remains available after reload; and
    - the queued write synchronizes after connectivity returns.
 
+### Recovery rollback constraint
+
+Provider-conflict recovery relies on the Dexie v6 database, cross-runtime
+exclusion, replay guards, and local-writer guards. Treat deployment as
+forward-only after recovery has been used and repair forward with a new
+deployment. A stale pre-v6 bundle is unsupported and may reopen the upgraded
+database under Dexie's normal auto-open behavior; blocking it is not guaranteed.
+A rollback may disable recovery UI and service while retaining the upgraded
+database and safety guards. See [ADR 010 recovery and rollback decision](./adr/010-provider-conflict-reconciliation.md#decision).
+
 ### Deployment security headers
 
 The Vite build emits a Cloudflare Workers Static Assets `_headers` file from
@@ -474,6 +509,12 @@ impact. After deployment, inspect response headers on both `/` and a direct SPA
 route to confirm Cloudflare is serving the emitted policy.
 
 ## Troubleshooting
+
+### Sync exclusion unavailable
+
+Inspect `navigator.locks` in the affected browser and check the console for
+`Sync exclusion is unavailable:`. When the required Web Lock is unavailable,
+hydration and outbox replay are skipped; local writes remain queued in Dexie.
 
 ### Missing Supabase configuration
 
