@@ -17,6 +17,7 @@ This app replaces spreadsheet workflows with structured EV charging session trac
 - Private, single-user Supabase backend with default-deny RLS
 - Tariff, provider, and charging plan modeling
 - Monthly charging-session spend and provider-billed energy analytics
+- Lifetime Overall Price, including applicable fixed costs ([calculation semantics](./docs/architecture.md#lifetime-overall-price))
 - PWA service worker and mobile-first UX
 
 ## Tech Stack
@@ -105,6 +106,8 @@ For the implemented data flows, synchronization limits, data model, and analytic
    ```
 
 For environment provisioning and deployment, see the [infrastructure runbook](./docs/infrastructure-runbook.md).
+
+For development with seeded mock auth and data, see [Mock development](./docs/infrastructure-runbook.md#mock-development).
 
 ## Scripts
 

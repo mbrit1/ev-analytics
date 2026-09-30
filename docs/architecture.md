@@ -131,6 +131,13 @@ Domain screens read from Dexie. Feature hooks scope records to the authenticated
 - requests additional passes after browser `online` events and committed outbox insertions; and
 - coalesces overlapping triggers so only one pass runs at a time.
 
+Hydration and outbox replay require the browser's Web Locks API to hold a
+database-scoped cross-runtime exclusion lock. If the lock is unavailable, sync
+logs `SyncExclusionUnavailableError` and skips both operations for that cycle;
+local writes continue to persist in Dexie and remain queued in the outbox. See
+[sync exclusion troubleshooting in the infrastructure
+runbook](./infrastructure-runbook.md#sync-exclusion-unavailable).
+
 Runtime disposal aborts later synchronization phases and local bookkeeping after asynchronous boundaries. Sign-out waits for the disposed runtime's active pass to quiesce before atomically clearing local user data, so a delayed hydration response cannot repopulate Dexie after logout cleanup.
 
 An eligible terminal provider-name conflict has an explicit recovery path rather
@@ -297,11 +304,8 @@ month selector, remains available offline, and follows the split authority in
   and paid history unrelated to a qualifying tariff do not independently make
   the KPI unavailable.
 
-Local mock-mode browser checks can set `VITE_ENABLE_MOCKS=true` and
-`VITE_MOCK_ANALYTICS_SCENARIO` to `ready`, `empty`, `missing-history`, or
-`overlap`. Clear the `EVAnalyticsDB` IndexedDB database before changing the
-scenario, because hydration upserts returned rows but does not delete rows
-omitted by a later fixture.
+For seeded mock-mode analytics scenarios, see [Mock development in the
+infrastructure runbook](./infrastructure-runbook.md#mock-development).
 
 ## Security, Hosting, and Operational Sources
 

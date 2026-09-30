@@ -97,6 +97,14 @@ npm run lint && npm run test -- --run && npm run build
 
 For documentation-only changes, run `npm run docs:check` and `git diff --check`; application tests are not required unless executable examples or documentation tooling changed.
 
+Changes to the canonical schema, table-access rules, or the live RLS verifier must also run the standalone contract tests:
+
+```bash
+node --test scripts/schema-grants.node-test.mjs scripts/verify-rls-live.node-test.mjs
+```
+
+These tests use mocked network responses and do not validate live production RLS. CI always runs this command in its test job, independently of the Vitest suite.
+
 For performance-sensitive changes, including dependencies, major UI work, or bundling/runtime changes, also run:
 
 ```bash
