@@ -41,6 +41,8 @@ const sessionSchema = z.object({
   /** Selected logical tariff resolves to a raw version on the chosen date. */
   logical_tariff_key: z.string().optional(),
   charging_type: z.enum(['AC', 'DC']),
+  /** Ad-hoc type draft, independent from the plan-rate selection. */
+  ad_hoc_charging_type: z.enum(['AC', 'DC']),
   pricing_mode: z.enum(['standard', 'roaming']),
   /** Required billed energy; accepts comma or period decimal separators. */
   kwh_billed: z.string().regex(/^\d+([,.]\d{1,4})?$/, 'Invalid kWh format'),
@@ -376,6 +378,9 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         ? formatDateInputValue(initialValues.session_timestamp)
         : formatDateInputValue(new Date()),
       charging_type: (initialValues?.charging_type as SessionFormValues['charging_type']) || 'AC',
+      ad_hoc_charging_type: resolveInitialPricingSource(legacyInitialValues) === 'ad_hoc'
+        ? (initialValues?.charging_type as SessionFormValues['ad_hoc_charging_type']) || 'AC'
+        : 'AC',
       session_mode: resolveInitialPricingSource(legacyInitialValues),
       pricing_mode: resolveInitialPricingMode(legacyInitialValues),
       start_soc_percentage: initialValues?.start_soc_percentage?.toString() || '',
@@ -499,9 +504,6 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
 
   React.useEffect(() => {
     if (selectedPricingSource === 'ad_hoc') {
-      if (getValues('logical_tariff_key')) {
-        setValue('logical_tariff_key', '');
-      }
       return;
     }
 
@@ -639,7 +641,9 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       const sessionBase = {
         user_id: user.id,
         session_timestamp: sessionTimestamp,
-        charging_type: values.charging_type,
+        charging_type: values.session_mode === 'ad_hoc'
+          ? values.ad_hoc_charging_type
+          : values.charging_type,
         kwh_billed: parseFloat(values.kwh_billed.replace(',', '.')),
         kwh_added: values.kwh_added ? parseFloat(values.kwh_added.replace(',', '.')) : undefined,
         start_soc_percentage: values.start_soc_percentage ? parseInt(values.start_soc_percentage) : undefined,
@@ -985,11 +989,31 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
               )}
             </>
           ) : (
-            <AdHocIdentityFields
-              billingProviderRegistration={register('billing_provider_name')}
-              billingProviderError={errors.billing_provider_name?.message}
-              cpoRegistration={register('cpo_name')}
-            />
+            <>
+              <AdHocIdentityFields
+                billingProviderRegistration={register('billing_provider_name')}
+                billingProviderError={errors.billing_provider_name?.message}
+                cpoRegistration={register('cpo_name')}
+              />
+              <Controller
+                name="ad_hoc_charging_type"
+                control={control}
+                render={({ field }) => (
+                  <TactileMatrix
+                    label="Charging Type"
+                    className="lg:col-span-2"
+                    value={field.value}
+                    onChange={field.onChange}
+                    required
+                    requiredIndicator
+                    options={[
+                      { label: 'AC', value: 'AC' },
+                      { label: 'DC', value: 'DC' },
+                    ]}
+                  />
+                )}
+              />
+            </>
           )}
         </div>
 

@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SessionForm } from './SessionForm';
 import {
@@ -390,6 +391,221 @@ describe('SessionForm', () => {
     expect(screen.getByLabelText(/receipt url/i)).toBeDefined();
     expect(screen.getByLabelText(/other fees/i)).toBeDefined();
     expect(screen.queryByText(/charging rate/i)).toBeNull();
+  });
+
+  it('defaults new ad-hoc pricing to AC and keeps its draft independent from plan rates', () => {
+    // Arrange: render a new session and choose a DC plan rate before first visiting ad-hoc.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }) },
+    });
+    fireEvent.click(screen.getByRole('radio', { name: /domestic dc\s+0,60 €\/kwh/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
+
+    // Assert: ad-hoc starts at AC, then retains an independent DC choice across plan normalization.
+    const group = screen.getByRole('radiogroup', { name: 'Charging Type' });
+    const ac = within(group).getByRole('radio', { name: 'AC' });
+    const dc = within(group).getByRole('radio', { name: 'DC' });
+    expect(group).toHaveAttribute('aria-required', 'true');
+    expect(ac).toHaveAttribute('aria-checked', 'true');
+    expect(ac).toHaveAttribute('tabindex', '0');
+    expect(dc).toHaveAttribute('tabindex', '-1');
+    fireEvent.click(within(group).getByRole('radio', { name: 'DC' }));
+    fireEvent.click(screen.getByRole('radio', { name: /charging plan/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /domestic ac\s+0,40 €\/kwh/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
+    expect(within(screen.getByRole('radiogroup', { name: 'Charging Type' })).getByRole('radio', { name: 'DC' }))
+      .toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(screen.getByRole('radio', { name: /charging plan/i }));
+    expect(screen.getByRole('radio', { name: /domestic ac\s+0,40 €\/kwh/i })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it.each(['AC', 'DC'] as const)('initializes an ad-hoc edit from saved %s and preserves it on unrelated save', async (type) => {
+    // Arrange: render an existing ad-hoc session with a saved charging type.
+    const initialValues = buildSessionFixture({
+      id: `session-ad-hoc-${type.toLowerCase()}`,
+      session_mode: 'ad_hoc',
+      provider_id: null,
+      tariff_plan_id: null,
+      plan_selection_id: null,
+      pricing_context: 'ad_hoc',
+      charging_type: type,
+      charging_plan_name_snapshot: null,
+      ad_hoc_pricing: { cpoName: 'FastNet', pricePerKwh: 59 },
+    });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+    const group = screen.getByRole('radiogroup', { name: 'Charging Type' });
+    expect(within(group).getByRole('radio', { name: type })).toHaveAttribute('aria-checked', 'true');
+
+    // Act: make an unrelated edit and save.
+    fireEvent.change(screen.getByLabelText(/^notes$/i), { target: { value: 'Updated note' } });
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: the active ad-hoc selection reaches the persisted session payload.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      session: expect.objectContaining({ session_mode: 'ad_hoc', charging_type: type }),
+    })));
+  });
+
+  it.each(['AC', 'DC'] as const)('saves a new ad-hoc session with selected %s charging type', async (type) => {
+    // Arrange: enter valid ad-hoc values and choose the requested charging type.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
+    fireEvent.change(screen.getByLabelText(/^billing provider/i), { target: { value: 'Cariqa' } });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText(/price per kwh/i), { target: { value: '0,59' } });
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Charging Type' })).getByRole('radio', { name: type }));
+
+    // Act: save the new session.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: selected type is included in the ad-hoc session payload.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      session: expect.objectContaining({ session_mode: 'ad_hoc', charging_type: type }),
+    })));
+  });
+
+  it.each([
+    { saved: 'AC', selected: 'DC' },
+    { saved: 'DC', selected: 'AC' },
+  ] as const)('saves an ad-hoc edit changed from $saved to $selected', async ({ saved, selected }) => {
+    // Arrange: open a saved ad-hoc session and change its charging type.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={buildSessionFixture({
+      id: `session-ad-hoc-${saved.toLowerCase()}-to-${selected.toLowerCase()}`,
+      session_mode: 'ad_hoc', provider_id: null, tariff_plan_id: null, plan_selection_id: null,
+      pricing_context: 'ad_hoc', charging_type: saved, charging_plan_name_snapshot: null,
+      ad_hoc_pricing: { cpoName: 'FastNet', pricePerKwh: 59 },
+    })} />);
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Charging Type' })).getByRole('radio', { name: selected }));
+
+    // Act: submit the edit.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: the changed type replaces the saved type in the submission.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      session: expect.objectContaining({ session_mode: 'ad_hoc', charging_type: selected }),
+    })));
+  });
+
+  it('submits the active AC plan rate after an ad-hoc DC detour without changing its pricing snapshot', async () => {
+    // Arrange: select a plan AC rate, visit ad-hoc, and choose DC there.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }) },
+    });
+    fireEvent.click(screen.getByRole('radio', { name: /domestic ac\s+0,40 €\/kwh/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Charging Type' })).getByRole('radio', { name: 'DC' }));
+
+    // Act: return to plan pricing and save.
+    fireEvent.click(screen.getByRole('radio', { name: /charging plan/i }));
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: active plan type, rate, and price snapshot retain the plan selection.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({
+      session: expect.objectContaining({
+        session_mode: 'plan', charging_type: 'AC', pricing_context: 'standard',
+        applied_price_per_kwh: 40,
+        price_snapshot: expect.objectContaining({ kWhPrice: 40 }),
+      }),
+    })));
+  });
+
+  it('retains ad-hoc DC through switching to an AC-only plan that normalizes its plan rate', async () => {
+    // Arrange: supply an AC-only plan beside the standard plan.
+    setChargingPlansMock([
+      buildPlanFixture({ id: 't1', name: 'P1 Home' }),
+      buildPlanFixture({
+        id: 't2', name: 'P1 AC Only', ac_price_per_kwh: 42, dc_price_per_kwh: undefined,
+        roaming_ac_price_per_kwh: undefined, roaming_dc_price_per_kwh: undefined,
+      }),
+    ]);
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }) },
+    });
+    fireEvent.click(screen.getByRole('radio', { name: /domestic dc\s+0,60 €\/kwh/i }));
+    fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Charging Type' })).getByRole('radio', { name: 'DC' }));
+
+    // Act: choose the AC-only plan, then return to ad-hoc and back to plan.
+    fireEvent.click(screen.getByRole('radio', { name: /charging plan/i }));
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 AC Only' }) },
+    });
+    expect(screen.getByRole('radio', { name: /domestic ac\s+0,42 €\/kwh/i })).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
+
+    // Assert: the independent ad-hoc draft remains DC after plan normalization.
+    expect(within(screen.getByRole('radiogroup', { name: 'Charging Type' })).getByRole('radio', { name: 'DC' }))
+      .toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(screen.getByRole('radio', { name: /charging plan/i }));
+    expect(screen.getByRole('radio', { name: /domestic ac\s+0,42 €\/kwh/i })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('retains pricing-source focus and does not scroll when switching modes', async () => {
+    // Arrange: wait for mount focus/scroll to finish before measuring source switching.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    await waitFor(() => expect(mockScrollIntoView).toHaveBeenCalledTimes(1));
+    const scrollCount = mockScrollIntoView.mock.calls.length;
+    const adHoc = screen.getByRole('radio', { name: /ad-hoc/i });
+
+    // Act: switch into ad-hoc and back to plan mode.
+    const user = userEvent.setup();
+    await user.click(adHoc);
+    const chargingPlan = screen.getByRole('radio', { name: /charging plan/i });
+    await user.click(chargingPlan);
+
+    // Assert: focus stays on the pricing-source control and no extra scroll occurs.
+    expect(chargingPlan).toHaveFocus();
+    expect(mockScrollIntoView).toHaveBeenCalledTimes(scrollCount);
+  });
+
+  it('changes an ad-hoc edit type and supports keyboard selection without submitting', async () => {
+    // Arrange: open a saved AC ad-hoc session and focus its AC choice.
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={buildSessionFixture({
+      id: 'session-ad-hoc-keyboard', session_mode: 'ad_hoc', provider_id: null, tariff_plan_id: null,
+      plan_selection_id: null, pricing_context: 'ad_hoc', charging_type: 'AC', charging_plan_name_snapshot: null,
+      ad_hoc_pricing: { cpoName: 'FastNet', pricePerKwh: 59 },
+    })} />);
+    const group = screen.getByRole('radiogroup', { name: 'Charging Type' });
+    const ac = within(group).getByRole('radio', { name: 'AC' });
+    const dc = within(group).getByRole('radio', { name: 'DC' });
+
+    // Act: move through radio options using arrow, Space, and Enter.
+    const user = userEvent.setup();
+    ac.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(dc).toHaveFocus();
+    expect(dc).toHaveAttribute('aria-checked', 'true');
+    await user.keyboard(' ');
+    await user.keyboard('{Enter}');
+
+    // Assert: selection is retained and radio keys do not submit the form.
+    expect(dc).toHaveFocus();
+    expect(mockOnSubmit).not.toHaveBeenCalled();
+  });
+
+  it('starts the next new form at AC after closing a DC ad-hoc draft', () => {
+    // Arrange: choose DC in a new ad-hoc session.
+    const view = render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
+    fireEvent.click(within(screen.getByRole('radiogroup', { name: 'Charging Type' })).getByRole('radio', { name: 'DC' }));
+
+    // Act: close and mount a fresh form.
+    fireEvent.click(screen.getByRole('button', { name: 'Close new session form' }));
+    expect(mockOnCancel).toHaveBeenCalled();
+    view.unmount();
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
+
+    // Assert: a new form begins with AC selected.
+    expect(within(screen.getByRole('radiogroup', { name: 'Charging Type' })).getByRole('radio', { name: 'AC' }))
+      .toHaveAttribute('aria-checked', 'true');
   });
 
   it('connects custom plan-field validation errors to the provider and plan controls', async () => {

@@ -209,6 +209,8 @@ Shared UUIDs identify the same domain rows locally and remotely. Supabase RLS re
 
 Charging sessions use a mode-discriminated identity contract. Plan sessions require a saved `provider_id` and `tariff_plan_id` and cannot carry ad-hoc pricing. Ad-hoc sessions require `provider_id`, `tariff_plan_id`, and `plan_selection_id` to be null; their nonblank `provider_name_snapshot` is the billing provider, while `ad_hoc_pricing.cpoName` is optional charging-station-operator context. Saving an ad-hoc session does not create a provider, charging plan, or plan-selection row. The mode/linkage invariant is represented by the local discriminated union, validated during remote hydration, and enforced by Supabase constraints.
 
+The session form offers a required AC/DC choice for ad-hoc pricing. New forms start with AC; ad-hoc edits initialize from the saved type. The ad-hoc type draft remains separate from the plan charging rate so plan normalization cannot overwrite it during pricing-source detours. Submission uses the active mode's type. Drafts last only while the form is mounted; a fresh form starts from its normal defaults. This choice uses the existing session persistence path and does not change prices or snapshots.
+
 Charging-plan validity is `[valid_from, valid_to)`; a null `valid_to` is open
 ended. Non-deleted plans with `monthly_base_fee > 0` have a provider-level
 one-paid-tariff invariant, while zero-fee definitions may overlap. The local
