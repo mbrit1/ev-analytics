@@ -263,6 +263,55 @@ describe('ChargingHistory', () => {
     expect(screen.queryByText(/^TEAG$/)).not.toBeInTheDocument();
   });
 
+  it('shows the saved ad-hoc DC type and price in the overview', async () => {
+    // Arrange: persist a DC ad-hoc session with a historical price snapshot.
+    const user = userEvent.setup();
+    const onSelectSession = vi.fn();
+    const session = buildSession('session-ad-hoc-dc', '2026-07-17T10:00:00.000Z', {
+      session_mode: 'ad_hoc',
+      provider_id: null,
+      provider_name_snapshot: 'Cariqa',
+      charging_plan_name_snapshot: 'Ad-Hoc',
+      tariff_plan_id: null,
+      plan_selection_id: null,
+      charging_type: 'DC',
+      pricing_context: 'ad_hoc',
+      ad_hoc_pricing: {
+        cpoName: 'TEAG',
+        pricePerKwh: 59,
+        pricePerSession: 199,
+        receiptUrl: null,
+        notes: null,
+      },
+      applied_price_per_kwh: 59,
+      kwh_billed: 10,
+      total_cost: 789,
+    });
+    await act(async () => {
+      await saveSession(session);
+    });
+
+    // Act: render the overview from the persisted local session.
+    render(<ChargingHistory onSelectSession={onSelectSession} />);
+
+    // Act: read the rendered DC type and reopen the persisted session from its card.
+    const provider = await screen.findByText('Cariqa');
+    const card = provider.closest('button');
+    expect(card).not.toBeNull();
+    await user.click(card!);
+
+    // Assert: overview and edit callback retain DC and the saved pricing snapshot/cost.
+    expect(screen.getByText(/Ad-Hoc • DC/)).toBeInTheDocument();
+    expect(screen.getByText('7,89 €')).toBeInTheDocument();
+    expect(screen.getByText(/Operated by TEAG/)).toBeInTheDocument();
+    expect(onSelectSession).toHaveBeenCalledWith(expect.objectContaining({
+      id: session.id,
+      charging_type: 'DC',
+      ad_hoc_pricing: expect.objectContaining({ pricePerKwh: 59, pricePerSession: 199 }),
+      total_cost: 789,
+    }));
+  });
+
   it('omits unavailable or equivalent operator metadata without changing the billing identity', async () => {
     // Arrange: persist one missing-CPO session and one case/whitespace-equivalent session.
     await act(async () => {

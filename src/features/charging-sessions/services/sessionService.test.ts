@@ -12,6 +12,7 @@ import {
   updateSessionWithPlanSelection,
 } from './sessionService'
 import type { AdHocTariffConflictError } from './sessionService'
+import type { AdHocSessionPreparationInput } from '../model/types'
 import 'fake-indexeddb/auto'
 
 /**
@@ -505,6 +506,64 @@ describe('sessionService', () => {
       otherFees: [{ label: 'Parking', amount: 50, notes: 'First hour' }]
     });
     expect(Number.isInteger(session.total_cost)).toBe(true);
+  });
+
+  it.each(['AC', 'DC'] as const)('persists ad-hoc %s create and DC update locally with unchanged pricing snapshots', async (createdType) => {
+    // Arrange: prepare an ad-hoc session with an explicit historical price snapshot.
+    const prepared = prepareSession({
+      user_id: 'user-456',
+      session_timestamp: utc('2026-06-15'),
+      charging_type: createdType,
+      tariff_plan_id: null,
+      plan_selection_id: null,
+      session_mode: 'ad_hoc',
+      pricing_context: 'ad_hoc',
+      kwh_billed: 10,
+      billing_provider_name: 'Cariqa',
+      cpo_name: 'TEAG',
+      ad_hoc_pricing: { pricePerKwh: 55, pricePerSession: 199 },
+    } satisfies AdHocSessionPreparationInput);
+    prepared.id = `ad-hoc-${createdType.toLowerCase()}-to-dc`;
+
+    // Act: save, reopen from IndexedDB, then change type and notes through the persistence service.
+    await saveSession(prepared);
+    const reopened = await sharedDb.sessions.get(prepared.id);
+    if (!reopened || reopened.session_mode !== 'ad_hoc') {
+      throw new Error('Expected the saved ad-hoc session to reopen');
+    }
+    expect(reopened.charging_type).toBe(createdType);
+    await updateSession({ ...reopened, charging_type: 'DC', notes: 'Receipt checked' });
+
+    // Assert: create records its selected type, and update retains DC and original pricing facts.
+    const saved = await sharedDb.sessions.get(prepared.id);
+    expect(saved).toEqual(expect.objectContaining({
+      charging_type: 'DC',
+      session_mode: 'ad_hoc',
+      pricing_context: 'ad_hoc',
+      total_cost: 749,
+      ad_hoc_pricing: { cpoName: 'TEAG', pricePerKwh: 55, pricePerSession: 199 },
+      notes: 'Receipt checked',
+    }));
+    expect(await sharedDb.sync_outbox.toArray()).toEqual([
+      expect.objectContaining({
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: expect.objectContaining({
+          charging_type: createdType,
+          total_cost: 749,
+          ad_hoc_pricing: { cpoName: 'TEAG', pricePerKwh: 55, pricePerSession: 199 },
+        }),
+      }),
+      expect.objectContaining({
+        table_name: 'sessions',
+        action: 'UPDATE',
+        payload: expect.objectContaining({
+          charging_type: 'DC',
+          total_cost: 749,
+          ad_hoc_pricing: { cpoName: 'TEAG', pricePerKwh: 55, pricePerSession: 199 },
+        }),
+      }),
+    ]);
   });
 
   it('keeps snapshots stable by cloning ad-hoc input', () => {
