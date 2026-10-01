@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DatePicker } from './DatePicker';
 
 /**
@@ -10,6 +10,34 @@ import { DatePicker } from './DatePicker';
  * browser-native date input rendering.
  */
 describe('DatePicker', () => {
+  const originalInnerWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth');
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    if (originalInnerWidth) {
+      Object.defineProperty(window, 'innerWidth', originalInnerWidth);
+    }
+  });
+
+  function setViewportWidth(width: number): void {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+  }
+
+  function setRect(element: HTMLElement, left: number, width: number): void {
+    vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
+      x: left,
+      y: 120,
+      left,
+      top: 120,
+      right: left + width,
+      bottom: 164,
+      width,
+      height: 44,
+      toJSON: () => ({}),
+    });
+  }
+
   function getPickerMonth(): string {
     const monthHeading = screen.getByTestId('date-picker-month');
     const month = monthHeading.getAttribute('data-month');
@@ -411,5 +439,178 @@ describe('DatePicker', () => {
 
     // Assert: Adjacent-month cells commit their own full date, not the visible month.
     expect(onChange).toHaveBeenCalledWith('2026-04-01');
+  });
+
+  it('includes weekday labels on chronological date tiles at narrow widths', () => {
+    // Arrange: Open the picker at a width that cannot hold seven 44px columns.
+    setViewportWidth(320);
+    render(<DatePicker label="Session Date" value="2026-03-10" onChange={vi.fn()} required />);
+
+    // Act: Open the calendar and inspect the rendered date controls.
+    fireEvent.click(screen.getByRole('button', { name: /session date/i }));
+    const dates = screen.getAllByRole('button', { name: /^Choose / });
+
+    // Assert: Dates remain chronologically accessible and each displays its weekday.
+    expect(dates.length).toBeGreaterThan(28);
+    const weekdays = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+    for (const date of dates) {
+      const dateValue = date.getAttribute('data-date-picker-date');
+      if (!dateValue) throw new Error('Date tile is missing its date value');
+      const weekday = weekdays[new Date(`${dateValue}T12:00:00`).getDay()];
+      expect(date).toHaveTextContent(new RegExp(`\\b${weekday}\\b`));
+    }
+    expect(dates[0].getAttribute('aria-label')).toMatch(/^Choose \d{2}\.\d{2}\.\d{4}$/);
+    expect(dates[0].getAttribute('data-date-picker-date')?.localeCompare(
+      dates[1].getAttribute('data-date-picker-date') ?? ''
+    )).toBeLessThan(0);
+  });
+
+  it('uses a conventional weekday header when seven date columns fit', () => {
+    // Arrange: Open the picker at desktop width.
+    setViewportWidth(1280);
+    render(<DatePicker label="Session Date" value="2026-03-10" onChange={vi.fn()} required />);
+
+    // Act: Open the calendar and inspect its weekday and date labels.
+    fireEvent.click(screen.getByRole('button', { name: /session date/i }));
+    const weekdays = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+    const date = screen.getByRole('button', { name: 'Choose 10.03.2026' });
+
+    // Assert: Weekdays are provided by the shared header and are not repeated on each date.
+    const dialog = screen.getByRole('dialog');
+    for (const weekday of weekdays) expect(within(dialog).getByText(weekday, { exact: true })).toBeInTheDocument();
+    expect(date).not.toHaveTextContent(/\b(Mo|Tu|We|Th|Fr|Sa|Su)\b/);
+  });
+
+  it.each([
+    ['ArrowUp', '2026-03-03'],
+    ['ArrowDown', '2026-03-17'],
+    ['Home', '2026-02-08'],
+    ['End', '2026-04-09'],
+  ])('preserves %s date movement in narrow presentation', (key, expectedDate) => {
+    // Arrange: Open a narrow picker on a known date.
+    setViewportWidth(320);
+    const onChange = vi.fn();
+    render(<DatePicker label="Session Date" value="2026-03-10" onChange={onChange} required />);
+    fireEvent.click(screen.getByRole('button', { name: /session date/i }));
+    const date = screen.getByRole('button', { name: 'Choose 10.03.2026' });
+
+    // Act: Move by the existing keyboard command and commit the staged date.
+    fireEvent.keyDown(date, { key });
+    fireEvent.click(screen.getByRole('button', { name: /set date/i }));
+
+    // Assert: Calendar movement remains based on date intervals, not visual tile rows.
+    expect(onChange).toHaveBeenCalledWith(expectedDate);
+  });
+
+  it('keeps date movement within its bounds in narrow presentation', () => {
+    // Arrange: Constrain a narrow picker to a single available date.
+    setViewportWidth(320);
+    const onChange = vi.fn();
+    render(
+      <DatePicker
+        label="Session Date"
+        value="2026-03-10"
+        onChange={onChange}
+        required
+        min="2026-03-10"
+        max="2026-03-10"
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /session date/i }));
+
+    // Act: Attempt keyboard movement beyond the permitted range.
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Choose 10.03.2026' }), { key: 'ArrowLeft' });
+    fireEvent.click(screen.getByRole('button', { name: /set date/i }));
+
+    // Assert: The staged value remains clamped to the only valid date.
+    expect(onChange).toHaveBeenCalledWith('2026-03-10');
+  });
+
+  it('keeps month controls available in narrow presentation', () => {
+    // Arrange: Open a narrow picker on March 2026.
+    setViewportWidth(320);
+    render(<DatePicker label="Session Date" value="2026-03-10" onChange={vi.fn()} required />);
+    fireEvent.click(screen.getByRole('button', { name: /session date/i }));
+
+    // Act: Move forward and back with the month controls.
+    fireEvent.click(screen.getByRole('button', { name: /next month/i }));
+    expect(getPickerMonth()).toBe('2026-04');
+    fireEvent.click(screen.getByRole('button', { name: /previous month/i }));
+
+    // Assert: Month navigation returns to the original calendar month.
+    expect(getPickerMonth()).toBe('2026-03');
+  });
+
+  it('switches to weekday-labeled date tiles when resizing from desktop to narrow', () => {
+    // Arrange: Open the calendar at a width that fits the weekday header.
+    setViewportWidth(1280);
+    render(<DatePicker label="Session Date" value="2026-03-10" onChange={vi.fn()} required />);
+    fireEvent.click(screen.getByRole('button', { name: /session date/i }));
+    expect(screen.getByRole('button', { name: 'Choose 10.03.2026' })).not.toHaveTextContent(/\bTu\b/);
+
+    // Act: Resize the open calendar to a narrow viewport.
+    setViewportWidth(320);
+    fireEvent(window, new Event('resize'));
+
+    // Assert: The same date now displays its Tuesday label on the tile.
+    expect(screen.getByRole('button', { name: 'Choose 10.03.2026' })).toHaveTextContent(/\bTu\b/);
+  });
+
+  it.each([
+    [320, 'left'],
+    [320, 'right'],
+    [390, 'left'],
+    [390, 'right'],
+  ] as const)('keeps the popup inside a %i px viewport with the trigger at the %s edge', (viewportWidth, edge) => {
+    // Arrange: Place the trigger at the requested edge using deterministic geometry.
+    setViewportWidth(viewportWidth);
+    render(<DatePicker label="Session Date" value="2026-03-10" onChange={vi.fn()} required />);
+    const trigger = screen.getByRole('button', { name: /session date/i });
+    const root = trigger.parentElement;
+    if (!root) throw new Error('Date picker root is missing');
+    const triggerLeft = edge === 'left' ? 4 : viewportWidth - 184;
+    setRect(root, triggerLeft, 180);
+    setRect(trigger, triggerLeft, 180);
+
+    // Act: Open the picker and read the component's declared placement output.
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole('dialog');
+    const declaredLeft = Number.parseFloat(dialog.style.left);
+    const width = Number.parseFloat(dialog.style.width || dialog.style.maxWidth);
+    const viewportLeft = dialog.style.position === 'fixed' ? declaredLeft : triggerLeft + declaredLeft;
+
+    // Assert: The component declares a bounded, numeric placement and sufficient desktop calendar width.
+    expect(['absolute', 'fixed']).toContain(dialog.style.position);
+    expect(Number.isFinite(declaredLeft)).toBe(true);
+    expect(Number.isFinite(width)).toBe(true);
+    expect(viewportLeft).toBeGreaterThanOrEqual(0);
+    expect(viewportLeft + width).toBeLessThanOrEqual(viewportWidth);
+    if (viewportWidth >= 390) expect(width).toBeGreaterThanOrEqual(7 * 44 + 6 * 4 + 24 + 2);
+  });
+
+  it('preserves a staged date and focus when the viewport switches presentation', async () => {
+    // Arrange: Open a narrow picker with a committed date.
+    setViewportWidth(320);
+    const onChange = vi.fn();
+    render(<DatePicker label="Session Date" value="2026-03-10" onChange={onChange} required />);
+    fireEvent.click(screen.getByRole('button', { name: /session date/i }));
+    const selectedDate = screen.getByRole('button', { name: 'Choose 10.03.2026' });
+    await waitFor(() => expect(selectedDate).toHaveFocus());
+
+    // Act: Stage the next date, then widen the viewport while the nonmodal dialog stays open.
+    fireEvent.keyDown(selectedDate, { key: 'ArrowRight' });
+    setViewportWidth(390);
+    fireEvent(window, new Event('resize'));
+
+    // Assert: The live dialog remains nonmodal and keyboard focus follows the staged date.
+    expect(screen.getByRole('dialog')).toHaveAttribute('aria-modal', 'false');
+    const stagedDate = screen.getByRole('button', { name: 'Choose 11.03.2026' });
+    await waitFor(() => expect(stagedDate).toHaveFocus());
+
+    // Act: Confirm after the presentation changes.
+    fireEvent.click(screen.getByRole('button', { name: /set date/i }));
+
+    // Assert: The date staged before resize is committed.
+    expect(onChange).toHaveBeenCalledWith('2026-03-11');
   });
 });
