@@ -5,4 +5,4 @@
  * DOM matchers used by React Testing Library assertions.
  */
 import 'fake-indexeddb/auto';
-import '@testing-library/jest-dom';
+import '@testing-library/jest-dom/vitest';
