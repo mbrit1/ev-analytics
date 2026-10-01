@@ -52,7 +52,6 @@ vi.mock('../shared/ui', () => ({
     React.createElement('button', { type: 'button', 'aria-pressed': activeTab === 'tariffs', onClick: () => onTabChange('tariffs') }, 'Tariffs'),
     React.createElement('button', { type: 'button', 'aria-pressed': activeTab === 'analytics', onClick: () => onTabChange('analytics') }, 'Analytics'),
   ),
-  MobileContextAction: () => null,
 }))
 vi.mock('../features/offline-sync', () => ({
   SyncStatusIndicator: () => null,
