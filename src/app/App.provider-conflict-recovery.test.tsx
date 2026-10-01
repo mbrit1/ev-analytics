@@ -78,7 +78,6 @@ vi.mock('../shared/ui', () => ({
   Navigation: ({ onTabChange }: { onTabChange: (tab: 'sessions' | 'tariffs' | 'analytics') => void }) => (
     <button type="button" onClick={() => onTabChange('tariffs')}>Tariffs</button>
   ),
-  MobileContextAction: () => null,
 }));
 vi.mock('../features/offline-sync', () => ({
   SyncStatusIndicator: () => null,

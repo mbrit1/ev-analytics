@@ -463,7 +463,6 @@ describe('App mobile action dock', () => {
 
     // Assert: Tariffs has no shell-owned mobile action and reserves only navigation-dock clearance.
     expect(screen.queryByText('Add Tariff Pill')).not.toBeInTheDocument();
-    expect(container.querySelector('main')).toHaveAttribute('data-has-mobile-context-action', 'false');
     expect(container.querySelector('main')).toHaveClass(
       'pb-[var(--mobile-content-clearance-dock-only)]',
       'md:pb-8',

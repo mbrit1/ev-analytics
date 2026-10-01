@@ -519,7 +519,6 @@ function App() {
           {/* Main Content */}
           <main
             className={`flex-1 w-full p-4 md:p-8 ${mobileMainPaddingClass} md:pb-8`}
-            data-has-mobile-context-action="false"
           >
             <div
               className={activeTab === 'analytics'

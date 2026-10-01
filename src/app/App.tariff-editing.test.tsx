@@ -150,7 +150,6 @@ vi.mock('../shared/ui', () => ({
       </button>
     </nav>
   ),
-  MobileContextAction: () => null,
   Slab: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 vi.mock('../features/offline-sync', () => ({
