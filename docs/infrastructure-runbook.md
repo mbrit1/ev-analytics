@@ -4,7 +4,7 @@ This runbook covers local environment setup, first-time Supabase provisioning, a
 
 ## Prerequisites
 
-- Node.js 22.20.0 or newer; the repository version is recorded in `.nvmrc`
+- Node.js 22.22.2 from the repository `.nvmrc` pin; supported versions are 22.x ≥22.22.2, 24.x ≥24.15.0, and 26+
 - npm
 - A Supabase account with permission to create and configure a project
 - A Cloudflare account with permission to deploy the application

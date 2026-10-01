@@ -4,7 +4,7 @@ Thank you for improving EV Analytics. This guide is the canonical engineering wo
 
 ## Development Setup
 
-The project requires Node.js 22.20.0 or newer. The repository version is recorded in `.nvmrc`.
+Use the repository-pinned Node.js version 22.22.2 from `.nvmrc`. Supported versions are 22.x ≥22.22.2, 24.x ≥24.15.0, and 26+.
 
 ```bash
 nvm use

@@ -84,7 +84,7 @@ For the implemented data flows, synchronization limits, data model, and analytic
 
 ## Quick Start
 
-1. Use Node.js 22.20.0 or later.
+1. Use the repository-pinned Node.js version 22.22.2 from `.nvmrc` (supported ranges: 22.x ≥22.22.2, 24.x ≥24.15.0, or 26+).
 
 2. Install dependencies:
 
