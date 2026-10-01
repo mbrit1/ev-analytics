@@ -95,6 +95,10 @@ Run focused tests while developing. Before proposing a push or pull request, run
 npm run lint && npm run test -- --run && npm run build
 ```
 
+Vitest and `@vitest/ui` must use matching versions. To open the test UI, run
+`npm run test -- --ui` and open the authenticated URL printed by Vitest. Vitest 5
+requires the token in that URL for the UI page and API access.
+
 For documentation-only changes, run `npm run docs:check` and `git diff --check`; application tests are not required unless executable examples or documentation tooling changed.
 
 Changes to the canonical schema, table-access rules, or the live RLS verifier must also run the standalone contract tests:
