@@ -86,4 +86,14 @@ describe('useMonthlySessionSpend', () => {
     expect(result.current.result.billedEnergyKwh).toBe(10)
     expect(result.current.result.isCurrentMonth).toBe(true)
   })
+  it('exposes session query errors without treating them as an empty result', () => {
+    // Arrange
+    const error = new Error('read failed')
+    vi.mocked(useSessions).mockReturnValue({ sessions: [], pendingSyncIds: new Set(), isLoading: false, error, pendingSyncError: null })
+    // Act
+    const { result } = renderHook(() => useMonthlySessionSpend({ year: 2026, month: 5 }, new Date(2026, 6, 1)))
+    // Assert
+    expect(result.current).toHaveProperty('error', error)
+  })
+
 })

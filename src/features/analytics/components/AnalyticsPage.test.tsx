@@ -21,6 +21,7 @@ vi.mock('../hooks/useAnalyticsLayoutMode', () => ({
 
 const monthlyResult = {
   totalSessionSpendCents: 0,
+  averageSessionPriceCtPerKwh: null,
   billedEnergyKwh: null,
   sessionCount: 0,
   validBilledEnergySessionCount: 0,
@@ -47,12 +48,12 @@ const readyOverallPrice: OverallChargingPriceQueryState = {
 /**
  * Test suite for responsive Analytics page composition.
  *
- * Verifies one lifetime data-query path, desktop ordering, mobile-only panels,
+ * Verifies one lifetime data-query path, vertical ordering on mobile and desktop,
  * focus recovery, technical error handling, and local-date rollover behavior.
  */
 describe('AnalyticsPage', () => {
   beforeEach(() => {
-    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, isLoading: false })
+    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, isLoading: false, error: null })
     vi.mocked(useOverallChargingPrice).mockReturnValue(readyOverallPrice)
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('sidebar')
   })
@@ -61,7 +62,7 @@ describe('AnalyticsPage', () => {
     vi.useRealTimers()
   })
 
-  it('renders Overall Price before the unchanged monthly controls on sidebar layouts', () => {
+  it('renders the summary before lifetime Overall Price on sidebar layouts', () => {
     // Arrange: Freeze time while the responsive mode is sidebar.
     vi.useFakeTimers()
     vi.setSystemTime(new Date(2026, 6, 15, 12))
@@ -73,39 +74,27 @@ describe('AnalyticsPage', () => {
     const overallHeading = screen.getByRole('heading', { name: 'Overall price', level: 2 })
     const monthlyHeading = screen.getByRole('heading', { name: 'This month summary', level: 2 })
     expect(overallHeading.compareDocumentPosition(monthlyHeading))
-      .toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBe(Node.DOCUMENT_POSITION_PRECEDING)
     expect(screen.queryByRole('tablist', { name: 'Analytics view' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Previous month' })).toBeInTheDocument()
     expect(vi.mocked(useOverallChargingPrice)).toHaveBeenCalledWith('2026-07-15')
   })
 
-  it('opens mobile Analytics on Overview and preserves the monthly selection across view changes', async () => {
-    // Arrange: Enter bottom-dock layout in July.
+  it('shows both sections on mobile and keeps lifetime independent of month selection', async () => {
+    // Arrange
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(new Date(2026, 6, 15, 12))
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-
-    // Act: Move to Monthly, change its month, then switch away and back.
     render(<AnalyticsPage onAddSession={vi.fn()} />)
-    const overviewTab = screen.getByRole('tab', { name: 'Overview' })
-    const overviewPanel = screen.getByRole('tabpanel', { name: 'Overview' })
-    expect(overviewTab).toHaveAttribute('aria-selected', 'true')
-    expect(overviewPanel).toHaveAttribute('aria-labelledby', overviewTab.id)
-    expect(screen.queryByRole('tabpanel', { name: 'Monthly' })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('tab', { name: 'Monthly' }))
+    // Act
     await user.click(screen.getByRole('button', { name: 'Previous month' }))
-    await user.click(screen.getByRole('tab', { name: 'Overview' }))
-    await user.click(screen.getByRole('tab', { name: 'Monthly' }))
-
-    // Assert: Inactive content is unmounted and the selected month survives locally.
-    const monthlyTab = screen.getByRole('tab', { name: 'Monthly' })
-    const monthlyPanel = screen.getByRole('tabpanel', { name: 'Monthly' })
-    expect(monthlyPanel).toHaveAttribute('aria-labelledby', monthlyTab.id)
+    // Assert
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
     expect(screen.getByText('June 2026')).toBeInTheDocument()
-    expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15'))
-      .toBe(true)
+    expect(screen.getByRole('heading', { name: 'Overall price' })).toBeInTheDocument()
+    expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
   })
 
   it('passes the bottom-dock layout through to the Overall Price information sheet', async () => {
@@ -122,7 +111,7 @@ describe('AnalyticsPage', () => {
       .toHaveAttribute('aria-modal', 'true')
   })
 
-  it('restores disclosure-trigger focus when an open sheet remounts at the breakpoint', async () => {
+  it('restores disclosure-trigger focus when an open sheet closes at the breakpoint', async () => {
     // Arrange: Open the mobile sheet before Analytics changes composition.
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
     const user = userEvent.setup()
@@ -131,11 +120,11 @@ describe('AnalyticsPage', () => {
     expect(screen.getByRole('dialog', { name: 'How Overall Price is calculated' }))
       .toBeInTheDocument()
 
-    // Act: Cross to the sidebar composition, which remounts the Overall Price slab.
+    // Act: Cross to the sidebar disclosure mode while retaining the Overall Price slab.
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('sidebar')
     rerender(<AnalyticsPage onAddSession={vi.fn()} />)
 
-    // Assert: Modal cleanup completes before focus reaches the replacement trigger.
+    // Assert: Modal cleanup completes before focus reaches the live trigger.
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'How Overall Price is calculated' }))
         .toHaveFocus()
@@ -144,24 +133,15 @@ describe('AnalyticsPage', () => {
     expect(document.body.style.overflow).toBe('')
   })
 
-  it('restores the selected mobile tab when a sidebar-to-mobile transition removes focus', async () => {
-    // Arrange: Select Monthly in mobile mode, then focus its desktop control.
-    vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
-    const user = userEvent.setup()
+  it('preserves month-control focus across layout changes', () => {
+    // Arrange
     const { rerender } = render(<AnalyticsPage onAddSession={vi.fn()} />)
-    await user.click(screen.getByRole('tab', { name: 'Monthly' }))
-    vi.mocked(useAnalyticsLayoutMode).mockReturnValue('sidebar')
-    rerender(<AnalyticsPage onAddSession={vi.fn()} />)
-    const monthlyControl = screen.getByRole('button', { name: 'Previous month' })
-    monthlyControl.focus()
-
-    // Act: Cross back into bottom-dock layout during the same Analytics visit.
+    screen.getByRole('button', { name: 'Previous month' }).focus()
+    // Act
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
     rerender(<AnalyticsPage onAddSession={vi.fn()} />)
-
-    // Assert: Focus is recovered only because the prior control was removed.
-    expect(screen.getByRole('tab', { name: 'Monthly' })).toHaveFocus()
-    expect(screen.getByRole('tab', { name: 'Monthly' })).toHaveAttribute('aria-selected', 'true')
+    // Assert
+    expect(screen.getByRole('button', { name: 'Previous month' })).toHaveFocus()
   })
 
   it('renders a busy Overall Price slab without a stale value while the query loads', () => {
@@ -216,4 +196,17 @@ describe('AnalyticsPage', () => {
     )
     expect(vi.mocked(useOverallChargingPrice).mock.calls.at(-1)).toEqual(['2026-08-01'])
   })
+  it('keeps lifetime available during a monthly query failure and recovers', () => {
+    // Arrange
+    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, isLoading: false, error: new Error('read failed') })
+    const { rerender } = render(<AnalyticsPage onAddSession={vi.fn()} />)
+    // Act / Assert
+    expect(screen.getByRole('alert')).toHaveTextContent('Unable to load the monthly summary')
+    expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
+    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, isLoading: false, error: null })
+    rerender(<AnalyticsPage onAddSession={vi.fn()} />)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(screen.getByText('0 charging sessions')).toBeInTheDocument()
+  })
+
 })

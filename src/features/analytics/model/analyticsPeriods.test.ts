@@ -63,4 +63,15 @@ describe('analyticsPeriods', () => {
     expect(period.startUtc.toISOString()).toBe('2026-02-28T23:00:00.000Z')
     expect(period.endUtc.toISOString()).toBe('2026-03-31T22:00:00.000Z')
   })
+  it.each(['2026-03-29', '2026-10-25'])('ends month to date at local midnight after DST day %s', (day) => {
+    // Arrange
+    process.env.TZ = 'Europe/Berlin'
+    const now = new Date(`${day}T12:00:00`)
+    // Act
+    const period = createMonthPeriod(getCalendarMonth(now), now)
+    // Assert
+    expect(period.endUtc).toEqual(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1))
+    expect(period.endUtc.getHours()).toBe(0)
+  })
+
 })

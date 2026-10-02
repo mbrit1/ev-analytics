@@ -6,164 +6,97 @@ import { MonthlySessionSpendSlab } from './MonthlySessionSpendSlab'
 
 const baseResult: MonthlySessionSpendResult = {
   totalSessionSpendCents: 12345,
+  averageSessionPriceCtPerKwh: 12345 / 24.6,
   billedEnergyKwh: 24.6,
   sessionCount: 2,
   validBilledEnergySessionCount: 2,
-  periodStartUtc: new Date('2026-07-01T00:00:00.000Z'),
-  periodEndUtc: new Date('2026-08-01T00:00:00.000Z'),
+  periodStartUtc: new Date(2026, 6, 1),
+  periodEndUtc: new Date(2026, 7, 1),
   isCurrentMonth: true,
   isCompleteMonth: false,
   isEmpty: false,
 }
 
-/**
- * Test suite for the monthly session-spend and billed-energy slab.
- *
- * Verifies precise metric wording, localized money, sparse copy, and the real
- * empty-state action.
- */
+/** Verifies summary metrics and distinct empty, loading, error and incomplete states. */
 describe('MonthlySessionSpendSlab', () => {
-  it('renders current-month localized spend and plural session copy', () => {
-    // Arrange: Use two current-month sessions.
-    render(<MonthlySessionSpendSlab month={{ year: 2026, month: 6 }} result={baseResult} isLoading={false} onAddSession={vi.fn()} />)
+  function renderSummary(overrides: Partial<MonthlySessionSpendResult> = {}, extra = {}) {
+    return render(<MonthlySessionSpendSlab month={{ year: 2026, month: 6 }} result={{ ...baseResult, ...overrides }} isLoading={false} onAddSession={vi.fn()} {...extra} />)
+  }
 
-    // Act: Read the completed slab.
-    const value = screen.getByText('123,45 €')
-    const slab = value.closest('[aria-busy]')
-
-    // Assert: Scope and month-to-date wording are explicit.
-    expect(value).toHaveClass('tabular-nums', 'whitespace-nowrap', 'leading-none')
-    expect(slab).toHaveClass(
-      'min-[900px]:!max-w-[760px]',
-      'min-[900px]:!rounded-[32px]',
-      'min-[900px]:!px-13',
-    )
-    const energyValue = screen.getByText('24,6', { exact: false })
-    expect(energyValue).toHaveClass('tabular-nums', 'whitespace-nowrap', 'leading-none')
-    expect(screen.getByText('This month summary')).toBeInTheDocument()
-    expect(screen.getByText('Session spend')).toBeInTheDocument()
-    expect(screen.getByText('Billed energy')).toBeInTheDocument()
-    expect(screen.getByText('Energy billed by providers, not battery-added energy.')).toBeInTheDocument()
-    expect(screen.getByText('Across 2 charging sessions.')).toBeInTheDocument()
-    const footer = screen.getByText('Month to date · Session spend and provider-billed energy')
-    expect(footer).toHaveClass('text-xs', 'text-secondary')
-    expect(footer).not.toHaveClass('border-t')
+  it('shows three localized metrics and explicit scope', () => {
+    // Arrange / Act
+    renderSummary()
+    // Assert
+    expect(screen.getByText('123,45 €')).toBeInTheDocument()
+    expect(screen.getByText(/24,6/)).toBeInTheDocument()
+    expect(screen.getByText(/5,02/)).toBeInTheDocument()
+    expect(screen.getByText('Average session price')).toBeInTheDocument()
+    expect(screen.getByText(/Excludes subscription fees/)).toBeInTheDocument()
+    expect(screen.getByText(/Month to date · In progress/)).toHaveTextContent('1 Jul 2026 – 31 Jul 2026')
   })
 
-  it('renders singular completed-month copy', () => {
-    // Arrange: Use one session in a prior month.
-    render(<MonthlySessionSpendSlab month={{ year: 2026, month: 5 }} result={{ ...baseResult, sessionCount: 1, isCurrentMonth: false, isCompleteMonth: true }} isLoading={false} onAddSession={vi.fn()} />)
-
-    // Act: Read the prior-month slab.
-    const heading = screen.getByText('June 2026 summary')
-
-    // Assert: Completed and singular copy are accurate.
-    expect(heading).toBeInTheDocument()
-    expect(screen.getByText('Based on 1 charging session.')).toBeInTheDocument()
-    expect(screen.getByText('Completed month · Session spend and provider-billed energy')).toBeInTheDocument()
-    expect(screen.getByText('Billed energy')).toBeInTheDocument()
+  it('discloses partial energy and unavailable average', () => {
+    // Arrange / Act
+    renderSummary({ sessionCount: 3, validBilledEnergySessionCount: 1, averageSessionPriceCtPerKwh: null })
+    // Assert
+    expect(screen.getByText('Billed energy available for 1 of 3 sessions.')).toBeInTheDocument()
+    expect(screen.getByText('Unavailable')).toBeInTheDocument()
+    expect(screen.getByText('123,45 €')).toBeInTheDocument()
   })
 
-  it('renders a specific unavailable state when sessions have no valid billed energy', () => {
-    // Arrange: Keep a recorded session while making its billed-energy aggregate unavailable.
-    render(
-      <MonthlySessionSpendSlab
-        month={{ year: 2026, month: 6 }}
-        result={{ ...baseResult, billedEnergyKwh: null, validBilledEnergySessionCount: 0 }}
-        isLoading={false}
-        onAddSession={vi.fn()}
-      />,
-    )
-
-    // Act: Read the billed-energy companion metric.
-    const unavailableHeading = screen.getByText('Billed energy unavailable')
-
-    // Assert: Missing values are explained without presenting a false zero.
-    expect(unavailableHeading).toBeInTheDocument()
-    expect(screen.getByText(/no valid billed-kWh values/)).toBeInTheDocument()
-    expect(screen.queryByText('0 kWh')).not.toBeInTheDocument()
+  it('shows unavailable cost metrics while retaining valid energy', () => {
+    // Arrange / Act
+    renderSummary({ totalSessionSpendCents: null, averageSessionPriceCtPerKwh: null })
+    // Assert
+    expect(screen.getAllByText('Unavailable')).toHaveLength(2)
+    expect(screen.getByText(/invalid recorded cost/)).toBeInTheDocument()
+    expect(screen.getByText(/24,6/)).toBeInTheDocument()
   })
 
-  it('discloses when billed energy covers only some sessions', () => {
-    // Arrange: Provide an energy subtotal built from only one of three sessions.
-    render(
-      <MonthlySessionSpendSlab
-        month={{ year: 2026, month: 6 }}
-        result={{ ...baseResult, sessionCount: 3, validBilledEnergySessionCount: 1 }}
-        isLoading={false}
-        onAddSession={vi.fn()}
-      />,
-    )
-
-    // Act: Read the billed-energy qualification.
-    const qualification = screen.getByText('Based on 1 of 3 sessions with valid billed-kWh values.')
-
-    // Assert: The partial subtotal is not presented as complete coverage.
-    expect(qualification).toBeInTheDocument()
+  it('renders a valid free price as zero', () => {
+    // Arrange / Act
+    renderSummary({ totalSessionSpendCents: 0, averageSessionPriceCtPerKwh: 0 })
+    // Assert
+    expect(screen.getByText('0,00 €')).toBeInTheDocument()
+    expect(screen.queryByText('Unavailable')).not.toBeInTheDocument()
   })
 
-  it('renders empty copy and invokes the existing add-session action', async () => {
-    // Arrange: Render an empty result and action callback.
-    const user = userEvent.setup()
+  it('shows empty spending as zero and invokes Add Session', async () => {
+    // Arrange
     const onAddSession = vi.fn()
-    render(<MonthlySessionSpendSlab month={{ year: 2026, month: 6 }} result={{ ...baseResult, totalSessionSpendCents: 0, sessionCount: 0, isEmpty: true }} isLoading={false} onAddSession={onAddSession} />)
-
-    // Act: Select the empty-state action.
+    const user = userEvent.setup()
+    renderSummary({ totalSessionSpendCents: 0, billedEnergyKwh: null, averageSessionPriceCtPerKwh: null, sessionCount: 0, validBilledEnergySessionCount: 0, isEmpty: true }, { onAddSession })
+    // Act
     await user.click(screen.getByRole('button', { name: 'Add Session' }))
-
-    // Assert: Helpful copy is shown and the callback is reused.
-    expect(screen.getByText('No charging spend recorded for this month yet.')).toBeInTheDocument()
+    // Assert
+    expect(screen.getByText('0,00 €')).toBeInTheDocument()
+    expect(screen.getAllByText('Unavailable')).toHaveLength(2)
+    expect(screen.getByText('0 charging sessions')).toBeInTheDocument()
     expect(onAddSession).toHaveBeenCalledOnce()
   })
 
-  it('does not offer a current-date action for an empty completed month', () => {
-    // Arrange: Render an empty result for a historical month.
-    render(
-      <MonthlySessionSpendSlab
-        month={{ year: 2026, month: 5 }}
-        result={{
-          ...baseResult,
-          totalSessionSpendCents: 0,
-          sessionCount: 0,
-          isCurrentMonth: false,
-          isCompleteMonth: true,
-          isEmpty: true,
-        }}
-        isLoading={false}
-        onAddSession={vi.fn()}
-      />,
-    )
-
-    // Act: Read the historical empty state.
-    const emptyHeading = screen.getByText('No charging spend recorded for this month.')
-
-    // Assert: Copy is period-appropriate and no misleading current-date action is shown.
-    expect(emptyHeading).toBeInTheDocument()
-    expect(screen.getByText('Recorded sessions with spend and billed kWh will appear here.')).toBeInTheDocument()
+  it('keeps historical empty months accessible without a current-date action', () => {
+    // Arrange / Act
+    renderSummary({ isEmpty: true, isCurrentMonth: false, isCompleteMonth: true, totalSessionSpendCents: 0, billedEnergyKwh: null, averageSessionPriceCtPerKwh: null, sessionCount: 0 })
+    // Assert
+    expect(screen.getByText(/Completed month/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Add Session' })).not.toBeInTheDocument()
   })
 
-  it('exposes an accessible loading state without stale totals', () => {
-    // Arrange: Mark the slab as loading while a previous result is available.
-    const { container } = render(
-      <MonthlySessionSpendSlab
-        month={{ year: 2026, month: 6 }}
-        result={baseResult}
-        isLoading
-        onAddSession={vi.fn()}
-      />,
-    )
-
-    // Act: Locate the loading indicator and slab container.
-    const loadingIndicator = screen.getByRole('status')
-    const slab = container.firstChild
-
-    // Assert: Loading is semantic and stale values/supporting copy stay hidden.
-    expect(loadingIndicator).toBeInTheDocument()
-    expect(screen.getByText('Loading session spend')).toHaveClass('sr-only')
-    expect(slab).toHaveAttribute('aria-busy', 'true')
-    expect(slab).not.toHaveClass('p-8')
+  it('hides stale totals while loading', () => {
+    // Arrange / Act
+    renderSummary({}, { isLoading: true })
+    // Assert
+    expect(screen.getByRole('status')).toHaveTextContent('Loading monthly summary')
     expect(screen.queryByText('123,45 €')).not.toBeInTheDocument()
-    expect(screen.queryByText('Month to date · Session spend and provider-billed energy')).not.toBeInTheDocument()
+  })
+
+  it('shows a query error instead of stale or empty metrics', () => {
+    // Arrange / Act
+    renderSummary({}, { error: new Error('read failed') })
+    // Assert
+    expect(screen.getByRole('alert')).toHaveTextContent('Unable to load the monthly summary')
+    expect(screen.queryByText('123,45 €')).not.toBeInTheDocument()
+    expect(screen.queryByText('Unavailable')).not.toBeInTheDocument()
   })
 })

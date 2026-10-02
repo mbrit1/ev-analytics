@@ -269,13 +269,18 @@ the version cannot price a later date.
 
 The current Analytics slice is calculated in the browser from local charging sessions. [`useMonthlySessionSpend`](../src/features/analytics/hooks/useMonthlySessionSpend.ts) consumes `useSessions`, and [`calculateMonthlySessionSpend`](../src/features/analytics/model/monthlySessionSpend.ts) performs the aggregation.
 
+The page uses a vertical layout on mobile and desktop: the calendar-month selector, one summary slab (Billed energy, Session spend, Average session price), then the separately labelled lifetime Overall Price. Summary values stack on narrow screens. The initial selection is the current month.
+
 The rules are intentionally narrow:
 
 - A selected month is a user-facing local calendar month. [`createMonthPeriod`](../src/features/analytics/model/analyticsPeriods.ts) constructs local-midnight boundaries as absolute instants, and session timestamps are included with an inclusive start and exclusive end.
+- The current month ends at tomorrow's local midnight, including all of today and excluding future calendar days. Completed months end at the next month's local midnight. The summary displays the actual date range and marks month to date as in progress.
 - Soft-deleted sessions are excluded. The session query filters them, and the aggregation defensively excludes them again.
 - Monthly session spend is the sum of each included session's snapshotted `total_cost`, which is already stored in integer cents. The aggregation does not independently add monthly plan fees or recalculate historical prices from current plans.
 - Billed energy uses `kwh_billed`, meaning energy reported by the charging provider. It is not interchangeable with optional `kwh_added`, which represents energy added to the battery.
 - Only finite, positive billed-energy values contribute to the energy total. If no included session has a valid billed value, billed energy is unavailable (`null`), not zero. The result records how many sessions supplied valid billed energy so partial coverage can be disclosed.
+- Costs must be finite, nonnegative integer cents; an invalid recorded cost makes spending and average price unavailable. Average session price divides total stored session spending by billed energy only with complete valid cost and energy coverage, rounding only for display. Free sessions can produce a valid zero price.
+- A loaded empty month shows zero spend and session count, with unavailable energy and average price. Loading and session-query errors suppress metric values and have distinct states. Reactive local edits, including unsynchronized writes, update the summary.
 - The page refreshes its notion of “current month” at local midnight so month navigation and completion labels do not become stale while the page remains open.
 
 ### Lifetime Overall Price

@@ -5,7 +5,7 @@ import { calculateMonthlySessionSpend } from '../model/monthlySessionSpend'
 
 /** Reactively aggregates spend and billed energy from local sessions for a selected month. */
 export function useMonthlySessionSpend(month: CalendarMonth, now: Date) {
-  const { sessions, isLoading } = useSessions()
+  const { sessions, isLoading, error } = useSessions()
   const period = useMemo(
     () => createMonthPeriod({ year: month.year, month: month.month }, now),
     [month.month, month.year, now],
@@ -15,5 +15,5 @@ export function useMonthlySessionSpend(month: CalendarMonth, now: Date) {
     [period, sessions],
   )
 
-  return { result, isLoading }
+  return { result, isLoading, error }
 }
