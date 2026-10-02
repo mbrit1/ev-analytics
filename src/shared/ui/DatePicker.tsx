@@ -29,7 +29,38 @@ interface DatePickerProps {
 }
 
 const WEEKDAY_LABELS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+const POPUP_GUTTER = 12;
+const POPUP_MAX_WIDTH = 360;
 type StagedMode = 'date' | 'empty';
+
+interface PopupLayout {
+  left: number;
+  top: number;
+  width: number;
+  maxHeight: number;
+}
+
+function getPopupLayout(trigger: DOMRect, viewportWidth: number, viewportHeight: number): PopupLayout {
+  const horizontalGutter = Math.min(POPUP_GUTTER, Math.max(0, viewportWidth / 2));
+  const width = Math.max(0, Math.min(POPUP_MAX_WIDTH, viewportWidth - horizontalGutter * 2));
+  const left = Math.max(horizontalGutter, Math.min(trigger.left, viewportWidth - horizontalGutter - width));
+  const verticalGutter = Math.min(POPUP_GUTTER, Math.max(0, viewportHeight / 2));
+  const viewportBottom = Math.max(verticalGutter, viewportHeight - verticalGutter);
+  const availableHeight = Math.max(0, viewportBottom - verticalGutter);
+  const belowTop = Math.max(verticalGutter, Math.min(trigger.bottom + verticalGutter, viewportBottom));
+  const aboveBottom = Math.max(verticalGutter, Math.min(trigger.top - verticalGutter, viewportBottom));
+  const below = viewportBottom - belowTop;
+  const above = aboveBottom - verticalGutter;
+  const preferredHeight = Math.min(420, availableHeight);
+  const placeBelow = below >= preferredHeight || below >= above;
+  const top = placeBelow
+    ? belowTop
+    : Math.max(verticalGutter, aboveBottom - preferredHeight);
+  const maxHeight = placeBelow
+    ? Math.max(0, viewportBottom - top)
+    : Math.max(0, aboveBottom - top);
+  return { left, top, width, maxHeight };
+}
 
 function formatToday(): string {
   const now = new Date();
@@ -117,10 +148,15 @@ export function DatePicker({
   const rootRef = React.useRef<HTMLDivElement | null>(null);
   const triggerRef = React.useRef<HTMLButtonElement | null>(null);
   const dialogRef = React.useRef<HTMLDivElement | null>(null);
+  const dateGridRef = React.useRef<HTMLDivElement | null>(null);
   const [isOpen, setIsOpen] = React.useState(false);
   const [stagedValue, setStagedValue] = React.useState(value);
   const [stagedMode, setStagedMode] = React.useState<StagedMode>(allowEmpty && !value ? 'empty' : 'date');
   const [visibleMonth, setVisibleMonth] = React.useState(() => getMonthStart(value || clampDate(formatToday(), min, max)));
+  const [popupLayout, setPopupLayout] = React.useState<PopupLayout | null>(null);
+  const [dateGridWidth, setDateGridWidth] = React.useState(0);
+  const [dateGridGap, setDateGridGap] = React.useState(4);
+  const canUseWideGrid = dateGridWidth >= 7 * 44 + 6 * dateGridGap;
   const displayValue = value ? formatDateLabel(value) : emptyLabel;
   const describedBy = error ? errorId : undefined;
   const isEmptyMode = allowEmpty && stagedMode === 'empty';
@@ -135,12 +171,54 @@ export function DatePicker({
 
   const openPicker = React.useCallback(() => {
     if (disabled) return;
+    const trigger = triggerRef.current?.getBoundingClientRect();
+    if (trigger) {
+      const layout = getPopupLayout(trigger, window.innerWidth, window.innerHeight);
+      setPopupLayout(layout);
+      setDateGridWidth(Math.max(0, layout.width - 26));
+    }
     const focusValue = value || clampDate(formatToday(), min, max);
     setStagedValue(focusValue);
     setStagedMode(allowEmpty && !value ? 'empty' : 'date');
     setVisibleMonth(getMonthStart(focusValue));
     setIsOpen(true);
   }, [allowEmpty, disabled, max, min, value]);
+
+  React.useLayoutEffect(() => {
+    if (!isOpen) return undefined;
+    const updatePlacement = () => {
+      const trigger = triggerRef.current?.getBoundingClientRect();
+      if (!trigger) return;
+      const layout = getPopupLayout(trigger, window.innerWidth, window.innerHeight);
+      setPopupLayout(layout);
+      measureDateGrid(layout.width);
+    };
+    const measureDateGrid = (popupWidth: number) => {
+      const grid = dateGridRef.current;
+      const availableWidth = grid?.getBoundingClientRect().width || Math.max(0, popupWidth - 26);
+      const columnGap = grid ? Number.parseFloat(window.getComputedStyle(grid).columnGap) : 0;
+      setDateGridWidth(availableWidth);
+      setDateGridGap(columnGap || 4);
+    };
+    window.addEventListener('resize', updatePlacement);
+    window.addEventListener('scroll', updatePlacement, true);
+    measureDateGrid(popupLayout?.width ?? 0);
+    const observer = typeof ResizeObserver === 'undefined' || !dateGridRef.current
+      ? null
+      : new ResizeObserver((entries) => {
+        const width = entries[0]?.contentRect.width;
+        if (width !== undefined) setDateGridWidth(width);
+        const grid = dateGridRef.current;
+        const columnGap = grid ? Number.parseFloat(window.getComputedStyle(grid).columnGap) : 0;
+        setDateGridGap(columnGap || 4);
+      });
+    if (observer && dateGridRef.current) observer.observe(dateGridRef.current);
+    return () => {
+      window.removeEventListener('resize', updatePlacement);
+      window.removeEventListener('scroll', updatePlacement, true);
+      observer?.disconnect();
+    };
+  }, [isOpen, popupLayout?.width]);
 
   React.useEffect(() => {
     if (!isOpen) return undefined;
@@ -180,8 +258,26 @@ export function DatePicker({
       ? emptyModeButton ?? selectedDateButton ?? firstAvailableDateButton
       : selectedDateButton ?? firstAvailableDateButton;
 
-    target?.focus();
+    target?.focus({ preventScroll: true });
+    const dialogRect = dialog?.getBoundingClientRect();
+    const targetRect = target?.getBoundingClientRect();
+    if (dialog && dialogRect && targetRect) {
+      if (targetRect.bottom > dialogRect.bottom) dialog.scrollTop += targetRect.bottom - dialogRect.bottom;
+      else if (targetRect.top < dialogRect.top) dialog.scrollTop -= dialogRect.top - targetRect.top;
+    }
   }, [isEmptyMode, isOpen, stagedValue, visibleMonth]);
+
+  React.useLayoutEffect(() => {
+    if (!isOpen) return;
+    const focusedDate = document.activeElement;
+    if (!(focusedDate instanceof HTMLButtonElement) || !focusedDate.hasAttribute('data-date-picker-date')) return;
+    const dialog = dialogRef.current;
+    const dialogRect = dialog?.getBoundingClientRect();
+    const dateRect = focusedDate.getBoundingClientRect();
+    if (!dialog || !dialogRect) return;
+    if (dateRect.bottom > dialogRect.bottom) dialog.scrollTop += dateRect.bottom - dialogRect.bottom;
+    else if (dateRect.top < dialogRect.top) dialog.scrollTop -= dialogRect.top - dateRect.top;
+  }, [canUseWideGrid, isOpen, popupLayout?.maxHeight]);
 
   const moveStagedDate = React.useCallback((days: number) => {
     const baseValue = stagedValue || value || clampDate(formatToday(), min, max);
@@ -294,7 +390,16 @@ export function DatePicker({
           aria-modal="false"
           aria-labelledby={`${inputId}-calendar-heading`}
           tabIndex={-1}
-          className="absolute left-0 top-full z-30 mt-3 w-full min-w-[296px] max-w-[360px] rounded-lg border border-slab-border bg-surface p-3 shadow-slab"
+          style={{
+            position: 'fixed',
+            left: popupLayout?.left ?? POPUP_GUTTER,
+            top: popupLayout?.top ?? POPUP_GUTTER,
+            width: popupLayout?.width ?? Math.min(POPUP_MAX_WIDTH, window.innerWidth - POPUP_GUTTER * 2),
+            maxHeight: popupLayout?.maxHeight ?? window.innerHeight - POPUP_GUTTER * 2,
+            overflowY: 'auto',
+            boxSizing: 'border-box',
+          }}
+          className="z-50 rounded-lg border border-slab-border bg-surface p-3 shadow-slab"
           onKeyDown={handleCalendarKeyDown}
         >
           {allowEmpty && (
@@ -330,7 +435,7 @@ export function DatePicker({
             </div>
           )}
 
-          <div className="mb-3 flex items-center justify-between">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-1">
             <button
               type="button"
               aria-label="Previous month"
@@ -343,7 +448,7 @@ export function DatePicker({
               id={`${inputId}-calendar-heading`}
               data-testid="date-picker-month"
               data-month={formatMonthKey(visibleMonth)}
-              className="text-sm font-semibold text-primary"
+              className="min-w-0 flex-1 text-center text-sm font-semibold text-primary"
             >
               {getMonthLabel(visibleMonth)}
             </h4>
@@ -357,7 +462,7 @@ export function DatePicker({
             </button>
           </div>
 
-          <div
+          {canUseWideGrid && <div
             className={`grid grid-cols-7 gap-1 text-center text-[11px] font-semibold uppercase text-secondary transition-opacity ${
               isEmptyMode ? 'opacity-50' : ''
             }`}
@@ -366,8 +471,8 @@ export function DatePicker({
             {WEEKDAY_LABELS.map((weekday) => (
               <span key={weekday}>{weekday}</span>
             ))}
-          </div>
-          <div className={`mt-1 grid grid-cols-7 gap-1 transition-opacity ${isEmptyMode ? 'opacity-50' : ''}`}>
+          </div>}
+          <div ref={dateGridRef} className={`mt-1 grid ${canUseWideGrid ? 'grid-cols-7' : 'grid-cols-4'} gap-1 transition-opacity ${isEmptyMode ? 'opacity-50' : ''}`}>
             {getCalendarDates(visibleMonth).map((date) => {
               const dateValue = formatDateKey(date);
               const isCurrentMonth = date.getMonth() === visibleMonth.getMonth();
@@ -386,13 +491,13 @@ export function DatePicker({
                     setStagedValue(dateValue);
                     setStagedMode('date');
                   }}
-                  className={`flex min-h-[44px] min-w-[36px] items-center justify-center rounded-md text-sm font-medium tabular-nums transition-colors ${
+                  className={`flex min-h-[44px] min-w-[44px] flex-col items-center justify-center rounded-md text-sm font-medium tabular-nums transition-colors ${
                     isSelected
                       ? 'bg-accent text-white'
                       : 'text-primary hover:bg-secondary/10'
                   } ${isCurrentMonth ? '' : 'opacity-40'} disabled:cursor-not-allowed disabled:text-secondary/40 disabled:hover:bg-transparent`}
                 >
-                  {date.getDate()}
+                  {canUseWideGrid ? date.getDate() : <><span className="text-[10px] leading-tight">{['Su', ...WEEKDAY_LABELS][date.getDay()]}</span>{' '}<span>{date.getDate()}</span></>}
                 </button>
               );
             })}
