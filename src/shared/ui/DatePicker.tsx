@@ -367,14 +367,21 @@ export function DatePicker({
           error ? 'border-red-500' : 'border-secondary/20'
         }`}
       >
-        <Calendar className="mr-2 h-5 w-5 shrink-0 text-secondary/50" aria-hidden="true" />
+        <Calendar className="mr-2 h-[20px] w-[20px] shrink-0 text-secondary/50" aria-hidden="true" />
         <span
           id={`${inputId}-value`}
-          className={`flex-1 text-xl font-medium tabular-nums ${value ? 'text-primary' : 'text-secondary'}`}
+          className={`min-w-0 flex-1 [overflow-wrap:anywhere] text-xl font-medium tabular-nums ${value ? 'text-primary' : 'text-secondary'}`}
         >
-          {displayValue}
+          {value
+            ? displayValue.split('.').map((segment, index, segments) => (
+              <React.Fragment key={index}>
+                {segment}
+                {index < segments.length - 1 ? <>.<wbr /></> : null}
+              </React.Fragment>
+            ))
+            : displayValue}
         </span>
-        <Calendar className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+        <Calendar className="h-[20px] w-[20px] shrink-0 text-primary" aria-hidden="true" />
       </button>
 
       {error && (
