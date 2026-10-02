@@ -44,6 +44,10 @@ Use this checklist for every UI-facing change. The default baseline is
 - Interactive cards use one native interactive root with a concise, distinguishable accessible name and no nested controls.
 - Blocking loading exposes one concise polite status; decorative skeletons are hidden from assistive technology.
 - Cached-content refresh, blocking failure, and settled-empty states remain distinguishable and do not announce invented data.
+- Metric zero and unavailable states remain distinct: show zero only when supported by loaded data, and explain unavailable values in text.
+- Partial measurement coverage is disclosed beside the affected value; do not present a known subtotal as a complete total. Metric-specific calculation rules stay in the owning specification.
+- Suppress stale metric values during blocking loading or query failure. Keep these states distinct from loaded-empty data.
+- Period-scoped summaries identify their date range and whether it is in progress. Lifetime metrics remain separately labelled so the selected period does not imply a different scope.
 - Numeric alignment uses `tabular-nums` where it materially improves scanning, not as a blanket layout rule.
 
 ## 8) Deviation policy (required note in handoff)
@@ -57,3 +61,8 @@ Tariffs and Sessions adoption. Tariffs retains its provider-matrix usage,
 `EntitySlab` navigation, and responsive action-overlay geometry as local
 exceptions. Sessions retains chronological grouping and native whole-card
 editing as a local exception; it does not inherit Tariffs navigation or actions.
+
+Analytics retains its grouped summary and separately labelled lifetime surface as
+a local example. Its 1024px column breakpoint accounts for app-sidebar space;
+it is not a shared layout rule. Use existing slab and typography tokens, keep
+metric weights consistent, and stack values when available width is insufficient.
