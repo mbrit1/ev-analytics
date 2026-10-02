@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DatePicker } from './DatePicker';
 
@@ -11,17 +11,26 @@ import { DatePicker } from './DatePicker';
  */
 describe('DatePicker', () => {
   const originalInnerWidth = Object.getOwnPropertyDescriptor(window, 'innerWidth');
+  const originalInnerHeight = Object.getOwnPropertyDescriptor(window, 'innerHeight');
 
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     if (originalInnerWidth) {
       Object.defineProperty(window, 'innerWidth', originalInnerWidth);
+    }
+    if (originalInnerHeight) {
+      Object.defineProperty(window, 'innerHeight', originalInnerHeight);
     }
   });
 
   function setViewportWidth(width: number): void {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: width });
+  }
+
+  function setViewportHeight(height: number): void {
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: height });
   }
 
   function setRect(element: HTMLElement, left: number, width: number): void {
@@ -612,5 +621,71 @@ describe('DatePicker', () => {
 
     // Assert: The date staged before resize is committed.
     expect(onChange).toHaveBeenCalledWith('2026-03-11');
+  });
+
+  it('repositions on scroll, keeps the popup within the viewport, and removes listeners on close', () => {
+    // Arrange: Open a picker near the lower edge and track its trigger geometry.
+    setViewportHeight(700);
+    const { unmount } = render(<DatePicker label="Session Date" value="2026-03-10" onChange={vi.fn()} required />);
+    const trigger = screen.getByRole('button', { name: /session date/i });
+    let triggerTop = 600;
+    vi.spyOn(trigger, 'getBoundingClientRect').mockImplementation(() => ({
+      x: 4,
+      y: triggerTop,
+      left: 4,
+      top: triggerTop,
+      right: 184,
+      bottom: triggerTop + 44,
+      width: 180,
+      height: 44,
+      toJSON: () => ({}),
+    }));
+    const removeListener = vi.spyOn(window, 'removeEventListener');
+    const disconnect = vi.fn();
+    let resizeObserverCallback: ResizeObserverCallback | undefined;
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback: ResizeObserverCallback) {
+        resizeObserverCallback = callback;
+      }
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = disconnect;
+    });
+
+    // Act: Open, update the trigger position as if the page scrolled, then close.
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole('dialog');
+    const initialTop = Number.parseFloat(dialog.style.top);
+    expect(Number.parseFloat(dialog.style.top) + Number.parseFloat(dialog.style.maxHeight)).toBeLessThanOrEqual(688);
+    triggerTop = 100;
+    fireEvent(window, new Event('scroll'));
+
+    // Assert: Scroll repositions the fixed popup and it remains inside the viewport.
+    expect(Number.parseFloat(dialog.style.top)).not.toBe(initialTop);
+    expect(Number.parseFloat(dialog.style.top) + Number.parseFloat(dialog.style.maxHeight)).toBeLessThanOrEqual(688);
+
+    // Act: Simulate a smaller measured content box to confirm observation drives presentation.
+    act(() => {
+      resizeObserverCallback?.([{ contentRect: { width: 300 } } as ResizeObserverEntry], {} as ResizeObserver);
+    });
+
+    // Assert: The measured available grid width switches to weekday-labeled tiles.
+    expect(screen.getByRole('button', { name: 'Choose 10.03.2026' })).toHaveTextContent(/Tu\s/);
+
+    // Act: Close the popup.
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }));
+
+    // Assert: The scroll and resize listeners are cleaned up when the popup closes.
+    expect(removeListener).toHaveBeenCalledWith('scroll', expect.any(Function), true);
+    expect(removeListener).toHaveBeenCalledWith('resize', expect.any(Function));
+    expect(disconnect).toHaveBeenCalled();
+
+    // Act: Reopen and unmount while the observer is active.
+    fireEvent.click(trigger);
+    unmount();
+
+    // Assert: Unmount also releases viewport listeners and the active observer.
+    expect(removeListener).toHaveBeenCalledWith('scroll', expect.any(Function), true);
+    expect(disconnect.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 });
