@@ -41,7 +41,9 @@ export function createMonthPeriod(month: CalendarMonth, now = new Date()): Month
   return {
     month,
     startUtc: new Date(month.year, month.month, 1),
-    endUtc: new Date(month.year, month.month + 1, 1),
+    endUtc: isCurrentMonth
+      ? new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+      : new Date(month.year, month.month + 1, 1),
     isCurrentMonth,
     isCompleteMonth: compareCalendarMonths(month, currentMonth) < 0,
   }

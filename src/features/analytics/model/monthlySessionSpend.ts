@@ -3,7 +3,8 @@ import type { MonthPeriod } from './analyticsPeriods'
 
 /** Result of aggregating active charging-session spend and billed energy for one month. */
 export interface MonthlySessionSpendResult {
-  totalSessionSpendCents: number
+  totalSessionSpendCents: number | null
+  averageSessionPriceCtPerKwh: number | null
   billedEnergyKwh: number | null
   sessionCount: number
   validBilledEnergySessionCount: number
@@ -28,13 +29,20 @@ export function calculateMonthlySessionSpend(
     (session) => Number.isFinite(session.kwh_billed) && session.kwh_billed > 0,
   )
 
+  const totalSessionSpendCents = includedSessions.every(
+    (session) => Number.isFinite(session.total_cost) && Number.isInteger(session.total_cost) && session.total_cost >= 0,
+  ) ? includedSessions.reduce((total, session) => total + session.total_cost, 0) : null
+  const billedEnergyKwh = validBilledEnergySessions.length > 0
+    ? validBilledEnergySessions.reduce((total, session) => total + session.kwh_billed, 0)
+    : null
+
   return {
-    totalSessionSpendCents: includedSessions.reduce(
-      (total, session) => total + session.total_cost,
-      0,
-    ),
-    billedEnergyKwh: validBilledEnergySessions.length > 0
-      ? validBilledEnergySessions.reduce((total, session) => total + session.kwh_billed, 0)
+    totalSessionSpendCents,
+    billedEnergyKwh,
+    averageSessionPriceCtPerKwh: totalSessionSpendCents !== null
+      && billedEnergyKwh !== null
+      && validBilledEnergySessions.length === includedSessions.length
+      ? totalSessionSpendCents / billedEnergyKwh
       : null,
     sessionCount: includedSessions.length,
     validBilledEnergySessionCount: validBilledEnergySessions.length,

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -355,19 +355,20 @@ describe('App mobile action dock', () => {
     await user.click(screen.getByRole('button', { name: 'Analytics' }));
 
     // Assert: The mobile create pill stays hidden on analytics.
-    expect(screen.getByRole('button', { name: 'Add Session' })).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Monthly analytics' })).getByRole('button', { name: 'Add Session' })).toBeInTheDocument();
     expect(screen.queryByText('Add Tariff Pill')).not.toBeInTheDocument();
     expect(screen.queryByText('Analytics is planned and will be available in a future update.')).not.toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
-    await user.click(screen.getByRole('tab', { name: 'Monthly' }));
-    expect(screen.getByText('No charging spend recorded for this month yet.')).toBeInTheDocument();
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Monthly analytics' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toBeInTheDocument();
+    expect(screen.getByText(/No charging sessions recorded for this month yet/)).toBeInTheDocument();
     expect(document.querySelector('main')).toHaveClass(
       'pb-[var(--mobile-content-clearance-dock-only)]',
       'md:pb-8',
     );
 
     // Act: Reuse the analytics empty-state action.
-    await user.click(screen.getByRole('button', { name: 'Add Session' }));
+    await user.click(within(screen.getByRole('region', { name: 'Monthly analytics' })).getByRole('button', { name: 'Add Session' }));
 
     // Assert: The established session form opens on the sessions destination.
     expect(screen.getByText('Session Form')).toBeInTheDocument();
@@ -400,21 +401,23 @@ describe('App mobile action dock', () => {
     expect(screen.queryByText('Tariff Form')).not.toBeInTheDocument();
   });
 
-  it('resets the mobile Analytics subview to Overview after leaving and re-entering', async () => {
-    // Arrange: Enter the non-default monthly subview.
+  it('resets Analytics to the current month after leaving and re-entering', async () => {
+    // Arrange: Select a historical month in the vertical Analytics page.
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole('button', { name: 'Analytics' }));
-    await user.click(screen.getByRole('tab', { name: 'Monthly' }));
-    expect(screen.getByRole('tab', { name: 'Monthly' })).toHaveAttribute('aria-selected', 'true');
+    await user.click(screen.getByRole('button', { name: 'Previous month' }));
+    expect(screen.getByRole('button', { name: 'Next month' })).toBeEnabled();
 
-    // Act: Leave the route, which unmounts local Analytics view state, then return.
+    // Act: Leave the route, which unmounts local month selection, then return.
     await user.click(screen.getByRole('button', { name: 'Sessions' }));
     await user.click(screen.getByRole('button', { name: 'Analytics' }));
 
-    // Assert: A fresh Analytics entry starts in its overview subview.
-    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.queryByRole('tabpanel', { name: 'Monthly' })).not.toBeInTheDocument();
+    // Assert: A fresh Analytics entry shows both sections and the current month.
+    expect(screen.getByRole('button', { name: 'Next month' })).toBeDisabled();
+    expect(screen.getByRole('region', { name: 'Monthly analytics' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
   });
 
   it('opens the session form when Add Session is invoked from the page action slab', async () => {

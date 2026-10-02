@@ -135,4 +135,45 @@ describe('calculateMonthlySessionSpend', () => {
       isEmpty: false,
     })
   })
+  it.each([NaN, Infinity, -1, 1.5])('makes cost metrics unavailable for invalid cents %s', (cost) => {
+    // Arrange
+    const sessions = [buildSession('invalid', period.startUtc, cost)]
+    // Act
+    const result = calculateMonthlySessionSpend(sessions, period)
+    // Assert
+    expect(result.totalSessionSpendCents).toBeNull()
+    expect(result).toHaveProperty('averageSessionPriceCtPerKwh', null)
+  })
+
+  it('uses an energy-weighted price and allows a free zero price', () => {
+    // Arrange
+    const sessions = [buildSession('a', period.startUtc, 1000, false, 10), buildSession('b', period.startUtc, 3000, false, 90)]
+    // Act
+    const result = calculateMonthlySessionSpend(sessions, period)
+    const free = calculateMonthlySessionSpend([buildSession('free', period.startUtc, 0)], period)
+    // Assert
+    expect(result).toHaveProperty('averageSessionPriceCtPerKwh', 40)
+    expect(free).toHaveProperty('averageSessionPriceCtPerKwh', 0)
+  })
+
+  it('does not divide spending by partial energy', () => {
+    // Arrange
+    const sessions = [buildSession('a', period.startUtc, 1000), buildSession('b', period.startUtc, 3000, false, NaN)]
+    // Act
+    const result = calculateMonthlySessionSpend(sessions, period)
+    // Assert
+    expect(result).toMatchObject({ totalSessionSpendCents: 4000, billedEnergyKwh: 10, averageSessionPriceCtPerKwh: null })
+  })
+
+  it('includes all of today but excludes tomorrow in the current month', () => {
+    // Arrange
+    const current = createMonthPeriod({ year: 2026, month: 5 }, new Date(2026, 5, 10, 8))
+    const sessions = [buildSession('today', new Date(2026, 5, 10, 23), 100), buildSession('tomorrow', new Date(2026, 5, 11), 200)]
+    // Act
+    const result = calculateMonthlySessionSpend(sessions, current)
+    // Assert
+    expect(result.totalSessionSpendCents).toBe(100)
+    expect(result.periodEndUtc).toEqual(new Date(2026, 5, 11))
+  })
+
 })
