@@ -245,6 +245,7 @@
 
     .metric-row {
       display: flex;
+      flex-wrap: wrap;
       align-items: baseline;
       justify-content: space-between;
       gap: 16px;
@@ -261,6 +262,58 @@
 
     .tabular {
       font-variant-numeric: tabular-nums;
+    }
+
+    .analytics-summary-example {
+      display: grid;
+      gap: 24px;
+      padding: 24px;
+    }
+
+    .analytics-summary-metrics {
+      display: grid;
+      gap: 24px;
+      margin: 0;
+    }
+
+    .analytics-summary-metrics > div {
+      min-width: 0;
+    }
+
+    .analytics-summary-metrics > div + div {
+      padding-top: 20px;
+      border-top: 1px solid var(--slab-border-color);
+    }
+
+    .analytics-summary-metrics dt {
+      color: var(--secondary-typography);
+      font-size: 14px;
+    }
+
+    .analytics-summary-metrics dd {
+      margin: 8px 0 0;
+      font-size: 30px;
+      font-weight: 700;
+      line-height: 1.25;
+      letter-spacing: -0.025em;
+      overflow-wrap: anywhere;
+    }
+
+    .analytics-summary-unit {
+      font-size: 16px;
+      font-weight: 500;
+    }
+
+    /* Analytics-specific breakpoint, not a shared metric-grid rule. */
+    @media (min-width: 1024px) {
+      .analytics-summary-metrics {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .analytics-summary-metrics > div + div {
+        padding-top: 0;
+        border-top: 0;
+      }
     }
 
     .form-example {
@@ -556,7 +609,7 @@
               <h3 class="content-slab-title">IONITY</h3>
               <p class="supporting-copy">Passport Power · DC</p>
             </div>
-            <p class="metric-value tabular">€18.42</p>
+            <p class="metric-value tabular">18,42 €</p>
           </div>
         </article>
         <article class="slab content-slab">
@@ -566,10 +619,55 @@
               <h3 class="content-slab-title">Provider billed energy</h3>
               <p class="supporting-copy">Current local data</p>
             </div>
-            <p class="metric-value tabular">142.5</p>
+            <p class="metric-value tabular">142,5 kWh</p>
           </div>
         </article>
       </div>
+    </section>
+
+    <section class="baseline-section" aria-labelledby="analytics-summary-heading">
+      <div class="section-copy">
+        <p class="section-label">Feature-specific example · Analytics</p>
+        <h2 class="section-heading" id="analytics-summary-heading">Selected-period summary</h2>
+        <p class="body-text">
+          Group equally weighted metrics in one slab with explicit period context. Stack values when
+          space is limited, keeping labels, units, and qualifications readable. Analytics uses columns
+          from 1024px because the app sidebar reduces available space; this is a local layout choice,
+          not a shared breakpoint or a new shared component.
+        </p>
+      </div>
+      <article class="slab analytics-summary-example" aria-labelledby="analytics-example-title">
+        <div class="section-copy">
+          <h3 class="content-slab-title" id="analytics-example-title">This month summary</h3>
+          <p class="supporting-copy">Month to date · In progress · 1 Oct 2026 – 3 Oct 2026</p>
+        </div>
+        <dl class="analytics-summary-metrics">
+          <div>
+            <dt>Billed energy</dt>
+            <dd class="tabular">100 <span class="analytics-summary-unit">kWh</span></dd>
+          </div>
+          <div>
+            <dt>Session spend</dt>
+            <dd class="tabular">40,00 €</dd>
+          </div>
+          <div>
+            <dt>Average session price</dt>
+            <dd class="tabular">0,40 <span class="analytics-summary-unit">€/kWh</span></dd>
+          </div>
+        </dl>
+        <p class="supporting-copy">2 charging sessions · Session spend excludes subscription fees.</p>
+      </article>
+      <article class="slab analytics-summary-example" aria-labelledby="analytics-lifetime-title">
+        <p class="meta-label">Lifetime · All recorded sessions</p>
+        <h3 class="content-slab-title" id="analytics-lifetime-title">Overall Price</h3>
+        <p class="supporting-copy">
+          Keep the lifetime metric in a separate labelled surface, independent of the selected period.
+          Preserve its calculation disclosure and unavailable-state actions.
+        </p>
+      </article>
+      <p class="body-text">
+        These figures illustrate presentation only.
+      </p>
     </section>
 
     <section class="baseline-section" aria-labelledby="form-heading">
@@ -631,7 +729,8 @@
       <div class="pattern-note">
         <strong>Not promoted by this baseline</strong>
         Tariffs retains provider-matrix usage, Entity Slab navigation, and responsive action overlays.
-        Sessions retains chronological grouping and native whole-card editing. Record future deviations as
+        Sessions retains chronological grouping and native whole-card editing. Analytics retains its
+        grouped summary, local 1024px column breakpoint, and separate lifetime surface. Record future deviations as
         either a local exception or a promote-to-master candidate.
       </div>
     </section>
