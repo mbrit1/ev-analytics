@@ -35,7 +35,7 @@ function cli(args, options = {}) {
 describe('check-github-publication', () => {
   it('allows repository paths, URLs, and measurement units', () => {
     // Arrange: Use typical public references and a domain unit.
-    const content = 'See src/features/analytics and docs/architecture.md, https://example.test/a/b, and 17 €/kWh.'
+    const content = 'See src/features/analytics and docs/architecture.md, https://example.test/a/b?x=1&amp;y=2, and 17 €/kWh.'
 
     // Act: Scan the publication text.
     const findings = scanPublicationText(content, { protectedTokens: ['private-person'] })
@@ -56,6 +56,12 @@ describe('check-github-publication', () => {
       '&amp;#47;Users&amp;#47;example', '100% %2FUsers%2Fexample', '</Users/example/private.txt>',
       '<~/Documents/private.txt>', '"\\\\host\\share\\private.txt"',
       '<.codex/worktrees/example/file>',
+      '&amp;sol;Users&amp;sol;example&amp;sol;private.txt',
+      '&amp;bsol;&amp;bsol;host&amp;bsol;share&amp;bsol;private.txt',
+      '&amp;#x2f;Users&amp;#x2f;example',
+      '&amp;amp;#47;Users&amp;amp;#47;example',
+      '&amp;amp;amp;sol;Users&amp;amp;amp;sol;example',
+      '&amp;amp;amp;bsol;&amp;amp;amp;bsol;host&amp;amp;amp;bsol;share',
       '/workspace/private.txt', '/Library/private.txt', '/Applications/private.txt', '/usr/local/private.txt',
       '&#999999999999;',
     ].join('\n')
@@ -68,6 +74,17 @@ describe('check-github-publication', () => {
     assert.ok(findings.filter(({ category }) => category === 'local-path').length === findings.length)
     assert.ok(findings.every(({ line }) => line > 0))
     assert.ok(findings.every((finding) => !('text' in finding)))
+  })
+
+  it('leaves malformed entity text safe and does not expose decoded content', () => {
+    // Arrange: Include malformed numeric and named entities alongside public documentation.
+    const content = 'Malformed &#xZZ;Users text; see docs/architecture.md and https://example.test/path.'
+
+    // Act: Scan the text with no additional protected identities.
+    const findings = scanPublicationText(content, { protectedTokens: [] })
+
+    // Assert: Malformed entity text does not throw or create a false local-path finding.
+    assert.deepEqual(findings, [])
   })
 
   it('derives protected names and detects configured private tokens case-insensitively', () => {

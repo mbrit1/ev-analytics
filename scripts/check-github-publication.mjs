@@ -10,7 +10,8 @@ const GENERIC_IDENTITIES = new Set(['root', 'runner'])
 
 function decodePublicationText(value) {
   let decoded = value
-  for (let count = 0; count < 3; count += 1) {
+  // Four bounded passes cover three nested amp layers plus the terminal entity.
+  for (let count = 0; count < 4; count += 1) {
     const next = decoded
       .replace(/&#(\d+);?/gi, (entity, number) => {
         const codePoint = Number(number)
@@ -20,9 +21,10 @@ function decodePublicationText(value) {
         const codePoint = Number.parseInt(number, 16)
         return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : entity
       })
-      .replace(/&amp;/gi, '&')
       .replace(/&sol;/gi, '/')
       .replace(/&bsol;/gi, '\\')
+      // Decode ampersands last so newly exposed entities wait for the next bounded pass.
+      .replace(/&amp;/gi, '&')
     if (next === decoded) break
     decoded = next
   }
