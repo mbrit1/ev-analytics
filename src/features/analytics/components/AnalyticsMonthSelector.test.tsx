@@ -326,6 +326,153 @@ describe('AnalyticsMonthSelector', () => {
     expect(trigger).toHaveFocus()
   })
 
+  it.each(['bottom-dock', 'sidebar'] as const)('announces selected month changes in %s layout', async (layoutMode) => {
+    // Arrange: Render a completed month with a controlled selection.
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    const { rerender } = render(
+      <AnalyticsMonthSelector
+        layoutMode={layoutMode}
+        selection={{ kind: 'month', month: { year: 2026, month: 5 } }}
+        selectedMonth={{ year: 2026, month: 5 }}
+        currentMonth={{ year: 2026, month: 6 }}
+        onChange={onChange}
+      />,
+    )
+    const announcer = document.querySelector('[aria-live="polite"][aria-atomic="true"]')
+    expect(announcer).toHaveTextContent('Selected month: June 2026')
+
+    // Act: Move backward, then forward, applying each controlled value.
+    await user.click(screen.getByRole('button', { name: 'Previous month' }))
+    rerender(
+      <AnalyticsMonthSelector
+        layoutMode={layoutMode}
+        selection={{ kind: 'month', month: { year: 2026, month: 4 } }}
+        selectedMonth={{ year: 2026, month: 4 }}
+        currentMonth={{ year: 2026, month: 6 }}
+        onChange={onChange}
+      />,
+    )
+    expect(announcer).toHaveTextContent('Selected month: May 2026')
+    await user.click(screen.getByRole('button', { name: 'Next month' }))
+    rerender(
+      <AnalyticsMonthSelector
+        layoutMode={layoutMode}
+        selection={{ kind: 'month', month: { year: 2026, month: 5 } }}
+        selectedMonth={{ year: 2026, month: 5 }}
+        currentMonth={{ year: 2026, month: 6 }}
+        onChange={onChange}
+      />,
+    )
+
+    // Assert: The polite atomic announcement updates with the selected month.
+    expect(announcer).toHaveTextContent('Selected month: June 2026')
+  })
+
+  it.each([
+    ['month', 'Choose calendar month, July 2026', 'July'],
+    ['ranges', 'Other ranges', '7 Days'],
+  ] as const)('restores %s popup focus across both breakpoint directions', async (identity, triggerName, popupButton) => {
+    // Arrange: Render with an independent outside focus target.
+    const user = userEvent.setup()
+    const props = {
+      selection: { kind: 'month', month: { year: 2026, month: 6 } } as AnalyticsPeriodSelection,
+      selectedMonth: { year: 2026, month: 6 },
+      currentMonth: { year: 2026, month: 6 },
+      onChange: vi.fn(),
+    }
+    const { rerender } = render(
+      <><AnalyticsMonthSelector {...props} layoutMode="bottom-dock" /><button type="button">Outside focus</button></>,
+    )
+    const outside = screen.getByRole('button', { name: 'Outside focus' })
+
+    // Act: Focus inside each popup, then cross desktop/mobile and back.
+    if (identity === 'month') {
+      await user.click(screen.getByRole('button', { name: 'Choose calendar month, July 2026' }))
+      act(() => within(screen.getByRole('dialog', { name: 'Choose month and year' })).getByRole('button', { name: popupButton }).focus())
+    } else {
+      await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
+      act(() => within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: popupButton }).focus())
+    }
+    rerender(<><AnalyticsMonthSelector {...props} layoutMode="sidebar" /><button type="button">Outside focus</button></>)
+    await act(async () => {})
+    const desktopControl = screen.getByRole('button', { name: triggerName })
+    expect(desktopControl).toHaveFocus()
+    if (identity === 'month') {
+      await user.click(desktopControl)
+      act(() => within(screen.getByRole('dialog', { name: 'Choose month and year' })).getByRole('button', { name: popupButton }).focus())
+    } else {
+      await user.click(desktopControl)
+      act(() => within(screen.getByRole('dialog', { name: 'Other ranges' })).getByRole('button', { name: popupButton }).focus())
+    }
+    rerender(<><AnalyticsMonthSelector {...props} layoutMode="bottom-dock" /><button type="button">Outside focus</button></>)
+    await act(async () => {})
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    const mobileControl = identity === 'month'
+      ? screen.getByRole('button', { name: triggerName })
+      : screen.getByRole('button', { name: 'Choose analysis period' })
+    expect(mobileControl).toHaveFocus()
+    expect(document.body.style.overflow).not.toBe('hidden')
+
+    // Assert: Layout changes do not reclaim focus after it has moved outside.
+    act(() => outside.focus())
+    rerender(<><AnalyticsMonthSelector {...props} layoutMode="sidebar" /><button type="button">Outside focus</button></>)
+    await act(async () => {})
+    expect(outside).toHaveFocus()
+  })
+
+
+  it.each(['Previous month', 'Next month'] as const)('restores focus to the equivalent %s arrow across breakpoints', async (label) => {
+    // Arrange: Keep both month arrows enabled while changing layouts.
+    const props = {
+      selection: { kind: 'month', month: { year: 2026, month: 5 } } as AnalyticsPeriodSelection,
+      selectedMonth: { year: 2026, month: 5 },
+      currentMonth: { year: 2026, month: 7 },
+      onChange: vi.fn(),
+    }
+    const { rerender } = render(<AnalyticsMonthSelector {...props} layoutMode="bottom-dock" />)
+
+    // Act: Focus each arrow and switch to the other composition.
+    const mobileArrow = screen.getByRole('button', { name: label })
+    act(() => mobileArrow.focus())
+    rerender(<AnalyticsMonthSelector {...props} layoutMode="sidebar" />)
+    await act(async () => {})
+    const desktopArrow = screen.getByRole('button', { name: label })
+    expect(desktopArrow).toHaveFocus()
+
+    // Assert: The existing arrow focus recovery also works in reverse.
+    act(() => desktopArrow.focus())
+    rerender(<AnalyticsMonthSelector {...props} layoutMode="bottom-dock" />)
+    await act(async () => {})
+    expect(screen.getByRole('button', { name: label })).toHaveFocus()
+  })
+
+
+  it('does not restore stale selector focus after outside focus is replaced', async () => {
+    // Arrange: Keep focusable controls outside the selector across layout changes.
+    const props = {
+      selection: { kind: 'month', month: { year: 2026, month: 5 } } as AnalyticsPeriodSelection,
+      selectedMonth: { year: 2026, month: 5 },
+      currentMonth: { year: 2026, month: 7 },
+      onChange: vi.fn(),
+    }
+    const outsideButton = (layoutMode: 'bottom-dock' | 'sidebar') => (
+      <button key={layoutMode} type="button">Outside focus</button>
+    )
+    const { rerender } = render(
+      <><AnalyticsMonthSelector {...props} layoutMode="bottom-dock" />{outsideButton('bottom-dock')}</>,
+    )
+
+    // Act: Leave the selector, then replace the focused outside node during a breakpoint change.
+    act(() => screen.getByRole('button', { name: 'Next month' }).focus())
+    act(() => screen.getByRole('button', { name: 'Outside focus' }).focus())
+    rerender(<><AnalyticsMonthSelector {...props} layoutMode="sidebar" />{outsideButton('sidebar')}</>)
+    await act(async () => {})
+
+    // Assert: Stale selector focus is not reclaimed when the outside node is removed.
+    expect(screen.getByRole('button', { name: 'Next month' })).not.toHaveFocus()
+  })
+
   it('dismisses the range popup on Escape and outside focus without stealing focus', async () => {
     // Arrange: Render the selector beside an independent focus target.
     const user = userEvent.setup()

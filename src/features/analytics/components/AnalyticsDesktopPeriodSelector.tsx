@@ -103,6 +103,7 @@ export function AnalyticsDesktopPeriodSelector({
             <button
               type="button"
               aria-label="Previous month"
+              data-analytics-period-control="previous-month"
               className={CONTROL_CLASS}
               onClick={() => finishSelection({ kind: 'month', month: shiftCalendarMonth(selectedMonth, -1) }, null)}
             >
@@ -112,6 +113,7 @@ export function AnalyticsDesktopPeriodSelector({
               ref={monthTriggerRef}
               type="button"
               aria-label={`Choose calendar month, ${formatMonthLabel(selectedMonth.year, selectedMonth.month)}`}
+              data-analytics-period-control="month"
               aria-haspopup="dialog"
               aria-expanded={popup === 'month'}
               onClick={() => openPopup('month')}
@@ -124,6 +126,7 @@ export function AnalyticsDesktopPeriodSelector({
             <button
               type="button"
               aria-label="Next month"
+              data-analytics-period-control="next-month"
               disabled={isCurrentMonth}
               className={CONTROL_CLASS}
               onClick={() => finishSelection({ kind: 'month', month: shiftCalendarMonth(selectedMonth, 1) }, null)}
@@ -140,6 +143,7 @@ export function AnalyticsDesktopPeriodSelector({
           ref={rangesTriggerRef}
           type="button"
           aria-label={selectedPreset ? `Other ranges (${selectedPreset.label})` : 'Other ranges'}
+          data-analytics-period-control="ranges"
           aria-haspopup="dialog"
           aria-expanded={popup === 'ranges'}
           title={selectedPreset ? `Other ranges · ${selectedPreset.label}` : 'Other ranges'}
@@ -155,6 +159,7 @@ export function AnalyticsDesktopPeriodSelector({
         <section
           role="dialog"
           aria-label="Choose month and year"
+          data-analytics-period-control="month"
           className="absolute left-0 top-full z-30 mt-2 w-full max-w-[22rem] rounded-xl border border-slab-border bg-surface p-4 shadow-slab"
         >
           <div className="mb-3 flex items-center justify-between">
@@ -207,6 +212,7 @@ export function AnalyticsDesktopPeriodSelector({
         <section
           role="dialog"
           aria-label="Other ranges"
+          data-analytics-period-control="ranges"
           className="absolute right-0 top-full z-30 mt-2 w-56 max-w-full rounded-xl border border-slab-border bg-surface p-2 shadow-slab"
         >
           <div className="grid gap-1">
