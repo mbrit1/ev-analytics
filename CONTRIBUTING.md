@@ -72,7 +72,11 @@ For structural refactors, move code first without changing behavior. Make behavi
 
 Use `docs/design/design-system-baseline.html` as the default token and component baseline. Apply `docs/design/governance-checklist.md` to UI changes.
 
-Verify affected mobile and desktop layouts and provide screenshots or another evidence location with the pull request. Sanitize screenshots before sharing. If screenshots contain sensitive data, keep them local and state in the pull request why they are withheld and where the evidence is available to maintainers. Cover keyboard, focus, accessibility, and 44px touch targets. If a screen intentionally improves on the baseline, identify the deviation in the handoff as either `local exception` or `promote to master`.
+Verify affected mobile and desktop layouts, keyboard, focus, accessibility and 44px touch targets. Report the checks performed and any validation gaps briefly under Verification. If a screen intentionally improves on the baseline, identify the deviation as either `local exception` or `promote to master`.
+
+Development may use as many screenshot captures as needed; publication should use only 1–3 representative, sanitized images that help reviewers assess the final change. Prefer a compact desktop/mobile or before/after comparison where useful. Exclude intermediate states, duplicates and routine test captures. Attach screenshots in the PR and avoid duplicating them in the linked issue.
+
+Include the UI-evidence section only when screenshots are attached. If a screenshot would not meaningfully explain the change, or cannot be safely shared, omit that section. Do not mention private screenshots, local reports or their storage locations in the PR or issue. Keep substantive browser checks and validation gaps in Verification even when no screenshot is attached.
 
 Data-entry workflows must remain practical one-handed and in poor connectivity. Use appropriate `inputMode` values for numeric fields, preserve localized decimal input, maintain touch targets of at least 44px, and keep offline and pending-sync state visible.
 
@@ -89,7 +93,7 @@ Dependabot is an existing exception for non-draft development-dependency updates
 
 ### GitHub publication privacy
 
-GitHub-facing text must never disclose local usernames, home directories, absolute machine paths, worktree or temporary paths, or private screenshot/evidence locations. This applies to PR and issue titles/descriptions, comments and outgoing commit messages. Use repository-relative paths for repository files. Describe private screenshots only as retained locally and not attached. Inspect screenshots separately for sensitive content before attaching them; the text validator does not inspect images.
+GitHub-facing text must never disclose local usernames, home directories, absolute machine paths, worktree or temporary paths, or private screenshot/evidence locations. This applies to PR and issue titles/descriptions, comments and outgoing commit messages. Use repository-relative paths for repository files. Omit references to private screenshots or local evidence reports; include UI evidence only when screenshots are attached. Inspect screenshots separately for sensitive content before attaching them; the text validator does not inspect images.
 
 Prepare the exact outgoing text in files, including a separate file for its title when applicable. Run the dependency-free validator before every write, including edits intended to correct an earlier disclosure:
 
@@ -150,7 +154,7 @@ Pull requests should include:
 
 - the change type, a concise summary and reason, any linked issue, and an explanation of breaking impact;
 - exact verification commands and results, meaningful coverage added or updated where relevant, and omitted checks or validation gaps;
-- UI evidence for affected mobile and desktop layouts, keyboard/focus/accessibility behavior, and 44px touch targets; screenshots may be sanitized or kept locally with the reason stated and no private filesystem location disclosed;
+- a UI-evidence section only when screenshots are attached: use 1–3 representative, sanitized images of the final change; report browser, keyboard/focus/accessibility and touch-target checks and validation gaps under Verification;
 - conditional domain and security evidence for offline persistence and sync, money and date semantics, authentication and owner-scoped access, privacy, secrets, and import boundaries;
 - canonical documentation or ADR updates, or why none were needed, plus known risks, follow-up work, operational steps, and intentional design deviations; and
 - moved paths and boundary impact for structural changes.

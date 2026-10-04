@@ -25,7 +25,7 @@ These instructions apply to the entire repository. Human contributors should sta
 - Cross-feature imports must use `src/features/<domain>/index.ts`, never another feature's internal path.
 - Significant architecture changes require an ADR.
 - Never commit secrets. Local Supabase credentials belong only in `.env.local`.
-- Never publish local usernames, home directories, absolute machine paths, worktree or temporary paths, or private evidence locations to GitHub. Repository-relative paths are allowed; describe private screenshots only as retained locally and not attached.
+- Never publish local usernames, home directories, absolute machine paths, worktree or temporary paths, or private evidence locations to GitHub. Repository-relative paths are allowed. Omit references to private screenshots or local evidence reports from GitHub text.
 
 ## Working Rules
 
@@ -122,7 +122,7 @@ all non-trivial work outside these explicit exemptions.
 
 - For documentation-only changes, run `npm run docs:check` and `git diff --check`; application tests are not required unless documentation tooling or executable examples changed.
 - For performance-sensitive changes, including new dependencies, major UI additions, or bundling/runtime changes, also run `npm run build:analyze` and report notable bundle deltas or top chunk drivers.
-- For UI changes, verify affected mobile and desktop layouts and include screenshots in the pull request.
+- For UI changes, verify affected mobile and desktop layouts. Publish only 1–3 representative, sanitized screenshots of the final change when they help reviewers, preferably as a compact comparison. Omit the UI-evidence section when no screenshot is attached; report browser checks and validation gaps under Verification. Keep intermediate, duplicate and routine test captures out of GitHub, and avoid duplicating PR screenshots in the linked issue. See [UI and Design Governance](CONTRIBUTING.md#ui-and-design-governance).
 - For project-structure changes, run lint, tests, and build, then report moved paths and boundary impact.
 
 ## Handoff

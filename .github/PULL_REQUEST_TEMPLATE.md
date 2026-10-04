@@ -7,11 +7,11 @@
 
 ## Verification
 
-<!-- List exact commands and results. Include meaningful coverage added or updated where relevant. Explain omitted checks and validation gaps. For documentation-only changes, see the canonical commands in CONTRIBUTING.md. -->
+<!-- List exact commands and results. Include meaningful coverage added or updated where relevant. For UI changes, briefly describe browser, keyboard/focus/accessibility and 44px touch-target checks. Explain omitted checks and validation gaps. Identify design deviations as `local exception` or `promote to master`. For documentation-only changes, see CONTRIBUTING.md. Validate the exact title and body with the publication privacy gate before submitting. -->
 
 ## UI evidence (when applicable)
 
-<!-- Include mobile and desktop evidence or its location. Cover keyboard, focus, accessibility, and 44px touch targets; identify design deviations as `local exception` or `promote to master`. Use sanitized screenshots. If screenshots are withheld or kept locally, explain why and say only that evidence is retained locally and not attached. Never include local usernames or filesystem locations. Validate the exact title and body with the publication privacy gate in CONTRIBUTING.md before submitting. -->
+<!-- Keep this section only when screenshots are attached. Publish 1–3 representative, sanitized images of the final change; prefer a compact desktop/mobile or before/after comparison. Exclude intermediate, duplicate and routine test captures. Avoid duplicating PR screenshots in the linked issue. Otherwise remove this heading and comment. Do not mention private screenshots, local reports, usernames or filesystem locations. Put browser checks and validation gaps under Verification. -->
 
 ## Domain and security impact (when applicable)
 
