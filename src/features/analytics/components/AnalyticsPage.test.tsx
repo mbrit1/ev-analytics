@@ -104,7 +104,7 @@ describe('AnalyticsPage', () => {
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<AnalyticsPage onAddSession={vi.fn()} />)
-    expect(screen.getByRole('radio', { name: 'Calendar Month' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('button', { name: /Choose calendar month/ })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Previous month' }))
 
     // Act: Select every trailing preset, then return to calendar-month mode.
@@ -114,12 +114,16 @@ describe('AnalyticsPage', () => {
       ['3 Months', '3-months'],
       ['Year', 'year'],
     ] as const) {
-      await user.click(screen.getByRole('radio', { name }))
-      expect(screen.getByRole('radio', { name })).toHaveAttribute('aria-checked', 'true')
+      await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
+      await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name }))
+      expect(screen.getByText(name)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Previous month' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Next month' })).not.toBeInTheDocument()
       expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0].selection)
         .toEqual({ kind: 'preset', preset })
     }
-    await user.click(screen.getByRole('radio', { name: 'Calendar Month' }))
+    await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
+    await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: 'Calendar Month' }))
 
     // Assert: The prior month remains selected after changing modes.
     expect(screen.getByText('June 2026')).toBeInTheDocument()
@@ -135,13 +139,15 @@ describe('AnalyticsPage', () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<AnalyticsPage onAddSession={vi.fn()} />)
     await user.click(screen.getByRole('button', { name: 'Previous month' }))
-    await user.click(screen.getByRole('radio', { name: '7 Days' }))
+    await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
+    await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: '7 Days' }))
 
     // Act: Cross both local day and month boundaries while Analytics stays mounted.
     await act(() => vi.advanceTimersByTimeAsync(1_000))
 
     // Assert: The period refreshes in place and the preset remains selected.
-    expect(screen.getByRole('radio', { name: '7 Days' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByText('7 Days')).toBeInTheDocument()
+    expect(screen.getByText('In progress · 26 Jul 2026 – 1 Aug 2026')).toBeInTheDocument()
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0].selection)
       .toEqual({ kind: 'preset', preset: '7-days' })
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0]).toMatchObject({
@@ -151,7 +157,8 @@ describe('AnalyticsPage', () => {
     expect(screen.getByText('7 Days summary')).toBeInTheDocument()
 
     // Act: Return to calendar mode after the day and month rollover.
-    await user.click(screen.getByRole('radio', { name: 'Calendar Month' }))
+    await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
+    await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: 'Calendar Month' }))
 
     // Assert: The historical month selected before the preset remains selected.
     expect(screen.getByText('June 2026')).toBeInTheDocument()

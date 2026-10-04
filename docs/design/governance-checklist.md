@@ -70,6 +70,10 @@ Show month arrows and the month chooser only in Calendar Month mode. Rolling ran
 show their active label without stepping controls; Other ranges can restore the remembered month.
 Popovers support keyboard focus, Escape dismissal, outside-interaction dismissal,
 and focus return after selection. Keep the complete month/year label readable at
-sidebar widths and all controls at least 44px. Mobile retains `TactileMatrix`
-keyboard radio navigation and month controls beneath it. Use existing slab and typography tokens,
+sidebar widths and all controls at least 44px. Mobile uses month-first controls with
+an overflow-triggered Analysis period bottom sheet offering Calendar Month and all
+four rolling presets. Mark the active option with a checkmark; month arrows and the
+month/year sheet are available only in calendar mode. Preserve modal background locking,
+focus containment, Escape/backdrop/Cancel dismissal, safe-area padding and focus return.
+Verify that the complete final card can scroll above the fixed bottom dock. Use existing slab and typography tokens,
 keep metric weights consistent, and stack values when available width is insufficient.
