@@ -1,21 +1,31 @@
 import { Slab } from '../../../shared/ui'
 import { formatCurrency, formatKwh, formatMonthLabel, formatCtPerKwhAsEuroAmount } from '../../../shared/lib'
-import type { CalendarMonth } from '../model/analyticsPeriods'
+import type { AnalyticsPeriod, AnalyticsPeriodPreset } from '../model/analyticsPeriods'
 import type { MonthlySessionSpendResult } from '../model/monthlySessionSpend'
 
-/** Selected-month summary state and the established session-entry action. */
+/** Selected-period summary state and the established session-entry action. */
 export interface MonthlySessionSpendSlabProps {
-  month: CalendarMonth
+  period: AnalyticsPeriod
   result: MonthlySessionSpendResult
   isLoading: boolean
   error?: unknown | null
   onAddSession: () => void
 }
 
+const PRESET_LABELS: Record<AnalyticsPeriodPreset, string> = {
+  '7-days': '7 Days',
+  '30-days': '30 Days',
+  '3-months': '3 Months',
+  year: 'Year',
+}
+
 /** Presents recorded spending, billed energy and their complete-coverage weighted price. */
-export function MonthlySessionSpendSlab({ month, result, isLoading, error = null, onAddSession }: MonthlySessionSpendSlabProps) {
-  const monthLabel = formatMonthLabel(month.year, month.month)
-  const lastDay = new Date(result.periodEndUtc)
+export function MonthlySessionSpendSlab({ period, result, isLoading, error = null, onAddSession }: MonthlySessionSpendSlabProps) {
+  const selection = period.selection
+  const monthLabel = selection.kind === 'month'
+    ? formatMonthLabel(selection.month.year, selection.month.month)
+    : PRESET_LABELS[selection.preset]
+  const lastDay = new Date(period.endUtc)
   lastDay.setDate(lastDay.getDate() - 1)
   const dateFormat = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
   const valueClass = 'break-words text-3xl font-bold leading-tight tracking-tight text-primary tabular-nums'
@@ -25,18 +35,20 @@ export function MonthlySessionSpendSlab({ month, result, isLoading, error = null
     <Slab padding="none" className="w-full space-y-6 p-5 md:p-8" aria-busy={isLoading && error === null}>
       <div className="space-y-1">
         <h2 className="text-sm font-semibold text-primary">
-          {result.isCurrentMonth ? 'This month summary' : `${monthLabel} summary`}
+          {monthLabel} summary
         </h2>
         <p className="text-xs leading-5 text-secondary">
-          {result.isCurrentMonth ? 'Month to date · In progress' : 'Completed month'}
-          {' · '}{dateFormat.format(result.periodStartUtc)} – {dateFormat.format(lastDay)}
+          {period.isInProgress
+            ? selection.kind === 'month' ? 'Month to date · In progress' : 'In progress'
+            : selection.kind === 'month' ? 'Completed month' : 'Completed period'}
+          {' · '}{dateFormat.format(period.startUtc)} – {dateFormat.format(lastDay)}
         </p>
       </div>
       {error !== null ? (
-        <p role="alert" className="text-sm text-primary">Unable to load the monthly summary. Please try again.</p>
+        <p role="alert" className="text-sm text-primary">Unable to load the summary. Please try again.</p>
       ) : isLoading ? (
         <div role="status">
-          <span className="sr-only">Loading monthly summary</span>
+          <span className="sr-only">Loading summary</span>
           <div aria-hidden="true" className="h-24 animate-pulse rounded-xl bg-secondary/10 motion-reduce:animate-none" />
         </div>
       ) : (
@@ -77,8 +89,8 @@ export function MonthlySessionSpendSlab({ month, result, isLoading, error = null
             </p>
             {result.isEmpty && (
               <>
-                <p className="text-sm text-secondary">No charging sessions recorded for this month{result.isCurrentMonth ? ' yet' : ''}. Billed energy and average price are unavailable.</p>
-                {result.isCurrentMonth && (
+                <p className="text-sm text-secondary">No charging sessions recorded for this {selection.kind === 'month' ? 'month' : 'period'}{period.isInProgress ? ' yet' : ''}. Billed energy and average price are unavailable.</p>
+                {period.isInProgress && (
                   <button type="button" onClick={onAddSession} className="min-h-11 rounded-xl bg-accent px-4 py-2 font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface">
                     Add Session
                   </button>

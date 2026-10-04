@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ChargingSession } from '../../charging-sessions'
-import { createMonthPeriod } from './analyticsPeriods'
+import { createAnalyticsPeriod, createMonthPeriod } from './analyticsPeriods'
 import { calculateMonthlySessionSpend } from './monthlySessionSpend'
 
 function buildSession(
@@ -174,6 +174,22 @@ describe('calculateMonthlySessionSpend', () => {
     // Assert
     expect(result.totalSessionSpendCents).toBe(100)
     expect(result.periodEndUtc).toEqual(new Date(2026, 5, 11))
+  })
+
+  it('includes late sessions today and excludes the exclusive end for a preset', () => {
+    // Arrange: Build a trailing period and sessions on both sides of its exclusive end.
+    const now = new Date(2026, 5, 10, 8)
+    const period = createAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, now)
+    const sessions = [
+      buildSession('today', new Date(2026, 5, 10, 23, 59, 59), 100),
+      buildSession('tomorrow', period.endUtc, 200),
+    ]
+
+    // Act: Aggregate the selected preset period.
+    const result = calculateMonthlySessionSpend(sessions, period)
+
+    // Assert: The entire local day is included, with the following midnight excluded.
+    expect(result).toMatchObject({ totalSessionSpendCents: 100, sessionCount: 1 })
   })
 
 })

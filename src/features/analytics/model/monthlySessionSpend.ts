@@ -1,5 +1,5 @@
 import type { ChargingSession } from '../../charging-sessions'
-import type { MonthPeriod } from './analyticsPeriods'
+import type { AnalyticsPeriodBounds } from './analyticsPeriods'
 
 /** Result of aggregating active charging-session spend and billed energy for one month. */
 export interface MonthlySessionSpendResult {
@@ -17,7 +17,7 @@ export interface MonthlySessionSpendResult {
 /** Aggregates session spend and valid billed kWh inside an inclusive-start/exclusive-end period. */
 export function calculateMonthlySessionSpend(
   sessions: readonly ChargingSession[],
-  period: MonthPeriod,
+  period: AnalyticsPeriodBounds,
 ): MonthlySessionSpendResult {
   const includedSessions = sessions.filter((session) => {
     const timestamp = new Date(session.session_timestamp).getTime()

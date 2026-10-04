@@ -64,5 +64,12 @@ editing as a local exception; it does not inherit Tariffs navigation or actions.
 
 Analytics retains its grouped summary and separately labelled lifetime surface as
 a local example. Its 1024px column breakpoint accounts for app-sidebar space;
-it is not a shared layout rule. Use existing slab and typography tokens, keep
-metric weights consistent, and stack values when available width is insufficient.
+it is not a shared layout rule. Desktop uses month-first navigation with a month/year
+chooser and a secondary Other ranges popover; preset options are hidden by default.
+Show month arrows and the month chooser only in Calendar Month mode. Rolling ranges
+show their active label without stepping controls; Other ranges can restore the remembered month.
+Popovers support keyboard focus, Escape dismissal, outside-interaction dismissal,
+and focus return after selection. Keep the complete month/year label readable at
+sidebar widths and all controls at least 44px. Mobile retains `TactileMatrix`
+keyboard radio navigation and month controls beneath it. Use existing slab and typography tokens,
+keep metric weights consistent, and stack values when available width is insufficient.

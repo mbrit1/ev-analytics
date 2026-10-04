@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { getCalendarMonth } from '../model/analyticsPeriods'
+import { useEffect, useMemo, useState } from 'react'
+import { createAnalyticsPeriod, getCalendarMonth, type AnalyticsPeriodSelection } from '../model/analyticsPeriods'
 import { useAnalyticsLayoutMode } from '../hooks/useAnalyticsLayoutMode'
 import { useMonthlySessionSpend } from '../hooks/useMonthlySessionSpend'
 import { useOverallChargingPrice } from '../hooks/useOverallChargingPrice'
@@ -22,7 +22,7 @@ function formatLocalDateKey(value: Date): string {
   return `${year}-${month}-${day}`
 }
 
-/** Monthly and lifetime Analytics route composed from local-first query state. */
+/** Selected-period and lifetime Analytics route composed from local-first query state. */
 export function AnalyticsPage({
   onAddSession,
   onReviewTariffs = () => {},
@@ -30,15 +30,19 @@ export function AnalyticsPage({
   const [now, setNow] = useState(() => new Date())
   const currentMonth = getCalendarMonth(now)
   const [selectedMonth, setSelectedMonth] = useState(currentMonth)
+  const [selection, setSelection] = useState<AnalyticsPeriodSelection>(() => ({ kind: 'month', month: currentMonth }))
+  const period = useMemo(() => createAnalyticsPeriod(selection, now), [selection, now])
   const layoutMode = useAnalyticsLayoutMode()
-  const { result: monthlyResult, isLoading: isMonthlyLoading, error: monthlyError } = useMonthlySessionSpend(selectedMonth, now)
+  const { result: monthlyResult, isLoading: isMonthlyLoading, error: monthlyError } = useMonthlySessionSpend(period)
   const overallPriceQuery = useOverallChargingPrice(formatLocalDateKey(now))
 
   useEffect(() => {
     const nextDay = new Date(now)
     nextDay.setHours(24, 0, 0, 0)
     const timeoutId = window.setTimeout(
-      () => setNow(new Date()),
+      () => {
+        setNow(new Date())
+      },
       nextDay.getTime() - now.getTime(),
     )
 
@@ -66,10 +70,19 @@ export function AnalyticsPage({
       <h1 id="analytics-heading" className="text-xl font-bold tracking-tight text-primary md:text-2xl">
         Analytics
       </h1>
-      <AnalyticsMonthSelector value={selectedMonth} currentMonth={currentMonth} onChange={setSelectedMonth} />
-      <section aria-label="Monthly analytics">
+      <AnalyticsMonthSelector
+        selection={selection}
+        selectedMonth={selectedMonth}
+        currentMonth={currentMonth}
+        layoutMode={layoutMode}
+        onChange={(nextSelection) => {
+          if (nextSelection.kind === 'month') setSelectedMonth(nextSelection.month)
+          setSelection(nextSelection)
+        }}
+      />
+      <section aria-label="Selected-period analytics">
         <MonthlySessionSpendSlab
-          month={selectedMonth}
+          period={period}
           result={monthlyResult}
           isLoading={isMonthlyLoading}
           error={monthlyError}
