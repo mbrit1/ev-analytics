@@ -630,8 +630,14 @@
         <p class="section-label">Feature-specific example · Analytics</p>
         <h2 class="section-heading" id="analytics-summary-heading">Selected-period summary</h2>
         <p class="body-text">
-          Group equally weighted metrics in one slab with explicit period context. Stack values when
-          space is limited, keeping labels, units, and qualifications readable. Analytics uses columns
+          Group equally weighted metrics in one slab with explicit period context. Offer calendar-month
+          navigation as the primary desktop interaction: previous/next controls around the selected
+          month, a month-label chooser, and a compact Other ranges popover on the right. Keep the
+          7 Days, 30 Days, 3 Months, and Year options hidden until that popover opens. When a rolling
+          range is active, replace the month controls with its label; the options popover also offers
+          Calendar Month to restore the remembered month. Rolling ranges have no stepping controls. Mobile retains
+          the existing tactile selection pattern. Stack values when space is limited, keeping labels,
+          units, and qualifications readable. Analytics uses columns
           from 1024px because the app sidebar reduces available space; this is a local layout choice,
           not a shared breakpoint or a new shared component.
         </p>

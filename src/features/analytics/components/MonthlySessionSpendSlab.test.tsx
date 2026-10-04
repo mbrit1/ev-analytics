@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { MonthlySessionSpendResult } from '../model/monthlySessionSpend'
+import { createAnalyticsPeriod } from '../model/analyticsPeriods'
 import { MonthlySessionSpendSlab } from './MonthlySessionSpendSlab'
 
 const baseResult: MonthlySessionSpendResult = {
@@ -20,7 +21,9 @@ const baseResult: MonthlySessionSpendResult = {
 /** Verifies summary metrics and distinct empty, loading, error and incomplete states. */
 describe('MonthlySessionSpendSlab', () => {
   function renderSummary(overrides: Partial<MonthlySessionSpendResult> = {}, extra = {}) {
-    return render(<MonthlySessionSpendSlab month={{ year: 2026, month: 6 }} result={{ ...baseResult, ...overrides }} isLoading={false} onAddSession={vi.fn()} {...extra} />)
+    const month = overrides.isCurrentMonth === false ? 5 : 6
+    const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month } }, new Date(2026, 6, 31, 12))
+    return render(<MonthlySessionSpendSlab period={period} result={{ ...baseResult, ...overrides }} isLoading={false} onAddSession={vi.fn()} {...extra} />)
   }
 
   it('shows three localized metrics and explicit scope', () => {
@@ -87,7 +90,7 @@ describe('MonthlySessionSpendSlab', () => {
     // Arrange / Act
     renderSummary({}, { isLoading: true })
     // Assert
-    expect(screen.getByRole('status')).toHaveTextContent('Loading monthly summary')
+    expect(screen.getByRole('status')).toHaveTextContent('Loading summary')
     expect(screen.queryByText('123,45 €')).not.toBeInTheDocument()
   })
 
@@ -95,7 +98,7 @@ describe('MonthlySessionSpendSlab', () => {
     // Arrange / Act
     renderSummary({}, { error: new Error('read failed') })
     // Assert
-    expect(screen.getByRole('alert')).toHaveTextContent('Unable to load the monthly summary')
+    expect(screen.getByRole('alert')).toHaveTextContent('Unable to load the summary')
     expect(screen.queryByText('123,45 €')).not.toBeInTheDocument()
     expect(screen.queryByText('Unavailable')).not.toBeInTheDocument()
   })

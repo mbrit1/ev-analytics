@@ -1,18 +1,14 @@
 import { useMemo } from 'react'
 import { useSessions } from '../../charging-sessions'
-import { createMonthPeriod, type CalendarMonth } from '../model/analyticsPeriods'
+import type { AnalyticsPeriod } from '../model/analyticsPeriods'
 import { calculateMonthlySessionSpend } from '../model/monthlySessionSpend'
 
-/** Reactively aggregates spend and billed energy from local sessions for a selected month. */
-export function useMonthlySessionSpend(month: CalendarMonth, now: Date) {
+/** Reactively aggregates spend and billed energy for the selected Analytics period. */
+export function useMonthlySessionSpend(period: AnalyticsPeriod) {
   const { sessions, isLoading, error } = useSessions()
-  const period = useMemo(
-    () => createMonthPeriod({ year: month.year, month: month.month }, now),
-    [month.month, month.year, now],
-  )
   const result = useMemo(
     () => calculateMonthlySessionSpend(sessions, period),
-    [period, sessions],
+    [sessions, period],
   )
 
   return { result, isLoading, error }

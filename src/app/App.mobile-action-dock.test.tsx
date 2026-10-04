@@ -170,7 +170,7 @@ vi.mock('../features/charging-sessions', () => ({
 vi.mock('../features/analytics/hooks/useOverallChargingPrice', () => ({
   useOverallChargingPrice: mockUseOverallChargingPrice,
 }));
-vi.mock('../shared/ui', () => ({
+vi.mock('../shared/ui', async () => ({
   Navigation: ({
     activeTab,
     onTabChange,
@@ -208,6 +208,7 @@ vi.mock('../shared/ui', () => ({
     </section>
   ),
   Slab: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  TactileMatrix: (await import('../shared/ui/TactileMatrix')).TactileMatrix,
 }));
 vi.mock('../features/offline-sync', () => ({
   SyncStatusIndicator: () => <div>Sync Status</div>,
@@ -355,11 +356,11 @@ describe('App mobile action dock', () => {
     await user.click(screen.getByRole('button', { name: 'Analytics' }));
 
     // Assert: The mobile create pill stays hidden on analytics.
-    expect(within(screen.getByRole('region', { name: 'Monthly analytics' })).getByRole('button', { name: 'Add Session' })).toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Selected-period analytics' })).getByRole('button', { name: 'Add Session' })).toBeInTheDocument();
     expect(screen.queryByText('Add Tariff Pill')).not.toBeInTheDocument();
     expect(screen.queryByText('Analytics is planned and will be available in a future update.')).not.toBeInTheDocument();
     expect(screen.queryByRole('tab')).not.toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Monthly analytics' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Selected-period analytics' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toBeInTheDocument();
     expect(screen.getByText(/No charging sessions recorded for this month yet/)).toBeInTheDocument();
     expect(document.querySelector('main')).toHaveClass(
@@ -368,7 +369,7 @@ describe('App mobile action dock', () => {
     );
 
     // Act: Reuse the analytics empty-state action.
-    await user.click(within(screen.getByRole('region', { name: 'Monthly analytics' })).getByRole('button', { name: 'Add Session' }));
+    await user.click(within(screen.getByRole('region', { name: 'Selected-period analytics' })).getByRole('button', { name: 'Add Session' }));
 
     // Assert: The established session form opens on the sessions destination.
     expect(screen.getByText('Session Form')).toBeInTheDocument();
@@ -415,7 +416,7 @@ describe('App mobile action dock', () => {
 
     // Assert: A fresh Analytics entry shows both sections and the current month.
     expect(screen.getByRole('button', { name: 'Next month' })).toBeDisabled();
-    expect(screen.getByRole('region', { name: 'Monthly analytics' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Selected-period analytics' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toBeInTheDocument();
     expect(screen.queryByRole('tab')).not.toBeInTheDocument();
   });
