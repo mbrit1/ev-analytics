@@ -4,13 +4,14 @@ import { createPortal } from 'react-dom'
 /** Modal period surface following the existing Analytics bottom-sheet interaction. */
 interface AnalyticsPeriodSheetProps {
   label: string
+  controlIdentity: 'month' | 'ranges'
   children: ReactNode
   triggerRef: RefObject<HTMLButtonElement | null>
   onDismiss: () => void
 }
 
 /** Locks background interaction, contains keyboard focus and restores the invoking control. */
-export function AnalyticsPeriodSheet({ label, children, triggerRef, onDismiss }: AnalyticsPeriodSheetProps) {
+export function AnalyticsPeriodSheet({ label, controlIdentity, children, triggerRef, onDismiss }: AnalyticsPeriodSheetProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
   const headingId = useId()
@@ -71,10 +72,6 @@ export function AnalyticsPeriodSheet({ label, children, triggerRef, onDismiss }:
         else element.setAttribute('inert', inertAttribute)
       })
       if (trigger?.isConnected) trigger.focus()
-      else {
-        // A breakpoint can replace the mobile trigger while its sheet is open.
-        queueMicrotask(() => document.querySelector<HTMLButtonElement>('button[aria-label^="Other ranges"]')?.focus())
-      }
     }
   }, [onDismiss, triggerRef])
 
@@ -89,6 +86,7 @@ export function AnalyticsPeriodSheet({ label, children, triggerRef, onDismiss }:
       <section
         ref={dialogRef}
         role="dialog"
+        data-analytics-period-control={controlIdentity}
         aria-modal="true"
         aria-labelledby={headingId}
         className="relative z-10 max-h-[calc(100dvh-env(safe-area-inset-bottom)-1rem)] w-full max-w-lg overflow-y-auto rounded-t-[2rem] border border-slab-border bg-surface px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4 shadow-slab"

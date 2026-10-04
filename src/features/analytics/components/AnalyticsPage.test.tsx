@@ -244,7 +244,7 @@ describe('AnalyticsPage', () => {
     expect(document.body.style.overflow).toBe('')
   })
 
-  it('preserves month-control focus across layout changes', () => {
+  it('preserves month-control focus across layout changes', async () => {
     // Arrange
     const { rerender } = render(<AnalyticsPage onAddSession={vi.fn()} />)
     screen.getByRole('button', { name: 'Previous month' }).focus()
@@ -252,7 +252,7 @@ describe('AnalyticsPage', () => {
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
     rerender(<AnalyticsPage onAddSession={vi.fn()} />)
     // Assert
-    expect(screen.getByRole('button', { name: 'Previous month' })).toHaveFocus()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Previous month' })).toHaveFocus())
   })
 
   it('renders a busy Overall Price slab without a stale value while the query loads', () => {

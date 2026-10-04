@@ -41,7 +41,7 @@ export function AnalyticsMobilePeriodSelector({ selection, selectedMonth, curren
     <>
       <div role="group" aria-label="Analytics period" className={`flex w-full items-center ${isMonth ? 'gap-1' : 'gap-2'}`}>
         {isMonth && (
-          <button type="button" aria-label="Previous month" className={CONTROL_CLASS} onClick={() => select({ kind: 'month', month: shiftCalendarMonth(selectedMonth, -1) })}>
+          <button type="button" aria-label="Previous month" data-analytics-period-control="previous-month" className={CONTROL_CLASS} onClick={() => select({ kind: 'month', month: shiftCalendarMonth(selectedMonth, -1) })}>
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
           </button>
         )}
@@ -50,6 +50,7 @@ export function AnalyticsMobilePeriodSelector({ selection, selectedMonth, curren
             ref={monthRef}
             type="button"
             aria-label={`Choose calendar month, ${label}`}
+            data-analytics-period-control="month"
             aria-haspopup="dialog"
             aria-expanded={panel === 'month'}
             onClick={() => { setPickerYear(selectedMonth.year); setPanel('month') }}
@@ -62,7 +63,7 @@ export function AnalyticsMobilePeriodSelector({ selection, selectedMonth, curren
           <p className="flex h-11 min-w-0 flex-1 items-center justify-center rounded-xl bg-surface px-3 text-sm font-semibold text-primary shadow-sm">{label}</p>
         )}
         {isMonth && (
-          <button type="button" aria-label="Next month" disabled={compareCalendarMonths(selectedMonth, currentMonth) >= 0} className={CONTROL_CLASS} onClick={() => select({ kind: 'month', month: shiftCalendarMonth(selectedMonth, 1) })}>
+          <button type="button" aria-label="Next month" data-analytics-period-control="next-month" disabled={compareCalendarMonths(selectedMonth, currentMonth) >= 0} className={CONTROL_CLASS} onClick={() => select({ kind: 'month', month: shiftCalendarMonth(selectedMonth, 1) })}>
             <ChevronRight className="h-5 w-5" aria-hidden="true" />
           </button>
         )}
@@ -70,6 +71,7 @@ export function AnalyticsMobilePeriodSelector({ selection, selectedMonth, curren
           ref={optionsRef}
           type="button"
           aria-label="Choose analysis period"
+          data-analytics-period-control="ranges"
           aria-haspopup="dialog"
           aria-expanded={panel === 'options'}
           onClick={() => setPanel('options')}
@@ -79,7 +81,7 @@ export function AnalyticsMobilePeriodSelector({ selection, selectedMonth, curren
         </button>
       </div>
       {panel !== null && (
-        <AnalyticsPeriodSheet label={panel === 'options' ? 'Analysis period' : 'Choose month and year'} triggerRef={panel === 'options' ? optionsRef : monthRef} onDismiss={close}>
+        <AnalyticsPeriodSheet label={panel === 'options' ? 'Analysis period' : 'Choose month and year'} controlIdentity={panel === 'options' ? 'ranges' : 'month'} triggerRef={panel === 'options' ? optionsRef : monthRef} onDismiss={close}>
           {panel === 'month' ? (
             <AnalyticsMonthChoices year={pickerYear} selectedMonth={selectedMonth} currentMonth={currentMonth} onYearChange={setPickerYear} onSelect={(month) => select({ kind: 'month', month })} />
           ) : (
