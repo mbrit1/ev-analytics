@@ -28,13 +28,9 @@ describe('AnalyticsMonthSelector', () => {
 
     // Assert: July is labelled, next is disabled, and June is requested.
     expect(screen.getByText('July 2026')).toBeInTheDocument()
-    const selector = screen.getByRole('group', { name: 'Analytics month' })
-    const previousButton = screen.getByRole('button', { name: 'Previous month' })
     const nextButton = screen.getByRole('button', { name: 'Next month' })
-    expect(selector).toHaveClass('mx-auto', 'grid', 'grid-cols-[44px_minmax(0,1fr)_44px]')
-    expect(previousButton).toHaveClass('h-11', 'w-11')
-    expect(previousButton).toHaveClass('inline-flex', 'bg-transparent', 'hover:bg-slab-border/50', 'active:scale-95', 'active:bg-slab-border')
-    expect(nextButton).toHaveClass('h-11', 'w-11', 'disabled:pointer-events-none', 'disabled:opacity-30')
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Choose analysis period' })).toBeInTheDocument()
     expect(nextButton).toBeDisabled()
     expect(onChange).toHaveBeenCalledWith({ kind: 'month', month: { year: 2026, month: 5 } })
 
@@ -67,10 +63,11 @@ describe('AnalyticsMonthSelector', () => {
     expect(onChange).toHaveBeenCalledWith({ kind: 'month', month: { year: 2026, month: 6 } })
   })
 
-  it('supports arrow-key selection across the tactile preset choices', async () => {
-    // Arrange: Start with calendar-month mode selected and focused.
+  it('opens a modal mobile period sheet with selected state, trapped focus and cleanup', async () => {
+    // Arrange: Render calendar-month mode and retain the original background state.
+    const user = userEvent.setup()
     const onChange = vi.fn()
-    const { rerender } = render(
+    const { container } = render(
       <AnalyticsMonthSelector
         selection={{ kind: 'month', month: { year: 2026, month: 6 } }}
         selectedMonth={{ year: 2026, month: 6 }}
@@ -78,28 +75,142 @@ describe('AnalyticsMonthSelector', () => {
         onChange={onChange}
       />,
     )
-    const calendarMonth = screen.getByRole('radio', { name: 'Calendar Month' })
-    calendarMonth.focus()
+    const originalOverflow = document.body.style.overflow
+    const trigger = screen.getByRole('button', { name: 'Choose analysis period' })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
 
-    // Act: Move to the following period option with the native radio arrow behavior.
-    await userEvent.keyboard('{ArrowRight}')
+    // Act: Open the sheet and wrap keyboard focus in both directions.
+    await user.click(trigger)
+    const sheet = screen.getByRole('dialog', { name: 'Analysis period' })
+    const calendarMonth = within(sheet).getByRole('button', { name: 'Calendar Month' })
+    const cancel = within(sheet).getByRole('button', { name: 'Cancel' })
 
-    // Assert: Focus and selection callback move to the seven-day preset.
-    expect(screen.getByRole('radio', { name: '7 Days' })).toHaveFocus()
-    expect(onChange).toHaveBeenCalledWith({ kind: 'preset', preset: '7-days' })
+    // Assert: The active choice is selected, while background scrolling and focus are blocked.
+    expect(sheet).toHaveAttribute('aria-modal', 'true')
+    expect(calendarMonth).toHaveAttribute('aria-pressed', 'true')
+    expect(calendarMonth).toHaveFocus()
+    expect(container).toHaveAttribute('inert')
+    expect(document.body.style.overflow).toBe('hidden')
+    expect(within(sheet).getAllByRole('button')).toHaveLength(6)
+    await user.tab({ shift: true })
+    expect(cancel).toHaveFocus()
+    await user.tab()
+    expect(calendarMonth).toHaveFocus()
 
-    // Act: Apply the controlled selection change from the page.
-    rerender(
+    // Act: Cancel the sheet without changing the period.
+    await user.click(cancel)
+
+    // Assert: Background state and trigger focus are restored.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(container).not.toHaveAttribute('inert')
+    expect(document.body.style.overflow).toBe(originalOverflow)
+    expect(trigger).toHaveFocus()
+    expect(onChange).not.toHaveBeenCalled()
+
+    // Act: Exercise the other existing dismissal paths.
+    await user.click(trigger)
+    await user.keyboard('{Escape}')
+    expect(trigger).toHaveFocus()
+    await user.click(trigger)
+    await user.click(screen.getByRole('button', { name: 'Dismiss Analysis period' }))
+
+    // Assert: Backdrop dismissal also cleans up without a selection.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['7 Days', '7-days'], ['30 Days', '30-days'], ['3 Months', '3-months'], ['Year', 'year'],
+  ] as const)('keeps mobile %s rolling and restores the remembered calendar month through its sheet', async (label, preset) => {
+    // Arrange: Render a relative range with a historical calendar month retained.
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(
       <AnalyticsMonthSelector
-        selection={{ kind: 'preset', preset: '7-days' }}
-        selectedMonth={{ year: 2026, month: 6 }}
+        selection={{ kind: 'preset', preset }}
+        selectedMonth={{ year: 2026, month: 5 }}
         currentMonth={{ year: 2026, month: 6 }}
         onChange={onChange}
       />,
     )
 
-    // Assert: The chosen preset is now exposed as selected.
-    expect(screen.getByRole('radio', { name: '7 Days' })).toHaveAttribute('aria-checked', 'true')
+    // Assert: Relative mode has only its label and the options control.
+    expect(screen.getByText(label)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Previous month' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Next month' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Choose calendar month/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('radiogroup')).not.toBeInTheDocument()
+
+    // Act: Open the sheet and return to Calendar Month.
+    const trigger = screen.getByRole('button', { name: 'Choose analysis period' })
+    await user.click(trigger)
+    const sheet = screen.getByRole('dialog', { name: 'Analysis period' })
+    expect(within(sheet).getByRole('button', { name: label })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(sheet).getByRole('button', { name: label })).toHaveFocus()
+    await user.click(within(sheet).getByRole('button', { name: 'Calendar Month' }))
+
+    // Assert: Selection restores the retained month and closes with focus recovery.
+    expect(onChange).toHaveBeenCalledWith({ kind: 'month', month: { year: 2026, month: 5 } })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it('opens the mobile month-year chooser with future restrictions and historical selection', async () => {
+    // Arrange: July is the current month.
+    const user = userEvent.setup()
+    const onChange = vi.fn()
+    render(
+      <AnalyticsMonthSelector
+        selection={{ kind: 'month', month: { year: 2026, month: 6 } }}
+        selectedMonth={{ year: 2026, month: 6 }}
+        currentMonth={{ year: 2026, month: 6 }}
+        onChange={onChange}
+      />,
+    )
+    const trigger = screen.getByRole('button', { name: 'Choose calendar month, July 2026' })
+
+    // Act: Open the existing month/year interaction as a mobile sheet.
+    await user.click(trigger)
+    const sheet = screen.getByRole('dialog', { name: 'Choose month and year' })
+
+    // Assert: Current month is focused, and future choices are disabled.
+    expect(within(sheet).getByRole('button', { name: 'July' })).toHaveFocus()
+    expect(within(sheet).getByRole('button', { name: 'August' })).toBeDisabled()
+    expect(within(sheet).getByRole('button', { name: 'Next year' })).toBeDisabled()
+
+    // Act: Choose a month from the preceding year.
+    await user.click(within(sheet).getByRole('button', { name: 'Previous year' }))
+    await user.click(within(sheet).getByRole('button', { name: 'June' }))
+
+    // Assert: Calendar selection commits once and restores month-trigger focus.
+    expect(onChange).toHaveBeenCalledOnce()
+    expect(onChange).toHaveBeenCalledWith({ kind: 'month', month: { year: 2025, month: 5 } })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+  })
+
+  it('cleans up an open mobile sheet and restores options focus after switching to desktop', async () => {
+    // Arrange: Open the mobile options sheet before crossing the sidebar breakpoint.
+    const user = userEvent.setup()
+    const props = {
+      selection: { kind: 'month', month: { year: 2026, month: 6 } } as AnalyticsPeriodSelection,
+      selectedMonth: { year: 2026, month: 6 },
+      currentMonth: { year: 2026, month: 6 },
+      onChange: vi.fn(),
+    }
+    const { container, rerender } = render(<AnalyticsMonthSelector {...props} />)
+    await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
+
+    // Act: Replace the mobile controls while their sheet is open.
+    rerender(<AnalyticsMonthSelector {...props} layoutMode="sidebar" />)
+    await act(async () => {})
+
+    // Assert: The sheet releases background state and focus returns to desktop options.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(container).not.toHaveAttribute('inert')
+    expect(document.body.style.overflow).not.toBe('hidden')
+    expect(screen.getByRole('button', { name: 'Other ranges' })).toHaveFocus()
   })
 
   it('keeps presets hidden on desktop until Other ranges is opened', async () => {

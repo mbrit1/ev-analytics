@@ -635,8 +635,10 @@
           month, a month-label chooser, and a compact Other ranges popover on the right. Keep the
           7 Days, 30 Days, 3 Months, and Year options hidden until that popover opens. When a rolling
           range is active, replace the month controls with its label; the options popover also offers
-          Calendar Month to restore the remembered month. Rolling ranges have no stepping controls. Mobile retains
-          the existing tactile selection pattern. Stack values when space is limited, keeping labels,
+          Calendar Month to restore the remembered month. Rolling ranges have no stepping controls. Mobile uses
+          compact month controls and an overflow-triggered period bottom sheet with a checkmark for
+          the active choice. Its month label opens the month/year chooser as a bottom sheet; rolling
+          modes omit month navigation. Keep the final card scrollable above the mobile dock. Stack values when space is limited, keeping labels,
           units, and qualifications readable. Analytics uses columns
           from 1024px because the app sidebar reduces available space; this is a local layout choice,
           not a shared breakpoint or a new shared component.
