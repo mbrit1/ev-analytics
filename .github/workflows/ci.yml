@@ -45,6 +45,8 @@ jobs:
         env:
           VITE_SUPABASE_URL: "https://placeholder.supabase.co"
           VITE_SUPABASE_PUBLISHABLE_KEY: "placeholder-key"
+      - name: Test GitHub publication privacy gate
+        run: npm run test:github-publication
       - name: Run schema and live-verifier contract tests
         run: node --test scripts/schema-grants.node-test.mjs scripts/verify-rls-live.node-test.mjs
 

@@ -87,6 +87,33 @@ Do not commit directly to `main`. Automated coding agents must not push, open pu
 
 Dependabot is an existing exception for non-draft development-dependency updates classified as semver-patch: configured automation may approve and auto-merge these updates, subject to the repository's configured GitHub merge requirements. This exception does not authorize agents to publish or merge their own changes.
 
+### GitHub publication privacy
+
+GitHub-facing text must never disclose local usernames, home directories, absolute machine paths, worktree or temporary paths, or private screenshot/evidence locations. This applies to PR and issue titles/descriptions, comments and outgoing commit messages. Use repository-relative paths for repository files. Describe private screenshots only as retained locally and not attached. Inspect screenshots separately for sensitive content before attaching them; the text validator does not inspect images.
+
+Prepare the exact outgoing text in files, including a separate file for its title when applicable. Run the dependency-free validator before every write, including edits intended to correct an earlier disclosure:
+
+```bash
+npm run --silent github:check -- --file pr-title.txt --file pr-body.md
+npm run --silent github:check -- --stdin < comment.md
+npm run --silent github:check -- --commits origin/main..HEAD
+```
+
+The command exits nonzero for a detected disclosure or invalid/unreadable input. It reports only source ordinals, line numbers and categories, never the matched text or input filename. At least one source is required. Multiple files, stdin and an outgoing two-dot commit range can be checked together. Verify the commit base against the destination before scanning; an empty or invalid range fails. Do not scan only the last commit when a push publishes several commits.
+
+Chain the check and the authorized write with `&&` so a failed scan prevents publication. For example, after checking a prepared PR title/body:
+
+```bash
+npm run --silent github:check -- --file pr-title.txt --file pr-body.md &&
+  gh pr create --title "$(cat pr-title.txt)" --body-file pr-body.md
+```
+
+Do not edit the prepared inputs between validation and publication. Do not bypass the gate using a raw CLI call or connector. After every write, retrieve the published title/body/comment into private local files, run the same validator and compare the retrieved text with the prepared content. Only then report publication complete. The checks do not themselves authorize a commit, push or GitHub write.
+
+The validator detects common local path forms, encoded paths and the current local identity. Additional private identity tokens can be provided through the local, newline-separated `GITHUB_PUBLICATION_PRIVATE_TOKENS` environment variable; never commit those values. Known path forms are blocked even when they contain a different username. Repository-relative paths, public web links and units remain allowed.
+
+This is a required publication workflow gate, not an interception of every possible `git`, `gh` or connector invocation. It cannot discover every arbitrary identity or private fact; retain a human-readable privacy review and inspect attachments separately. CI runs the validator's regression tests, but a CI failure after publication cannot prevent the original disclosure.
+
 ## Verification
 
 Run focused tests while developing. Before proposing a push or pull request, run the complete verification gate:
@@ -123,7 +150,7 @@ Pull requests should include:
 
 - the change type, a concise summary and reason, any linked issue, and an explanation of breaking impact;
 - exact verification commands and results, meaningful coverage added or updated where relevant, and omitted checks or validation gaps;
-- UI evidence for affected mobile and desktop layouts, keyboard/focus/accessibility behavior, and 44px touch targets; screenshots may be sanitized or kept locally with the reason and evidence location stated;
+- UI evidence for affected mobile and desktop layouts, keyboard/focus/accessibility behavior, and 44px touch targets; screenshots may be sanitized or kept locally with the reason stated and no private filesystem location disclosed;
 - conditional domain and security evidence for offline persistence and sync, money and date semantics, authentication and owner-scoped access, privacy, secrets, and import boundaries;
 - canonical documentation or ADR updates, or why none were needed, plus known risks, follow-up work, operational steps, and intentional design deviations; and
 - moved paths and boundary impact for structural changes.

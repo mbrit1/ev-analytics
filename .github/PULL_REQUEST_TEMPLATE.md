@@ -11,7 +11,7 @@
 
 ## UI evidence (when applicable)
 
-<!-- Include mobile and desktop evidence or its location. Cover keyboard, focus, accessibility, and 44px touch targets; identify design deviations as `local exception` or `promote to master`. Use sanitized screenshots. If screenshots are withheld or kept locally, explain why and where evidence is available. -->
+<!-- Include mobile and desktop evidence or its location. Cover keyboard, focus, accessibility, and 44px touch targets; identify design deviations as `local exception` or `promote to master`. Use sanitized screenshots. If screenshots are withheld or kept locally, explain why and say only that evidence is retained locally and not attached. Never include local usernames or filesystem locations. Validate the exact title and body with the publication privacy gate in CONTRIBUTING.md before submitting. -->
 
 ## Domain and security impact (when applicable)
 

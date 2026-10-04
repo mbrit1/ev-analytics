@@ -25,12 +25,14 @@ These instructions apply to the entire repository. Human contributors should sta
 - Cross-feature imports must use `src/features/<domain>/index.ts`, never another feature's internal path.
 - Significant architecture changes require an ADR.
 - Never commit secrets. Local Supabase credentials belong only in `.env.local`.
+- Never publish local usernames, home directories, absolute machine paths, worktree or temporary paths, or private evidence locations to GitHub. Repository-relative paths are allowed; describe private screenshots only as retained locally and not attached.
 
 ## Working Rules
 
 - Inspect the worktree before editing. Preserve existing user changes and avoid unrelated cleanup.
 - Work on a semantic feature branch such as `feat/...`, `fix/...`, or `docs/...`. Never commit on `main`; if work starts there, branch before editing.
 - Do not commit, push, open a pull request, or merge without explicit human authorization.
+- Before every GitHub text write, run `npm run --silent github:check` on the exact prepared title/body/comment files or stdin. Before pushing, scan every outgoing commit message with `--commits BASE..HEAD`, using the verified publication base. Chain validation and publication with `&&`; a nonzero result blocks the write. Revalidate any edited text, including corrective writes. Do not bypass the gate with a connector or raw `gh` call. After publication, read back the remote text, validate it and compare it with the prepared content before reporting success. See [GitHub publication privacy](CONTRIBUTING.md#github-publication-privacy) for usage and limits.
 - Keep changes small and scoped. For structural refactors, move first without changing behavior, then make behavioral changes separately with targeted tests.
 - Follow the current design baseline in `docs/design/design-system-baseline.html` and the checklist in `docs/design/governance-checklist.md` for UI work.
 
