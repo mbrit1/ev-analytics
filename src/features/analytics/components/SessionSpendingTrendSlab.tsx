@@ -4,6 +4,7 @@ import { formatCurrency } from '../../../shared/lib'
 import type { AnalyticsPeriod } from '../model/analyticsPeriods'
 import type { SessionSpendingBucket, SessionSpendingTrend as SessionSpendingTrendResult } from '../model/sessionSpendingTrend'
 import { createSpendingAxisTicks } from './sessionSpendingAxis'
+import { formatAnalyticsPeriodRange, formatTrendContext } from './analyticsPeriodLabels'
 
 /** Props for the selected-period session-spending trend. */
 export interface SessionSpendingTrendSlabProps {
@@ -50,15 +51,6 @@ function formatAxisRange(start: Date, end: Date): string {
   return `${formatDate(start)} – ${formatDate(new Date(end.getTime() - 1))}`
 }
 
-function formatQuietAxisRange(start: Date, end: Date): string {
-  const lastIncluded = new Date(end.getTime() - 1)
-  const sameYear = start.getFullYear() === lastIncluded.getFullYear()
-  const startDate = sameYear
-    ? new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' }).format(start)
-    : formatDate(start)
-  return `${startDate} – ${formatDate(lastIncluded)}`
-}
-
 function formatBucketMonthLabel(bucket: SessionSpendingBucket): string {
   const month = new Intl.DateTimeFormat('en-GB', { month: 'short' }).format(bucket.startUtc)
   if (bucket.isCurrentMonth) return `${month} · MTD`
@@ -68,7 +60,7 @@ function formatBucketMonthLabel(bucket: SessionSpendingBucket): string {
 /** Accessible monthly spending bars with keyboard selection and equivalent textual values. */
 export function SessionSpendingTrendSlab({ period, trend, isLoading, error = null }: SessionSpendingTrendSlabProps) {
   const instructionsId = useId()
-  const rangeIdentity = `${period.startUtc.getTime()}:${period.endUtc.getTime()}:${trend.startUtc.getTime()}:${trend.endUtc.getTime()}:${trend.selectedMonth?.year ?? ''}:${trend.selectedMonth?.month ?? ''}`
+  const rangeIdentity = `${trend.startUtc.getTime()}:${trend.endUtc.getTime()}:${trend.selectedMonth?.year ?? ''}:${trend.selectedMonth?.month ?? ''}`
   const anchorIndex = Math.max(0, trend.buckets.findIndex(({ month }) => (
     trend.selectedMonth !== null && month.year === trend.selectedMonth.year && month.month === trend.selectedMonth.month
   )))
@@ -148,8 +140,10 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
     <Slab padding="none" className="w-full space-y-4 px-[min(1.25rem,20px)] py-5 md:p-8" aria-busy={isLoading && error === null}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold text-primary">Session spending</h2>
-          {error === null && !isLoading && <p className="text-xs text-secondary">{formatQuietAxisRange(trend.startUtc, trend.endUtc)}</p>}
+          <h2 aria-label={`Session spending, ${formatAnalyticsPeriodRange({ startUtc: trend.startUtc, endUtc: trend.endUtc })}`} className="text-sm font-semibold text-primary">Session spending</h2>
+          {(trend.startUtc.getTime() !== period.startUtc.getTime() || trend.endUtc.getTime() !== period.endUtc.getTime()) && error === null && !isLoading && (
+            <p className="text-xs text-secondary">{formatTrendContext(trend.startUtc, trend.endUtc)}</p>
+          )}
         </div>
         <details className="relative shrink-0">
           <summary

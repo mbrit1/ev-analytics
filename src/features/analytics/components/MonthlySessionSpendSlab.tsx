@@ -2,6 +2,7 @@ import { Slab } from '../../../shared/ui'
 import { formatCurrency, formatKwh, formatMonthLabel, formatCtPerKwhAsEuroAmount } from '../../../shared/lib'
 import type { AnalyticsPeriod, AnalyticsPeriodPreset } from '../model/analyticsPeriods'
 import type { MonthlySessionSpendResult } from '../model/monthlySessionSpend'
+import { formatAnalyticsPeriodRange } from './analyticsPeriodLabels'
 
 /** Selected-period summary state and the established session-entry action. */
 export interface MonthlySessionSpendSlabProps {
@@ -25,24 +26,19 @@ export function MonthlySessionSpendSlab({ period, result, isLoading, error = nul
   const monthLabel = selection.kind === 'month'
     ? formatMonthLabel(selection.month.year, selection.month.month)
     : PRESET_LABELS[selection.preset]
-  const lastDay = new Date(period.endUtc)
-  lastDay.setDate(lastDay.getDate() - 1)
-  const dateFormat = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  const scopeStatus = period.isInProgress
+    ? selection.kind === 'month' ? 'Month to date, in progress' : 'In progress'
+    : selection.kind === 'month' ? 'Completed month' : 'Completed period'
+  const accessibleScope = `${monthLabel} summary, ${formatAnalyticsPeriodRange(period)}, ${scopeStatus}`
   const valueClass = 'break-words text-3xl font-bold leading-tight tracking-tight text-primary tabular-nums'
   const unavailableClass = 'text-base font-semibold text-primary'
 
   return (
     <Slab padding="none" className="w-full space-y-6 p-5 md:p-8" aria-busy={isLoading && error === null}>
       <div className="space-y-1">
-        <h2 className="text-sm font-semibold text-primary">
-          {monthLabel} summary
+        <h2 aria-label={accessibleScope} className="text-sm font-semibold text-primary">
+          Summary
         </h2>
-        <p className="text-xs leading-5 text-secondary">
-          {period.isInProgress
-            ? selection.kind === 'month' ? 'Month to date · In progress' : 'In progress'
-            : selection.kind === 'month' ? 'Completed month' : 'Completed period'}
-          {' · '}{dateFormat.format(period.startUtc)} – {dateFormat.format(lastDay)}
-        </p>
       </div>
       {error !== null ? (
         <p role="alert" className="text-sm text-primary">Unable to load the summary. Please try again.</p>

@@ -47,7 +47,7 @@ Use this checklist for every UI-facing change. The default baseline is
 - Metric zero and unavailable states remain distinct: show zero only when supported by loaded data, and explain unavailable values in text.
 - Partial measurement coverage is disclosed beside the affected value; do not present a known subtotal as a complete total. Metric-specific calculation rules stay in the owning specification.
 - Suppress stale metric values during blocking loading or query failure. Keep these states distinct from loaded-empty data.
-- Period-scoped summaries identify their date range and whether it is in progress. Lifetime metrics remain separately labelled so the selected period does not imply a different scope.
+- The period selector shows one quiet inclusive date range and progress line with an accessible description on its control group. Desktop places the range beside the selected month or preset label, wrapping it beneath the selection before squeezing 44px controls; mobile keeps it beneath the controls. The visible summary title stays concise while its accessible name retains the selected period, exact dates and progress state. Lifetime metrics remain separately labelled so the selected period does not imply a different scope.
 - Numeric alignment uses `tabular-nums` where it materially improves scanning, not as a blanket layout rule.
 
 ## 8) Deviation policy (required note in handoff)
@@ -82,11 +82,11 @@ The Analytics Session spending chart is headed Session spending and uses a
 feature-local native Info disclosure for its explanation. It uses existing slab
 and color tokens, discrete monthly accent bars, restrained grid lines, readable
 month/year labels and a zero-based EUR axis with a few rounded, evenly spaced
-ticks. Calendar Month shows six months ending
+ticks. Calendar Month, 7 Days, and 30 Days use three-month chart context ending
 with the selection; label the chart's wider range and highlight the summary month
 independently of the inspected month. 3 Months/Year use clipped rolling monthly
-buckets, including up to thirteen months; 7 Days/30 Days omit the chart while
-retaining the summary. Keep chart context separate from summary scope.
+buckets, including up to thirteen months. Keep chart context separate from
+summary scope, including for the shorter 7 Days/30 Days summaries.
 
 The SVG plot is the touch selection area and supports dragging, visible keyboard
 focus, arrow keys and Home/End; the adjacent EUR label gutter is outside the hit
@@ -95,7 +95,9 @@ and close it on Escape or blur. Keep its month/year and spend first, with covere
 days and status secondary. At narrow widths, put sparse month labels in a
 full-width row below the shared axis and plot so enlarged text stays readable.
 Preserve inspectable empty/free/unavailable positions without inventing positive
-spending bars. Keep the actual covered range quiet beneath the heading. Mark
+spending bars. Keep the exact chart date range and context quiet beneath the
+heading when chart bounds differ from the summary; its accessible heading and
+table retain the exact covered dates. Mark
 partial boundary months with an asterisk and the current month with MTD, avoiding duplicate markers
 on the current label; explain only applicable abbreviations beneath the plot.
 Keep month/year and spending primary in the two-level tooltip, with covered days

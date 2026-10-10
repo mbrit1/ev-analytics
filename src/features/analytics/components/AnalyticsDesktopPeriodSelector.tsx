@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { formatMonthLabel } from '../../../shared/lib'
@@ -26,6 +27,8 @@ interface AnalyticsDesktopPeriodSelectorProps {
   selectedMonth: CalendarMonth
   currentMonth: CalendarMonth
   onChange: (selection: AnalyticsPeriodSelection) => void
+  rangeDescriptionId: string
+  rangeDescription: ReactNode
 }
 
 /** Month-first desktop period selector with keyboard-dismissable local popovers. */
@@ -34,6 +37,8 @@ export function AnalyticsDesktopPeriodSelector({
   selectedMonth,
   currentMonth,
   onChange,
+  rangeDescriptionId,
+  rangeDescription,
 }: AnalyticsDesktopPeriodSelectorProps) {
   const [popup, setPopup] = useState<'month' | 'ranges' | null>(null)
   const [pickerYear, setPickerYear] = useState(selectedMonth.year)
@@ -96,49 +101,52 @@ export function AnalyticsDesktopPeriodSelector({
   }
 
   return (
-    <div ref={rootRef} className="relative mx-auto w-full max-w-3xl">
+    <div ref={rootRef} role="group" aria-label="Analytics period" aria-describedby={rangeDescriptionId} className="relative mx-auto w-full max-w-3xl">
       <div className="flex w-full items-center gap-2 rounded-xl border border-slab-border bg-surface px-2 py-1.5 shadow-slab">
-        {selection.kind === 'month' ? (
-          <div className="flex min-w-0 items-center gap-1">
-            <button
-              type="button"
-              aria-label="Previous month"
-              data-analytics-period-control="previous-month"
-              className={CONTROL_CLASS}
-              onClick={() => finishSelection({ kind: 'month', month: shiftCalendarMonth(selectedMonth, -1) }, null)}
-            >
-              <ChevronLeft className="h-5 w-5" aria-hidden="true" />
-            </button>
-            <button
-              ref={monthTriggerRef}
-              type="button"
-              aria-label={`Choose calendar month, ${formatMonthLabel(selectedMonth.year, selectedMonth.month)}`}
-              data-analytics-period-control="month"
-              aria-haspopup="dialog"
-              aria-expanded={popup === 'month'}
-              onClick={() => openPopup('month')}
-              className="flex h-11 min-w-0 items-center justify-center gap-2 rounded-lg px-2 text-base font-semibold text-primary hover:bg-slab-border/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-            >
-              <CalendarDays className="h-4 w-4 shrink-0 text-secondary" aria-hidden="true" />
-              <span className="truncate">{formatMonthLabel(selectedMonth.year, selectedMonth.month)}</span>
-              <ChevronDown className="h-4 w-4 shrink-0 text-secondary" aria-hidden="true" />
-            </button>
-            <button
-              type="button"
-              aria-label="Next month"
-              data-analytics-period-control="next-month"
-              disabled={isCurrentMonth}
-              className={CONTROL_CLASS}
-              onClick={() => finishSelection({ kind: 'month', month: shiftCalendarMonth(selectedMonth, 1) }, null)}
-            >
-              <ChevronRight className="h-5 w-5" aria-hidden="true" />
-            </button>
-          </div>
-        ) : (
-          <p className="flex h-11 min-w-0 items-center px-2 text-base font-semibold text-primary">
-            {selectedPreset?.label}
-          </p>
-        )}
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3">
+          {selection.kind === 'month' ? (
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                aria-label="Previous month"
+                data-analytics-period-control="previous-month"
+                className={`${CONTROL_CLASS} shrink-0`}
+                onClick={() => finishSelection({ kind: 'month', month: shiftCalendarMonth(selectedMonth, -1) }, null)}
+              >
+                <ChevronLeft className="h-5 w-5" aria-hidden="true" />
+              </button>
+              <button
+                ref={monthTriggerRef}
+                type="button"
+                aria-label={`Choose calendar month, ${formatMonthLabel(selectedMonth.year, selectedMonth.month)}`}
+                data-analytics-period-control="month"
+                aria-haspopup="dialog"
+                aria-expanded={popup === 'month'}
+                onClick={() => openPopup('month')}
+                className="flex h-11 min-w-0 shrink-0 items-center justify-center gap-2 rounded-lg px-2 text-base font-semibold text-primary hover:bg-slab-border/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              >
+                <CalendarDays className="h-4 w-4 shrink-0 text-secondary" aria-hidden="true" />
+                <span className="truncate">{formatMonthLabel(selectedMonth.year, selectedMonth.month)}</span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-secondary" aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                aria-label="Next month"
+                data-analytics-period-control="next-month"
+                disabled={isCurrentMonth}
+                className={`${CONTROL_CLASS} shrink-0`}
+                onClick={() => finishSelection({ kind: 'month', month: shiftCalendarMonth(selectedMonth, 1) }, null)}
+              >
+                <ChevronRight className="h-5 w-5" aria-hidden="true" />
+              </button>
+            </div>
+          ) : (
+            <p className="flex h-11 min-w-0 shrink-0 items-center px-2 text-base font-semibold text-primary">
+              {selectedPreset?.label}
+            </p>
+          )}
+          {rangeDescription}
+        </div>
         <button
           ref={rangesTriggerRef}
           type="button"
@@ -148,7 +156,7 @@ export function AnalyticsDesktopPeriodSelector({
           aria-expanded={popup === 'ranges'}
           title={selectedPreset ? `Other ranges · ${selectedPreset.label}` : 'Other ranges'}
           onClick={() => openPopup('ranges')}
-          className={`${CONTROL_CLASS} ml-auto gap-2 whitespace-nowrap border border-slab-border px-3 ${selectedPreset ? 'text-accent' : ''}`}
+          className={`${CONTROL_CLASS} ml-auto shrink-0 gap-2 whitespace-nowrap border border-slab-border px-3 ${selectedPreset ? 'text-accent' : ''}`}
         >
           <span>Other ranges</span>
           <ChevronDown className="h-4 w-4 shrink-0" aria-hidden="true" />

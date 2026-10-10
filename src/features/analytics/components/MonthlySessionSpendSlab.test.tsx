@@ -35,7 +35,10 @@ describe('MonthlySessionSpendSlab', () => {
     expect(screen.getByText(/5,02/)).toBeInTheDocument()
     expect(screen.getByText('Average session price')).toBeInTheDocument()
     expect(screen.getByText(/Excludes subscription fees/)).toBeInTheDocument()
-    expect(screen.getByText(/Month to date · In progress/)).toHaveTextContent('1 Jul 2026 – 31 Jul 2026')
+    const summaryHeading = screen.getByRole('heading', { name: /July 2026 summary, 1 Jul – 31 Jul 2026, Month to date, in progress/ })
+    expect(summaryHeading).toHaveTextContent('Summary')
+    expect(summaryHeading).not.toHaveTextContent('1 Jul')
+    expect(screen.queryByText(/1 Jul|In progress|Month to date/)).not.toBeInTheDocument()
   })
 
   it('discloses partial energy and unavailable average', () => {
@@ -82,7 +85,7 @@ describe('MonthlySessionSpendSlab', () => {
     // Arrange / Act
     renderSummary({ isEmpty: true, isCurrentMonth: false, isCompleteMonth: true, totalSessionSpendCents: 0, billedEnergyKwh: null, averageSessionPriceCtPerKwh: null, sessionCount: 0 })
     // Assert
-    expect(screen.getByText(/Completed month/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /June 2026 summary, 1 Jun – 30 Jun 2026, Completed month/ })).toHaveTextContent('Summary')
     expect(screen.queryByRole('button', { name: 'Add Session' })).not.toBeInTheDocument()
   })
 
