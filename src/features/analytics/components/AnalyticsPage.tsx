@@ -89,15 +89,15 @@ export function AnalyticsPage({
           error={monthlyError}
           onAddSession={onAddSession}
         />
-        {trend !== null && (
-          <SessionSpendingTrendSlab
-            period={period}
-            trend={trend}
-            isLoading={isMonthlyLoading}
-            error={monthlyError}
-          />
-        )}
       </section>
+      {trend !== null && (
+        <SessionSpendingTrendSlab
+          period={period}
+          trend={trend}
+          isLoading={isMonthlyLoading}
+          error={monthlyError}
+        />
+      )}
       <section aria-label="Lifetime Overall Price" className="space-y-3">
         <p className="text-xs font-bold uppercase tracking-wider text-secondary">Lifetime · All recorded sessions</p>
         {overallContent}
