@@ -77,3 +77,38 @@ month/year sheet are available only in calendar mode. Preserve modal background 
 focus containment, Escape/backdrop/Cancel dismissal, safe-area padding and focus return.
 Verify that the complete final card can scroll above the fixed bottom dock. Use existing slab and typography tokens,
 keep metric weights consistent, and stack values when available width is insufficient.
+
+The Analytics Session spending chart is headed Session spending and uses a
+feature-local native Info disclosure for its explanation. It uses existing slab
+and color tokens, discrete monthly accent bars, restrained grid lines, readable
+month/year labels and a zero-based EUR axis with a few rounded, evenly spaced
+ticks. Calendar Month shows six months ending
+with the selection; label the chart's wider range and highlight the summary month
+independently of the inspected month. 3 Months/Year use clipped rolling monthly
+buckets, including up to thirteen months; 7 Days/30 Days omit the chart while
+retaining the summary. Keep chart context separate from summary scope.
+
+The SVG plot is the touch selection area and supports dragging, visible keyboard
+focus, arrow keys and Home/End; the adjacent EUR label gutter is outside the hit
+area. Show the tooltip only during pointer, touch, focus or keyboard inspection,
+and close it on Escape or blur. Keep its month/year and spend first, with covered
+days and status secondary. At narrow widths, put sparse month labels in a
+full-width row below the shared axis and plot so enlarged text stays readable.
+Preserve inspectable empty/free/unavailable positions without inventing positive
+spending bars. Keep the actual covered range quiet beneath the heading. Mark
+partial boundary months with an asterisk and the current month with MTD, avoiding duplicate markers
+on the current label; explain only applicable abbreviations beneath the plot.
+Keep month/year and spending primary in the two-level tooltip, with covered days
+and status secondary. Retain exact covered dates and partial/current status in
+accessible inspection text and the table; mark invalid recorded costs as
+unavailable. Preserve distinct loading, query failure, empty-range and recorded-free states.
+
+Keep View monthly values collapsed by default and visually quiet, with visible
+focus and a minimum 44px target. Its complete textual monthly values must match
+the accessible inspection text and announcements, including dates, status, counts and
+unavailable explanations. Use a named, focusable internal table scroller when
+necessary; verify six- and thirteen-bucket charts and expanded values at 320px,
+wider mobile and desktop widths, dark theme and enlarged text. The chart has no
+essential animation. Record Browser evidence separately from physical Safari/PWA
+and spoken screen-reader validation. This remains a local exception, not a new
+shared chart primitive or master design-system rule.

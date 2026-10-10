@@ -32,10 +32,19 @@ const monthlyResult = {
   isEmpty: true,
 }
 const emptyTrend = {
-  startUtc: new Date(2026, 6, 1),
-  endUtc: new Date(2026, 7, 1),
+  startUtc: new Date(2026, 1, 1),
+  endUtc: new Date(2026, 6, 16),
   selectedMonth: { year: 2026, month: 6 },
-  buckets: [],
+  buckets: Array.from({ length: 6 }, (_, index) => ({
+    startUtc: new Date(2026, index + 1, 1),
+    endUtc: index === 5 ? new Date(2026, 6, 16) : new Date(2026, index + 2, 1),
+    totalSessionSpendCents: 0,
+    sessionCount: 0,
+    unit: 'month' as const,
+    month: { year: 2026, month: index + 1 },
+    isCurrentMonth: index === 5,
+    isPartialMonth: index === 5,
+  })),
   unit: 'month' as const,
   isEmpty: true,
 }
@@ -86,7 +95,48 @@ describe('AnalyticsPage', () => {
     expect(screen.queryByRole('tablist', { name: 'Analytics view' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Previous month' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Session spending' })).toBeInTheDocument()
+    expect(screen.getByText('1 Feb – 15 Jul 2026')).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Selected-period analytics' })).queryByRole('heading', { name: 'Session spending' })).not.toBeInTheDocument()
     expect(vi.mocked(useOverallChargingPrice)).toHaveBeenCalledWith('2026-07-15')
+  })
+
+  it('keeps the monthly chart context visible when the selected-month summary is empty', () => {
+    // Arrange: The chart carries six months while the selected-month summary has no sessions.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 6, 15, 12))
+    vi.mocked(useMonthlySessionSpend).mockReturnValue({
+      result: monthlyResult,
+      trend: {
+        ...emptyTrend,
+        startUtc: new Date(2026, 1, 1),
+        endUtc: new Date(2026, 6, 16),
+        buckets: Array.from({ length: 6 }, (_, index) => ({
+          startUtc: new Date(2026, index + 1, 1),
+          endUtc: index === 5 ? new Date(2026, 6, 16) : new Date(2026, index + 2, 1),
+          totalSessionSpendCents: 0,
+          sessionCount: index === 0 ? 1 : 0,
+          unit: 'month' as const,
+          month: { year: 2026, month: index + 1 },
+          isCurrentMonth: false,
+          isPartialMonth: false,
+        })),
+        isEmpty: false,
+      },
+      isLoading: false,
+      error: null,
+    })
+
+    // Act
+    render(<AnalyticsPage onAddSession={vi.fn()} />)
+
+    // Assert: The summary stays selected-month scoped and the chart shows its wider context.
+    expect(screen.getByRole('heading', { name: 'July 2026 summary' })).toBeInTheDocument()
+    expect(screen.getByText(/No charging sessions recorded for this month yet/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Session spending' })).toBeInTheDocument()
+    expect(screen.getByText('1 Feb – 15 Jul 2026')).toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Selected-period analytics' })).queryByRole('heading', { name: 'Session spending' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toBeInTheDocument()
   })
 
   it('shows both sections on mobile and keeps lifetime independent of month selection', async () => {
@@ -278,6 +328,7 @@ describe('AnalyticsPage', () => {
     expect(screen.getByRole('heading', { name: `${label} summary` })).toBeInTheDocument()
     expect(screen.getByText(/No charging sessions recorded for this period yet/)).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Session spending trend' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Session spending' })).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Overall price' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
     await user.click(screen.getByRole('button', { name: 'Add Session' }))
