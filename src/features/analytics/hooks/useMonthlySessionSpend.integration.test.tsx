@@ -50,8 +50,8 @@ describe('selected-period summary local reactivity', () => {
     const timestamp = new Date(2026, 5, 10)
     const session = createSession('local-session', 'analytics-owner', timestamp, 1000)
     const earlierSession = createSession('earlier-local-session', 'analytics-owner', new Date(2026, 5, 1), 500, { kwh_billed: 5 })
-    const chartContextSession = createSession('chart-context', 'analytics-owner', new Date(2026, 0, 15), 700)
-    const otherOwnerContext = createSession('other-owner-context', 'someone-else', new Date(2026, 1, 10), 8800)
+    const chartContextSession = createSession('chart-context', 'analytics-owner', new Date(2026, 3, 15), 700)
+    const otherOwnerContext = createSession('other-owner-context', 'someone-else', new Date(2026, 3, 10), 8800)
     await db.sessions.bulkPut([session, earlierSession, chartContextSession, otherOwnerContext, createSession('other-owner', 'someone-else', timestamp, 9900)])
     const monthPeriodNow = new Date(2026, 6, 1)
     const now = new Date(2026, 5, 10, 8)
@@ -82,7 +82,7 @@ describe('selected-period summary local reactivity', () => {
     // Act: Narrow to seven days, then widen to thirty after the local edit.
     rerender({ period: createAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, now) })
     await waitFor(() => expect(result.current.result).toMatchObject({ totalSessionSpendCents: 2400, billedEnergyKwh: 20, sessionCount: 1 }))
-    expect(result.current.trend).toBeNull()
+    expect(result.current.trend).not.toBeNull()
     const editedSession = { ...session, total_cost: 2800, kwh_billed: 25 }
     await act(async () => {
       await db.transaction('rw', db.sessions, db.sync_outbox, async () => {
@@ -91,32 +91,72 @@ describe('selected-period summary local reactivity', () => {
       })
     })
     await waitFor(() => expect(result.current.result).toMatchObject({ totalSessionSpendCents: 2800, billedEnergyKwh: 25, averageSessionPriceCtPerKwh: 112, sessionCount: 1 }))
-    expect(result.current.trend).toBeNull()
+    expect(result.current.trend).not.toBeNull()
     expect(await db.sync_outbox.count()).toBe(2)
 
     // Act: Move the local session outside the selected week without changing its recorded cost.
     await act(async () => { await db.sessions.update(session.id, { session_timestamp: new Date(2026, 5, 2) }) })
 
-    // Assert: The moved record disappears from the selected summary; no short-range chart is exposed.
+    // Assert: The moved record disappears from the selected summary while the context chart remains available.
     await waitFor(() => expect(result.current.result).toMatchObject({ totalSessionSpendCents: 0, sessionCount: 0, isEmpty: true }))
-    expect(result.current.trend).toBeNull()
+    expect(result.current.trend).not.toBeNull()
 
     // Act: Move it back into the selected week with an invalid recorded cost.
     await act(async () => {
       await db.sessions.update(session.id, { session_timestamp: timestamp, total_cost: Number.NaN })
     })
 
-    // Assert: Invalid cents remain unavailable in the summary, while the short-range chart stays absent.
+    // Assert: Invalid cents remain unavailable in the summary and their chart context remains inspectable.
     await waitFor(() => expect(result.current.result).toMatchObject({ totalSessionSpendCents: null, sessionCount: 1 }))
-    expect(result.current.trend).toBeNull()
+    expect(result.current.trend).not.toBeNull()
 
     // Act: Soft-delete the invalid record locally.
     await act(async () => { await db.sessions.update(session.id, { deleted_at: timestamp }) })
     await waitFor(() => expect(result.current.result).toMatchObject({ totalSessionSpendCents: 0, isEmpty: true, averageSessionPriceCtPerKwh: null }))
-    expect(result.current.trend).toBeNull()
+    expect(result.current.trend).not.toBeNull()
     rerender({ period: createAnalyticsPeriod({ kind: 'preset', preset: '30-days' }, now) })
     await waitFor(() => expect(result.current.result).toMatchObject({ totalSessionSpendCents: 500, billedEnergyKwh: 5, sessionCount: 1 }))
-    expect(result.current.trend).toBeNull()
+    expect(result.current.trend).not.toBeNull()
+  })
+
+  it('keeps a short-period summary scoped while its three-month local chart context changes', async () => {
+    // Arrange: One selected-week session and one earlier context session are stored locally.
+    const now = new Date(2026, 5, 10, 12)
+    const selected = createSession('short-selected', 'analytics-owner', new Date(2026, 5, 10, 10), 1200)
+    const context = createSession('short-context', 'analytics-owner', new Date(2026, 3, 12, 10), 300)
+    await db.sessions.bulkAdd([selected, context])
+    const period = createAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, now)
+    const { result } = renderHook(() => useMonthlySessionSpend(period))
+    await waitFor(() => expect(result.current.result.totalSessionSpendCents).toBe(1200))
+    const selectedSummary = result.current.result
+
+    // Act: Make only the earlier three-month context cost invalid through an offline write.
+    await act(async () => {
+      await db.transaction('rw', db.sessions, db.sync_outbox, async () => {
+        await db.sessions.update(context.id, { total_cost: Number.NaN })
+        await db.sync_outbox.add({ table_name: 'sessions', action: 'UPDATE', payload: { ...context, total_cost: Number.NaN }, timestamp: now })
+      })
+    })
+
+    // Assert: Context is unavailable in the chart while the 7-day summary remains unchanged.
+    await waitFor(() => expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 3)?.totalSessionSpendCents).toBeNull())
+    expect(result.current.trend).not.toBeNull()
+    expect(result.current.result).toEqual(selectedSummary)
+    expect(await db.sync_outbox.count()).toBe(1)
+
+    // Act: Update the selected session locally and queue it for later synchronization.
+    await act(async () => {
+      await db.transaction('rw', db.sessions, db.sync_outbox, async () => {
+        await db.sessions.update(selected.id, { total_cost: 1800 })
+        await db.sync_outbox.add({ table_name: 'sessions', action: 'UPDATE', payload: { ...selected, total_cost: 1800 }, timestamp: now })
+      })
+    })
+
+    // Assert: The selected summary and chart bucket react while the invalid context stays isolated.
+    await waitFor(() => expect(result.current.result.totalSessionSpendCents).toBe(1800))
+    expect(result.current.trend!.buckets.at(-1)).toMatchObject({ month: { year: 2026, month: 5 }, totalSessionSpendCents: 1800 })
+    expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 3)?.totalSessionSpendCents).toBeNull()
+    expect(await db.sync_outbox.count()).toBe(2)
   })
 
   it('keeps the selected summary fixed while chart context is created, moved and deleted offline', async () => {
@@ -130,7 +170,7 @@ describe('selected-period summary local reactivity', () => {
     const selectedSummary = result.current.result
 
     // Act: Add an unsynced prior-month record and a row just before chart start.
-    const preceding = createSession('preceding', 'analytics-owner', new Date(2026, 2, 20), 300)
+    const preceding = createSession('preceding', 'analytics-owner', new Date(2026, 3, 20), 300)
     const beforeChart = createSession('before-chart', 'analytics-owner', new Date(2025, 11, 31, 23, 59), 900)
     await act(async () => {
       await db.transaction('rw', db.sessions, db.sync_outbox, async () => {
@@ -140,7 +180,7 @@ describe('selected-period summary local reactivity', () => {
     })
 
     // Assert: Wider chart context updates, while the selected summary does not.
-    await waitFor(() => expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 2)).toMatchObject({ totalSessionSpendCents: 300, sessionCount: 1 }))
+    await waitFor(() => expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 3)).toMatchObject({ totalSessionSpendCents: 300, sessionCount: 1 }))
     expect(result.current.trend!.buckets.reduce((sum, bucket) => sum + (bucket.totalSessionSpendCents ?? 0), 0)).toBe(1500)
     expect(result.current.result).toEqual(selectedSummary)
     expect(await db.sync_outbox.count()).toBe(1)
@@ -152,7 +192,7 @@ describe('selected-period summary local reactivity', () => {
         await db.sync_outbox.add({ table_name: 'sessions', action: 'UPDATE', payload: { ...preceding, total_cost: 500 }, timestamp: selectedTimestamp })
       })
     })
-    await waitFor(() => expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 2)?.totalSessionSpendCents).toBe(500))
+    await waitFor(() => expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 3)?.totalSessionSpendCents).toBe(500))
     expect(result.current.result).toEqual(selectedSummary)
 
     await act(async () => {
@@ -161,7 +201,7 @@ describe('selected-period summary local reactivity', () => {
         await db.sync_outbox.add({ table_name: 'sessions', action: 'UPDATE', payload: { ...preceding, total_cost: Number.NaN }, timestamp: selectedTimestamp })
       })
     })
-    await waitFor(() => expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 2)?.totalSessionSpendCents).toBeNull())
+    await waitFor(() => expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 3)?.totalSessionSpendCents).toBeNull())
     expect(result.current.result).toEqual(selectedSummary)
 
     await act(async () => {
@@ -170,19 +210,19 @@ describe('selected-period summary local reactivity', () => {
         await db.sync_outbox.add({ table_name: 'sessions', action: 'UPDATE', payload: preceding, timestamp: selectedTimestamp })
       })
     })
-    await waitFor(() => expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 2)?.totalSessionSpendCents).toBe(300))
+    await waitFor(() => expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 3)?.totalSessionSpendCents).toBe(300))
     expect(result.current.result).toEqual(selectedSummary)
 
     // Act: Move the formerly excluded row onto the inclusive chart start, then before it again.
-    await act(async () => { await db.sessions.update(beforeChart.id, { session_timestamp: new Date(2026, 0, 1) }) })
-    await waitFor(() => expect(result.current.trend!.buckets[0]).toMatchObject({ totalSessionSpendCents: 900, sessionCount: 1 }))
+    await act(async () => { await db.sessions.update(beforeChart.id, { session_timestamp: new Date(2026, 3, 1) }) })
+    await waitFor(() => expect(result.current.trend!.buckets[0]).toMatchObject({ totalSessionSpendCents: 1200, sessionCount: 2 }))
     expect(result.current.result).toEqual(selectedSummary)
-    await act(async () => { await db.sessions.update(beforeChart.id, { session_timestamp: new Date(2025, 11, 31, 23, 59) }) })
-    await waitFor(() => expect(result.current.trend!.buckets[0]).toMatchObject({ totalSessionSpendCents: 0, sessionCount: 0 }))
+    await act(async () => { await db.sessions.update(beforeChart.id, { session_timestamp: new Date(2026, 2, 31, 23, 59) }) })
+    await waitFor(() => expect(result.current.trend!.buckets[0]).toMatchObject({ totalSessionSpendCents: 300, sessionCount: 1 }))
     expect(result.current.result).toEqual(selectedSummary)
 
     // Act: Move the preceding row to the inclusive chart start, then to the selected month's exclusive end.
-    const chartStart = new Date(2026, 0, 1)
+    const chartStart = new Date(2026, 3, 1)
     await act(async () => { await db.sessions.update(preceding.id, { session_timestamp: chartStart }) })
     await waitFor(() => expect(result.current.trend!.buckets[0]).toMatchObject({ totalSessionSpendCents: 300, sessionCount: 1 }))
     await act(async () => { await db.sessions.update(preceding.id, { session_timestamp: new Date(2026, 6, 1) }) })
@@ -194,10 +234,10 @@ describe('selected-period summary local reactivity', () => {
     expect(result.current.result).toEqual(selectedSummary)
 
     // Act: Restore earlier context, then soft-delete it and wait for the live query.
-    await act(async () => { await db.sessions.update(preceding.id, { session_timestamp: new Date(2026, 2, 20), deleted_at: undefined }) })
+    await act(async () => { await db.sessions.update(preceding.id, { session_timestamp: new Date(2026, 3, 20), deleted_at: undefined }) })
     await waitFor(() => expect(result.current.trend!.buckets.reduce((sum, bucket) => sum + (bucket.totalSessionSpendCents ?? 0), 0)).toBe(1500))
-    await act(async () => { await db.sessions.update(preceding.id, { session_timestamp: new Date(2026, 2, 20), deleted_at: selectedTimestamp }) })
-    await waitFor(() => expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 2)).toMatchObject({ totalSessionSpendCents: 0, sessionCount: 0 }))
+    await act(async () => { await db.sessions.update(preceding.id, { session_timestamp: new Date(2026, 3, 20), deleted_at: selectedTimestamp }) })
+    await waitFor(() => expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 3)).toMatchObject({ totalSessionSpendCents: 0, sessionCount: 0 }))
     expect(result.current.result).toEqual(selectedSummary)
   })
 
@@ -231,9 +271,9 @@ describe('selected-period summary local reactivity', () => {
 
   it('shows a zero selected month while retaining nonempty chart context and recorded free sessions', async () => {
     // Arrange: Prior months include a free session and an older recorded cost with changed pricing metadata.
-    const historicalDate = new Date(2026, 1, 8)
+    const historicalDate = new Date(2026, 3, 8)
     const freeSession = createSession('free', 'analytics-owner', historicalDate, 0)
-    const recorded = createSession('recorded', 'analytics-owner', new Date(2026, 3, 8), 750)
+    const recorded = createSession('recorded', 'analytics-owner', new Date(2026, 4, 8), 750)
     await db.sessions.bulkAdd([freeSession, recorded])
     const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, new Date(2026, 6, 1))
 
@@ -242,12 +282,12 @@ describe('selected-period summary local reactivity', () => {
     await waitFor(() => expect(result.current.result.isEmpty).toBe(true))
 
     // Assert: Empty summary and selected bucket remain zero; historical recorded amounts are preserved.
-    await waitFor(() => expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 3)?.totalSessionSpendCents).toBe(750))
+    await waitFor(() => expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 4)?.totalSessionSpendCents).toBe(750))
     expect(result.current.result.totalSessionSpendCents).toBe(0)
     expect(result.current.trend!.isEmpty).toBe(false)
     expect(result.current.trend!.buckets.at(-1)).toMatchObject({ totalSessionSpendCents: 0, sessionCount: 0 })
-    expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 1)).toMatchObject({ totalSessionSpendCents: 0, sessionCount: 1 })
-    expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 3)).toMatchObject({ totalSessionSpendCents: 750, sessionCount: 1 })
+    expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 3)).toMatchObject({ totalSessionSpendCents: 0, sessionCount: 1 })
+    expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 4)).toMatchObject({ totalSessionSpendCents: 750, sessionCount: 1 })
 
     // Act: Change metadata snapshots without changing the historical recorded cost.
     const previousTrend = result.current.trend
@@ -260,8 +300,8 @@ describe('selected-period summary local reactivity', () => {
 
     // Assert: Chart values continue to use the stored costs, including zero for the free session.
     await waitFor(() => expect(result.current.trend).not.toBe(previousTrend))
-    await waitFor(() => expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 3)).toMatchObject({ totalSessionSpendCents: 750, sessionCount: 1 }))
-    expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 1)).toMatchObject({ totalSessionSpendCents: 0, sessionCount: 1 })
+    await waitFor(() => expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 4)).toMatchObject({ totalSessionSpendCents: 750, sessionCount: 1 }))
+    expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 3)).toMatchObject({ totalSessionSpendCents: 0, sessionCount: 1 })
     expect(result.current.result.totalSessionSpendCents).toBe(0)
   })
 

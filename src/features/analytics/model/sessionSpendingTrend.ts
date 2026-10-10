@@ -1,5 +1,5 @@
 import type { ChargingSession } from '../../charging-sessions'
-import { compareCalendarMonths, getCalendarMonth, shiftCalendarMonth, type AnalyticsPeriod, type CalendarMonth } from './analyticsPeriods'
+import { compareCalendarMonths, createAnalyticsPeriod, getCalendarMonth, type AnalyticsPeriod, type CalendarMonth } from './analyticsPeriods'
 import { calculateMonthlySessionSpend } from './monthlySessionSpend'
 
 /** Recorded spend and coverage for one local calendar month. End is exclusive. */
@@ -32,24 +32,30 @@ export interface SessionSpendingTrend {
   isEmpty: boolean
 }
 
-function isShortPreset(period: AnalyticsPeriod): boolean {
-  return period.selection.kind === 'preset'
-    && (period.selection.preset === '7-days' || period.selection.preset === '30-days')
+function usesThreeMonthContext(period: AnalyticsPeriod): boolean {
+  return period.selection.kind === 'month'
+    || period.selection.preset === '7-days'
+    || period.selection.preset === '30-days'
 }
 
 /** Aggregates local-calendar buckets through the same validity rules as the summary. */
 export function calculateSessionSpendingTrend(
   sessions: readonly ChargingSession[],
   period: AnalyticsPeriod,
-): SessionSpendingTrend | null {
-  if (isShortPreset(period)) return null
+): SessionSpendingTrend {
+  const chartPeriod = usesThreeMonthContext(period)
+    ? {
+        ...createAnalyticsPeriod(
+          { kind: 'preset', preset: '3-months' },
+          new Date(period.endUtc.getTime() - 1),
+        ),
+        isInProgress: period.isInProgress,
+      }
+    : period
 
   const selectedMonth = period.selection.kind === 'month' ? period.selection.month : null
-  const firstMonth = selectedMonth === null ? null : shiftCalendarMonth(selectedMonth, -5)
-  const startUtc = firstMonth === null
-    ? new Date(period.startUtc)
-    : new Date(firstMonth.year, firstMonth.month, 1)
-  const endUtc = new Date(period.endUtc)
+  const startUtc = new Date(chartPeriod.startUtc)
+  const endUtc = new Date(chartPeriod.endUtc)
   const lastIncludedMonth = getCalendarMonth(new Date(endUtc.getTime() - 1))
   const cursor = new Date(startUtc.getFullYear(), startUtc.getMonth(), 1)
 
@@ -61,7 +67,7 @@ export function calculateSessionSpendingTrend(
     const bucketEndUtc = new Date(Math.min(calendarEnd.getTime(), endUtc.getTime()))
     const isCurrentMonth = selectedMonth !== null
       ? period.isCurrentMonth && compareCalendarMonths(month, selectedMonth) === 0
-      : period.isInProgress && compareCalendarMonths(month, lastIncludedMonth) === 0
+      : chartPeriod.isInProgress && compareCalendarMonths(month, lastIncludedMonth) === 0
     const aggregate = calculateMonthlySessionSpend(sessions, {
       startUtc: bucketStartUtc,
       endUtc: bucketEndUtc,

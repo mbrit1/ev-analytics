@@ -73,6 +73,7 @@ export function AnalyticsPage({
       </h1>
       <AnalyticsMonthSelector
         selection={selection}
+        period={period}
         selectedMonth={selectedMonth}
         currentMonth={currentMonth}
         layoutMode={layoutMode}
@@ -90,14 +91,12 @@ export function AnalyticsPage({
           onAddSession={onAddSession}
         />
       </section>
-      {trend !== null && (
-        <SessionSpendingTrendSlab
-          period={period}
-          trend={trend}
-          isLoading={isMonthlyLoading}
-          error={monthlyError}
-        />
-      )}
+      <SessionSpendingTrendSlab
+        period={period}
+        trend={trend}
+        isLoading={isMonthlyLoading}
+        error={monthlyError}
+      />
       <section aria-label="Lifetime Overall Price" className="space-y-3">
         <p className="text-xs font-bold uppercase tracking-wider text-secondary">Lifetime · All recorded sessions</p>
         {overallContent}

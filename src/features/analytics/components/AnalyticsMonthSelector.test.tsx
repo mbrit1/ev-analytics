@@ -1,8 +1,15 @@
 import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import type { AnalyticsPeriodSelection } from '../model/analyticsPeriods'
-import { AnalyticsMonthSelector } from './AnalyticsMonthSelector'
+import type { AnalyticsPeriod, AnalyticsPeriodSelection } from '../model/analyticsPeriods'
+import { createAnalyticsPeriod } from '../model/analyticsPeriods'
+import { AnalyticsMonthSelector as Selector, type AnalyticsMonthSelectorProps } from './AnalyticsMonthSelector'
+
+const defaultPeriod = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 6 } }, new Date(2026, 6, 15, 12))
+
+function AnalyticsMonthSelector(props: Omit<AnalyticsMonthSelectorProps, 'period'> & { period?: AnalyticsPeriod }) {
+  return <Selector {...props} period={props.period ?? defaultPeriod} />
+}
 
 /**
  * Test suite for the analytics period selector.
@@ -10,6 +17,89 @@ import { AnalyticsMonthSelector } from './AnalyticsMonthSelector'
  * Verifies keyboard-accessible period choices and prevention of future months.
  */
 describe('AnalyticsMonthSelector', () => {
+  const rangeCases = [
+    ['current month', { kind: 'month', month: { year: 2026, month: 9 } } as const, '1 Oct – 9 Oct 2026 · Month to date · In progress'],
+    ['historical month', { kind: 'month', month: { year: 2026, month: 6 } } as const, '1 Jul – 31 Jul 2026 · Completed month'],
+    ['7 Days', { kind: 'preset', preset: '7-days' } as const, '3 Oct – 9 Oct 2026 · In progress'],
+    ['30 Days', { kind: 'preset', preset: '30-days' } as const, '10 Sept – 9 Oct 2026 · In progress'],
+    ['3 Months', { kind: 'preset', preset: '3-months' } as const, '10 Jul – 9 Oct 2026 · In progress'],
+    ['Year', { kind: 'preset', preset: 'year' } as const, '10 Oct 2025 – 9 Oct 2026 · In progress'],
+  ] as const
+  const rangeLayoutCases = rangeCases.flatMap((rangeCase) => (
+    (['bottom-dock', 'sidebar'] as const).map((layoutMode) => [...rangeCase, layoutMode] as const)
+  ))
+
+  it.each(rangeLayoutCases)('renders a shared period range across responsive layouts', (_label, selection, expected, layoutMode) => {
+    // Arrange: Build the selected current, historical, or rolling period against a fixed date.
+    const now = new Date(2026, 9, 9, 12)
+    const period = createAnalyticsPeriod(selection, now)
+    // Act: Render that period in the selected responsive layout.
+    render(
+      <AnalyticsMonthSelector
+        selection={selection}
+        selectedMonth={{ year: 2026, month: 9 }}
+        currentMonth={{ year: 2026, month: 9 }}
+        period={period}
+        layoutMode={layoutMode}
+        onChange={vi.fn()}
+      />,
+    )
+
+    // Assert: The single compact range and progress state describe the selector controls.
+    expect(screen.getByText(expected)).toBeInTheDocument()
+    expect(screen.getAllByText(expected)).toHaveLength(1)
+    expect(screen.getByRole('group', { name: 'Analytics period' })).toHaveAccessibleDescription(expected)
+    const controls = screen.getByRole('group', { name: 'Analytics period' })
+    const range = screen.getByText(expected)
+    if (layoutMode === 'sidebar') {
+      expect(controls).toContainElement(range)
+    } else {
+      expect(controls).not.toContainElement(range)
+      expect(controls.compareDocumentPosition(range) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    }
+  })
+
+  it.each(['bottom-dock', 'sidebar'] as const)('keeps one described range in %s layout and updates it with the period', (layoutMode) => {
+    // Arrange: Render the current month with a controlled period and switchable layout.
+    const now = new Date(2026, 9, 9, 12)
+    const currentSelection = { kind: 'month', month: { year: 2026, month: 9 } } as const
+    const { rerender } = render(
+      <AnalyticsMonthSelector
+        selection={currentSelection}
+        selectedMonth={currentSelection.month}
+        currentMonth={currentSelection.month}
+        period={createAnalyticsPeriod(currentSelection, now)}
+        layoutMode={layoutMode}
+        onChange={vi.fn()}
+      />,
+    )
+
+    // Assert: The compact range is a single line and describes the responsive controls.
+    expect(screen.getAllByText('1 Oct – 9 Oct 2026 · Month to date · In progress')).toHaveLength(1)
+    const controls = screen.getByRole('group', { name: 'Analytics period' })
+    expect(controls).toHaveAccessibleDescription('1 Oct – 9 Oct 2026 · Month to date · In progress')
+    const range = screen.getByText('1 Oct – 9 Oct 2026 · Month to date · In progress')
+    if (layoutMode === 'sidebar') expect(controls).toContainElement(range)
+    else expect(controls.compareDocumentPosition(range) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    // Act: Change to a completed historical month without changing the layout.
+    const historicalSelection = { kind: 'month', month: { year: 2026, month: 6 } } as const
+    rerender(
+      <AnalyticsMonthSelector
+        selection={historicalSelection}
+        selectedMonth={historicalSelection.month}
+        currentMonth={currentSelection.month}
+        period={createAnalyticsPeriod(historicalSelection, now)}
+        layoutMode={layoutMode}
+        onChange={vi.fn()}
+      />,
+    )
+
+    // Assert: The one description updates together with the selected dates.
+    expect(screen.getAllByText('1 Jul – 31 Jul 2026 · Completed month')).toHaveLength(1)
+    expect(screen.getByRole('group', { name: 'Analytics period' })).toHaveAccessibleDescription('1 Jul – 31 Jul 2026 · Completed month')
+  })
+
   it('navigates backward and disables next at the current month', async () => {
     // Arrange: Render the current month with a change callback.
     const user = userEvent.setup()

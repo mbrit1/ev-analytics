@@ -19,10 +19,11 @@ interface AnalyticsMobilePeriodSelectorProps {
   selectedMonth: CalendarMonth
   currentMonth: CalendarMonth
   onChange: (selection: AnalyticsPeriodSelection) => void
+  rangeDescriptionId: string
 }
 
 /** Month-first mobile controls with modal sheets for calendar and rolling-period choices. */
-export function AnalyticsMobilePeriodSelector({ selection, selectedMonth, currentMonth, onChange }: AnalyticsMobilePeriodSelectorProps) {
+export function AnalyticsMobilePeriodSelector({ selection, selectedMonth, currentMonth, onChange, rangeDescriptionId }: AnalyticsMobilePeriodSelectorProps) {
   const [panel, setPanel] = useState<'month' | 'options' | null>(null)
   const [pickerYear, setPickerYear] = useState(selectedMonth.year)
   const monthRef = useRef<HTMLButtonElement>(null)
@@ -39,7 +40,7 @@ export function AnalyticsMobilePeriodSelector({ selection, selectedMonth, curren
 
   return (
     <>
-      <div role="group" aria-label="Analytics period" className={`flex w-full items-center ${isMonth ? 'gap-1' : 'gap-2'}`}>
+      <div role="group" aria-label="Analytics period" aria-describedby={rangeDescriptionId} className={`flex w-full items-center ${isMonth ? 'gap-1' : 'gap-2'}`}>
         {isMonth && (
           <button type="button" aria-label="Previous month" data-analytics-period-control="previous-month" className={CONTROL_CLASS} onClick={() => select({ kind: 'month', month: shiftCalendarMonth(selectedMonth, -1) })}>
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
