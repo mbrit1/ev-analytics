@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useSessions } from '../../charging-sessions'
 import type { AnalyticsPeriod } from '../model/analyticsPeriods'
 import { calculateMonthlySessionSpend } from '../model/monthlySessionSpend'
+import { calculateSessionSpendingTrend } from '../model/sessionSpendingTrend'
 
 /** Reactively aggregates spend and billed energy for the selected Analytics period. */
 export function useMonthlySessionSpend(period: AnalyticsPeriod) {
@@ -10,6 +11,10 @@ export function useMonthlySessionSpend(period: AnalyticsPeriod) {
     () => calculateMonthlySessionSpend(sessions, period),
     [sessions, period],
   )
+  const trend = useMemo(
+    () => calculateSessionSpendingTrend(sessions, period),
+    [sessions, period],
+  )
 
-  return { result, isLoading, error }
+  return { result, trend, isLoading, error }
 }
