@@ -5,6 +5,7 @@ import { useMonthlySessionSpend } from '../hooks/useMonthlySessionSpend'
 import { useOverallChargingPrice } from '../hooks/useOverallChargingPrice'
 import { AnalyticsMonthSelector } from './AnalyticsMonthSelector'
 import { MonthlySessionSpendSlab } from './MonthlySessionSpendSlab'
+import { SessionSpendingTrendSlab } from './SessionSpendingTrendSlab'
 import { OverallPriceSlab } from './OverallPriceSlab'
 
 /** Props for the responsive Analytics route composition. */
@@ -33,7 +34,7 @@ export function AnalyticsPage({
   const [selection, setSelection] = useState<AnalyticsPeriodSelection>(() => ({ kind: 'month', month: currentMonth }))
   const period = useMemo(() => createAnalyticsPeriod(selection, now), [selection, now])
   const layoutMode = useAnalyticsLayoutMode()
-  const { result: monthlyResult, isLoading: isMonthlyLoading, error: monthlyError } = useMonthlySessionSpend(period)
+  const { result: monthlyResult, trend, isLoading: isMonthlyLoading, error: monthlyError } = useMonthlySessionSpend(period)
   const overallPriceQuery = useOverallChargingPrice(formatLocalDateKey(now))
 
   useEffect(() => {
@@ -80,7 +81,7 @@ export function AnalyticsPage({
           setSelection(nextSelection)
         }}
       />
-      <section aria-label="Selected-period analytics">
+      <section aria-label="Selected-period analytics" className="space-y-4">
         <MonthlySessionSpendSlab
           period={period}
           result={monthlyResult}
@@ -88,6 +89,14 @@ export function AnalyticsPage({
           error={monthlyError}
           onAddSession={onAddSession}
         />
+        {trend !== null && (
+          <SessionSpendingTrendSlab
+            period={period}
+            trend={trend}
+            isLoading={isMonthlyLoading}
+            error={monthlyError}
+          />
+        )}
       </section>
       <section aria-label="Lifetime Overall Price" className="space-y-3">
         <p className="text-xs font-bold uppercase tracking-wider text-secondary">Lifetime · All recorded sessions</p>

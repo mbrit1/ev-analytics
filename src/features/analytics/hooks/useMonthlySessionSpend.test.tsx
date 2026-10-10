@@ -56,6 +56,9 @@ describe('useMonthlySessionSpend', () => {
     expect(result.current.isLoading).toBe(true)
     expect(result.current.result.totalSessionSpendCents).toBe(1234)
     expect(result.current.result.billedEnergyKwh).toBe(18.4)
+    expect(result.current.trend).toMatchObject({ selectedMonth: { year: 2026, month: 5 } })
+    expect(result.current.trend).not.toBeNull()
+    expect(result.current.trend!.buckets.at(-1)?.totalSessionSpendCents).toBe(1234)
   })
 
   it('recalculates when the selected month changes', () => {
@@ -84,6 +87,9 @@ describe('useMonthlySessionSpend', () => {
     expect(result.current.result.totalSessionSpendCents).toBe(3400)
     expect(result.current.result.billedEnergyKwh).toBe(10)
     expect(result.current.result.isCurrentMonth).toBe(true)
+    expect(result.current.trend).not.toBeNull()
+    expect(result.current.trend!.buckets.at(-1)?.totalSessionSpendCents).toBe(3400)
+    expect(result.current.trend!.buckets.reduce((sum, bucket) => sum + (bucket.totalSessionSpendCents ?? 0), 0)).toBe(4600)
   })
 
   it('recalculates when the selected preset changes', () => {
@@ -106,11 +112,13 @@ describe('useMonthlySessionSpend', () => {
 
     // Act: Widen the selection from seven to thirty calendar days.
     expect(result.current.result.totalSessionSpendCents).toBe(3400)
+    expect(result.current.trend).toBeNull()
     rerender({ period: createAnalyticsPeriod({ kind: 'preset', preset: '30-days' }, now) })
 
     // Assert: The earlier session enters the shared selected period.
     expect(result.current.result.totalSessionSpendCents).toBe(4600)
     expect(result.current.result.sessionCount).toBe(2)
+    expect(result.current.trend).toBeNull()
   })
   it('exposes session query errors without treating them as an empty result', () => {
     // Arrange
@@ -121,6 +129,9 @@ describe('useMonthlySessionSpend', () => {
     const { result } = renderHook(() => useMonthlySessionSpend(period))
     // Assert
     expect(result.current).toHaveProperty('error', error)
+    expect(result.current.result.isEmpty).toBe(true)
+    expect(result.current.trend).not.toBeNull()
+    expect(result.current.trend!.buckets).toHaveLength(6)
   })
 
 })

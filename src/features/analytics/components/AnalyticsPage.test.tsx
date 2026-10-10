@@ -31,6 +31,14 @@ const monthlyResult = {
   isCompleteMonth: false,
   isEmpty: true,
 }
+const emptyTrend = {
+  startUtc: new Date(2026, 6, 1),
+  endUtc: new Date(2026, 7, 1),
+  selectedMonth: { year: 2026, month: 6 },
+  buckets: [],
+  unit: 'month' as const,
+  isEmpty: true,
+}
 
 const readyOverallPrice: OverallChargingPriceQueryState = {
   status: 'success',
@@ -53,7 +61,7 @@ const readyOverallPrice: OverallChargingPriceQueryState = {
  */
 describe('AnalyticsPage', () => {
   beforeEach(() => {
-    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, isLoading: false, error: null })
+    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, trend: emptyTrend, isLoading: false, error: null })
     vi.mocked(useOverallChargingPrice).mockReturnValue(readyOverallPrice)
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('sidebar')
   })
@@ -136,17 +144,51 @@ describe('AnalyticsPage', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(new Date(2026, 6, 31, 23, 59, 59))
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
+    vi.mocked(useMonthlySessionSpend).mockImplementation((period) => {
+      const bucketStart = new Date(period.startUtc)
+      const bucketEnd = new Date(bucketStart)
+      bucketEnd.setDate(bucketEnd.getDate() + 1)
+      const cents = bucketStart.getDate() * 100
+      return {
+        result: { ...monthlyResult, totalSessionSpendCents: cents, sessionCount: 1, isEmpty: false },
+        trend: period.selection.kind === 'preset' && (period.selection.preset === '7-days' || period.selection.preset === '30-days')
+          ? null
+          : {
+            startUtc: bucketStart,
+            endUtc: bucketEnd,
+            selectedMonth: period.selection.kind === 'month' ? period.selection.month : null,
+            unit: 'month',
+            isEmpty: false,
+            buckets: [{
+              startUtc: bucketStart,
+              endUtc: bucketEnd,
+              month: { year: bucketStart.getFullYear(), month: bucketStart.getMonth() },
+              totalSessionSpendCents: cents,
+              sessionCount: 1,
+              unit: 'month',
+              isCurrentMonth: period.isCurrentMonth,
+              isPartialMonth: false,
+            }],
+          },
+        isLoading: false,
+        error: null,
+      }
+    })
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<AnalyticsPage onAddSession={vi.fn()} />)
     await user.click(screen.getByRole('button', { name: 'Previous month' }))
     await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
     await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: '7 Days' }))
 
+    // Assert: The short preset omits the chart while preserving its summary.
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument()
+
     // Act: Cross both local day and month boundaries while Analytics stays mounted.
     await act(() => vi.advanceTimersByTimeAsync(1_000))
 
     // Assert: The period refreshes in place and the preset remains selected.
     expect(screen.getByText('7 Days')).toBeInTheDocument()
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument()
     expect(screen.getByText('In progress · 26 Jul 2026 – 1 Aug 2026')).toBeInTheDocument()
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0].selection)
       .toEqual({ kind: 'preset', preset: '7-days' })
@@ -155,6 +197,7 @@ describe('AnalyticsPage', () => {
       endUtc: new Date(2026, 7, 2),
     })
     expect(screen.getByText('7 Days summary')).toBeInTheDocument()
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument()
 
     // Act: Return to calendar mode after the day and month rollover.
     await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
@@ -206,6 +249,41 @@ describe('AnalyticsPage', () => {
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0].selection)
       .toEqual({ kind: 'month', month: { year: 2026, month: 6 } })
     expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
+  })
+
+  it.each([
+    ['7 Days', '7-days'],
+    ['30 Days', '30-days'],
+  ] as const)('keeps summary and lifetime actions when the %s chart is absent', async (label, preset) => {
+    // Arrange
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date(2026, 6, 15, 12))
+    vi.mocked(useMonthlySessionSpend).mockImplementation((period) => ({
+      result: monthlyResult,
+      trend: period.selection.kind === 'preset' && period.selection.preset === preset
+        ? null
+        : emptyTrend,
+      isLoading: false,
+      error: null,
+    }))
+    const onAddSession = vi.fn()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AnalyticsPage onAddSession={onAddSession} />)
+
+    // Act
+    await user.click(screen.getByRole('button', { name: /^Other ranges/ }))
+    await user.click(within(screen.getByRole('dialog', { name: 'Other ranges' })).getByRole('button', { name: label }))
+
+    // Assert
+    expect(screen.getByRole('heading', { name: `${label} summary` })).toBeInTheDocument()
+    expect(screen.getByText(/No charging sessions recorded for this period yet/)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Session spending trend' })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Overall price' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
+    await user.click(screen.getByRole('button', { name: 'Add Session' }))
+    expect(onAddSession).toHaveBeenCalledOnce()
+    expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0].selection)
+      .toEqual({ kind: 'preset', preset })
   })
 
   it('passes the bottom-dock layout through to the Overall Price information sheet', async () => {
@@ -313,12 +391,12 @@ describe('AnalyticsPage', () => {
   })
   it('keeps lifetime available during a monthly query failure and recovers', () => {
     // Arrange
-    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, isLoading: false, error: new Error('read failed') })
+    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, trend: emptyTrend, isLoading: false, error: new Error('read failed') })
     const { rerender } = render(<AnalyticsPage onAddSession={vi.fn()} />)
     // Act / Assert
-    expect(screen.getByRole('alert')).toHaveTextContent('Unable to load the summary')
+    expect(screen.getByText('Unable to load the summary. Please try again.')).toHaveAttribute('role', 'alert')
     expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
-    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, isLoading: false, error: null })
+    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, trend: emptyTrend, isLoading: false, error: null })
     rerender(<AnalyticsPage onAddSession={vi.fn()} />)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.getByText('0 charging sessions')).toBeInTheDocument()
