@@ -15,7 +15,7 @@ function jsonResponse(status, json) {
 }
 
 /** Builds a deterministic RLS-aware REST mock with no network boundary. */
-function createFetchMock() {
+function createFetchMock({ crossUserPatchTable } = {}) {
   const rows = new Map()
   const calls = []
   const next = new Map(Object.entries(ids).map(([table, values]) => [table, [...values]]))
@@ -55,14 +55,23 @@ function createFetchMock() {
       if (method === 'POST') {
         const value = body[0]
         if (value.user_id !== actor || !ownForeignKeys(table, value)) return jsonResponse(403, { message: 'denied' })
-        const row = { ...value, id: value.id || next.get(table).shift(), notes: value.notes }
+        const row = { ...value, id: value.id || next.get(table).shift() }
         rows.get(table).set(row.id, row)
         return jsonResponse(201, [row])
       }
       const row = id ? rows.get(table).get(id) : undefined
       if (method === 'GET') return jsonResponse(200, row?.user_id === actor ? [row] : [])
       if (method === 'PATCH') {
-        if (row?.user_id === actor) Object.assign(row, body)
+        const mutableFields = {
+          providers: ['name'],
+          charging_plans: ['notes'],
+          provider_plan_selections: ['price_snapshot'],
+          charging_sessions: ['notes'],
+        }[table] || []
+        if (Object.keys(body).some((field) => !mutableFields.includes(field))) {
+          return jsonResponse(400, { message: 'column does not exist' })
+        }
+        if (row?.user_id === actor || (table === crossUserPatchTable && actor === user2.id)) Object.assign(row, body)
         return jsonResponse(200, row?.user_id === actor ? [row] : [])
       }
       if (method === 'DELETE') {
@@ -116,8 +125,49 @@ describe('verify-rls-live', () => {
     assert.ok(crossOwner.some((call) => call.table === 'charging_sessions' && call.body[0].plan_selection_id === '50000000-0000-0000-0000-000000000002'))
     const cleanup = mock.calls.filter((call) => call.kind === 'rest' && call.method === 'DELETE' && call.actor === user1.id).slice(-4).map((call) => call.table)
     assert.deepEqual(cleanup, ['charging_sessions', 'provider_plan_selections', 'charging_plans', 'providers'])
+    const updateCalls = mock.calls.filter((call) => call.kind === 'rest' && call.method === 'PATCH')
+    const ownerUpdates = Object.fromEntries(updateCalls.filter((call) => call.actor === user1.id).map((call) => [call.table, call.body]))
+    const otherUpdates = Object.fromEntries(updateCalls.filter((call) => call.actor === user2.id).map((call) => [call.table, call.body]))
+    assert.deepEqual(ownerUpdates, {
+      providers: { name: 'RLS probe owner provider updated' },
+      charging_plans: { notes: 'owner update charging_plans' },
+      provider_plan_selections: { price_snapshot: { ac_price_per_kwh: 46, session_fee: 0 } },
+      charging_sessions: { notes: 'owner update charging_sessions' },
+    })
+    assert.deepEqual(otherUpdates, {
+      providers: { name: 'RLS probe other provider updated' },
+      charging_plans: { notes: 'cross-user update charging_plans' },
+      provider_plan_selections: { price_snapshot: { ac_price_per_kwh: 47, session_fee: 0 } },
+      charging_sessions: { notes: 'cross-user update charging_sessions' },
+    })
     assert.ok(logs.some((line) => line.includes('foreign keys reject')))
     assert.ok(logs.every((line) => !line.includes(user1.token) && !line.includes(user2.token)))
+  })
+
+  it('detects cross-user changes to each table-specific owner mutation field', async () => {
+    // Arrange: Make one cross-user update bypass the mock policy for each domain table.
+    const values = ['50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002']
+    const config = resolveConfig({}, {
+      SUPABASE_URL: 'https://example.test', SUPABASE_ANON_KEY: 'publishable-test-key',
+      RLS_USER1_EMAIL: 'owner@example.test', RLS_USER1_PASSWORD: 'owner-password',
+      RLS_USER2_EMAIL: 'other@example.test', RLS_USER2_PASSWORD: 'other-password',
+    })
+
+    // Act and assert: Every table-specific equality check detects a changed owner value.
+    for (const [table, valueField] of [
+      ['providers', 'name'],
+      ['charging_plans', 'notes'],
+      ['provider_plan_selections', 'price_snapshot'],
+      ['charging_sessions', 'notes'],
+    ]) {
+      const mock = createFetchMock({ crossUserPatchTable: table })
+      await assert.rejects(
+        runVerification({ config, fetchImpl: mock.fetch, idFactory: () => values.shift() }),
+        new RegExp(`Cross-user update changed the ${table} owner row\\.`),
+        `${table}.${valueField} should be checked after a cross-user update`,
+      )
+      values.push('50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002')
+    }
   })
 
   it('keeps CLI and environment parsing compatible without exposing secrets in configuration failures', async () => {

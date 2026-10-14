@@ -1,0 +1,52 @@
+project_id = "ev-analytics-local-stack-experiment"
+
+[experimental]
+stack = true
+
+[api]
+enabled = true
+schemas = ["public"]
+extra_search_path = ["public", "extensions"]
+auto_expose_new_tables = false
+
+[db]
+major_version = 17
+health_timeout = "2m"
+
+[db.migrations]
+enabled = false
+
+[db.seed]
+enabled = false
+sql_paths = []
+
+[studio]
+enabled = true
+
+[auth]
+enabled = true
+enable_signup = false
+enable_anonymous_sign_ins = false
+site_url = "http://127.0.0.1:5173"
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false
+
+[realtime]
+enabled = false
+
+[storage]
+enabled = false
+
+[edge_runtime]
+enabled = false
+
+[local_smtp]
+enabled = false
+
+[analytics]
+enabled = false
+
+[db.pooler]
+enabled = false
