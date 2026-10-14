@@ -24,21 +24,33 @@ and [Docker and native runtimes guide](https://supabase.com/docs/guides/local-de
 
 ## Procedure
 
-Run these commands from retained worktree A, which contains the experiment
-report, config template, and harness. They create worktree B at the schema
-baseline, use temporary tools and runtime directories, and keep CLI
-status JSON and logs private. The CLI archive is downloaded into that
-temporary directory and is not installed globally.
+Run the following as one Bash subshell from retained worktree A (`/bin/bash`
+3.2 or later). The helper only defines functions when sourced. The script
+installs its traps before allocating temporary directories or worktree B, so
+setup, import, and harness errors all reach the same cleanup path. The traps
+preserve worktree B and retain private recovery files whenever stack cleanup or
+safe-path validation fails.
 
-```sh
+```bash
+bash <<'BASH'
 set -eu
 umask 077
 A="$(git rev-parse --show-toplevel)"
-B="${TMPDIR:-/private/tmp}/ev-stack-b-$$"
-TOOLS="$(mktemp -d "${TMPDIR:-/private/tmp}/ev-stack-tools.XXXXXX")"
-RUNTIME="$(mktemp -d "${TMPDIR:-/private/tmp}/ev-stack-runtime.XXXXXX")"
+source "$A/scripts/supabase-stack-experiment-cleanup.sh"
+supabase_stack_experiment_install_cleanup_traps
+
+TASK_TMP_ROOT="$(cd -P "${TMPDIR:-/private/tmp}" && pwd -P)"
+B="$TASK_TMP_ROOT/ev-stack-b-$$"
+TOOLS="$(mktemp -d "$TASK_TMP_ROOT/ev-stack-tools.XXXXXX")"
+SUPABASE_STACK_EXPERIMENT_TOOLS="$TOOLS"
+supabase_stack_experiment_register_tools_dir "$TOOLS"
+RUNTIME="$(mktemp -d "$TASK_TMP_ROOT/ev-stack-runtime.XXXXXX")"
+SUPABASE_STACK_EXPERIMENT_RUNTIME="$RUNTIME"
+supabase_stack_experiment_register_runtime_dir "$RUNTIME"
 mkdir -m 700 "$RUNTIME/supabase-home"
-export SUPABASE_HOME="$RUNTIME/supabase-home"
+SUPABASE_HOME="$RUNTIME/supabase-home"
+supabase_stack_experiment_register_home "$SUPABASE_HOME"
+export SUPABASE_HOME
 
 git worktree add --detach "$B" daa07b0
 curl -fL \
@@ -49,36 +61,33 @@ printf '%s  %s\n' \
   "$TOOLS/supabase.tar.gz" | shasum -a 256 -c -
 tar -xzf "$TOOLS/supabase.tar.gz" -C "$TOOLS"
 CLI="$TOOLS/supabase"
+SUPABASE_STACK_EXPERIMENT_CLI="$CLI"
 
-test ! -e "$A/supabase/config.toml"
-test ! -e "$B/supabase/config.toml"
-cp "$A/experiments/supabase-local-stack/config.toml" "$A/supabase/config.toml"
-cp "$A/experiments/supabase-local-stack/config.toml" "$B/supabase/config.toml"
-(
-  cd "$A"
-  "$CLI" stack start --runtime native --eager --output-format json \
-    >"$TOOLS/start-a.json" 2>"$TOOLS/start-a.stderr"
-  "$CLI" stack status --output-format json >"$TOOLS/status-a.json"
-)
-(
-  cd "$B"
-  "$CLI" stack start --runtime native --eager --output-format json \
-    >"$TOOLS/start-b.json" 2>"$TOOLS/start-b.stderr"
-  "$CLI" stack status --output-format json >"$TOOLS/status-b.json"
-)
+CONFIG_TEMPLATE="$A/experiments/supabase-local-stack/config.toml"
+supabase_stack_experiment_create_config a "$A/supabase/config.toml" "$CONFIG_TEMPLATE"
+supabase_stack_experiment_create_config b "$B/supabase/config.toml" "$CONFIG_TEMPLATE"
+
 id_from_status() {
   node -e 'const s=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); if(typeof s.id!=="string"||!s.id) process.exit(1); process.stdout.write(s.id)' "$1"
 }
+
+export SUPABASE_EXPERIMENTAL_STACK=1
+cd "$A"
+SUPABASE_STACK_EXPERIMENT_START_ATTEMPTED=1
+SUPABASE_HOME="$SUPABASE_HOME" SUPABASE_EXPERIMENTAL_STACK=1 "$CLI" stack start --runtime native --eager --output-format json \
+  >"$TOOLS/start-a.json" 2>"$TOOLS/start-a.stderr"
+SUPABASE_HOME="$SUPABASE_HOME" SUPABASE_EXPERIMENTAL_STACK=1 "$CLI" stack status --output-format json >"$TOOLS/status-a.json" 2>"$TOOLS/status-a.stderr"
 ID_A="$(id_from_status "$TOOLS/status-a.json")"
+SUPABASE_STACK_EXPERIMENT_ID_A="$ID_A"
+cd "$B"
+SUPABASE_HOME="$SUPABASE_HOME" SUPABASE_EXPERIMENTAL_STACK=1 "$CLI" stack start --runtime native --eager --output-format json \
+  >"$TOOLS/start-b.json" 2>"$TOOLS/start-b.stderr"
+SUPABASE_HOME="$SUPABASE_HOME" SUPABASE_EXPERIMENTAL_STACK=1 "$CLI" stack status --output-format json >"$TOOLS/status-b.json" 2>"$TOOLS/status-b.stderr"
 ID_B="$(id_from_status "$TOOLS/status-b.json")"
-```
+SUPABASE_STACK_EXPERIMENT_ID_B="$ID_B"
 
-Import the clean schema separately into both stacks. The guard accepts only a
-PostgreSQL URL with the literal loopback host `127.0.0.1`; credentials reach
-`psql` through environment variables, never command arguments or logs. Child
-output is captured and not printed.
-
-```sh
+# Import separately into both stacks. The endpoint guard accepts only literal
+# loopback; database credentials reach psql through environment variables.
 import_schema() {
   node --input-type=module - "$1" "$2" <<'NODE'
 import { spawnSync } from 'node:child_process'
@@ -107,34 +116,20 @@ NODE
 }
 import_schema "$TOOLS/status-a.json" "$A/supabase/schema.sql"
 import_schema "$TOOLS/status-b.json" "$B/supabase/schema.sql"
-```
 
-Run the Auth/PostgREST isolation harness from A. Its inputs are the protected
-status files and its output is held in a private log. Run the cleanup block
-below even if import or harness validation fails. If a stack start fails before
-it writes a status file, use the isolated stack list to recover only IDs owned
-by this fresh `SUPABASE_HOME`.
-
-```sh
-"$CLI" stack list --output-format json >"$TOOLS/owned-stacks.json"
-```
-
-```sh
+# Preserve the actual harness status so the EXIT trap receives it on failure.
 if node "$A/scripts/supabase-stack-experiment.mjs" \
   "$TOOLS/status-a.json" "$TOOLS/status-b.json" \
   >"$TOOLS/harness.log" 2>&1; then
   echo "Harness passed."
 else
+  harness_status=$?
   echo "Harness failed; inspect the private log."
+  exit "$harness_status"
 fi
-```
 
-The MCP endpoint is read-only for this metadata check. The URL is taken from
-stack A's protected status JSON and accepted only when it is plain HTTP on the
-literal loopback address. The response logger emits only text content from the
-tool result, never request headers or status credentials.
-
-```sh
+# The read-only MCP check accepts plain HTTP loopback and emits text content
+# only; request headers and credentials remain private.
 node --input-type=module - "$TOOLS/status-a.json" <<'NODE'
 import { readFileSync } from 'node:fs'
 
@@ -172,27 +167,53 @@ const content = (envelope.result?.content ?? [])
   .map((block) => block.text)
 console.log(JSON.stringify({ httpStatus: response.status, content }))
 NODE
+exit 0
+BASH
 ```
 
-This query inspects the local database catalog and is separate from JWT
-authorization and row-level security evidence.
+The MCP query inspects the local database catalog separately from JWT
+authorization and row-level security evidence. At shell exit, the helper stops
+and destroys tracked IDs, removes only run-created configs that still match
+the template, then removes the registered temporary directories. A stop,
+destroy, isolated-list, or safe-path failure returns nonzero and retains private
+status files, logs, tools, and runtime for bounded manual recovery. Cleanup
+diagnostics do not include CLI stderr, endpoint URLs, or status bodies. The
+helper always sets `SUPABASE_EXPERIMENTAL_STACK=1` and the dedicated
+`SUPABASE_HOME` for lifecycle calls, never invokes a global stack list, and
+never removes either worktree.
 
-After recording results, stop and destroy only IDs read from this run's status
-files, then remove only the generated configs and temporary directories. Keep
-the reviewable worktrees and report.
+When cleanup retains recovery files, local diagnostics print their private
+`SUPABASE_HOME`, tools, and runtime paths. Keep these paths local. After
+verifying the reported tools directory is still the original private
+directory, inspect only that home's stack list and manually confirm each ID
+belongs to this experiment before stopping or destroying it:
 
-```sh
-for id in "$ID_A" "$ID_B"; do
-  "$CLI" stack stop --stack-id "$id"
-  "$CLI" stack destroy --stack-id "$id" --yes
-done
-rm -f "$A/supabase/config.toml" "$B/supabase/config.toml"
-rm -rf -- "$RUNTIME" "$TOOLS"
+```bash
+RECOVERY_HOME='<reported SUPABASE_HOME path>'
+RECOVERY_TOOLS='<reported private tools directory>'
+RECOVERY_CLI="$RECOVERY_TOOLS/supabase"
+SUPABASE_HOME="$RECOVERY_HOME" SUPABASE_EXPERIMENTAL_STACK=1 \
+  "$RECOVERY_CLI" stack list --output-format json
+
+# After inspecting the list and confirming one ID belongs to this run:
+CONFIRMED_ID='<visually verified run-owned ID>'
+SUPABASE_HOME="$RECOVERY_HOME" SUPABASE_EXPERIMENTAL_STACK=1 \
+  "$RECOVERY_CLI" stack stop --stack-id "$CONFIRMED_ID"
+SUPABASE_HOME="$RECOVERY_HOME" SUPABASE_EXPERIMENTAL_STACK=1 \
+  "$RECOVERY_CLI" stack destroy --stack-id "$CONFIRMED_ID" --yes
 ```
 
-The stack mode and its CLI lifecycle are experimental. These steps and their
-results apply only to the disposable local environment, not managed Supabase
-or production.
+If diagnostics say tools ownership changed, do not execute a CLI from that
+path. Use a separately verified copy of the pinned CLI with the reported
+`SUPABASE_HOME`; do not run global list or act on unverified IDs.
+
+The stack mode and its CLI lifecycle are experimental. The recovery parser is
+intentionally limited to a direct array of `{id}` objects or a
+`{stacks:[{id}]}` response; verify the pinned CLI's actual list envelope before
+relying on automatic recovery after a failed start. An unknown envelope fails
+closed and retains the private recovery files. These steps and their results
+apply only to the disposable local environment, not managed Supabase or
+production.
 
 ## Results
 
@@ -243,9 +264,21 @@ Observed service versions were Auth `2.197.0`, PostgREST `16.4`, pg-meta
 `0.100.0`, Studio `2026.10.05-sha94b8b06`, and PostgreSQL
 `17.11.0.004-r1`.
 
-The focused contract command
+The focused contract command from the earlier live experiment
 `node --test scripts/schema-grants.node-test.mjs scripts/verify-rls-live.node-test.mjs scripts/supabase-stack-experiment.node-test.mjs`
-passed all 16 tests. Syntax checks passed with:
+passed 16 tests at that time, before the cleanup helper was added. Those
+results describe the earlier harness verification only; the cleanup change
+was validated with fake CLI fixtures and did not start a Supabase stack.
+
+The cleanup regression suite passed 28 fake-CLI tests with
+`node --test scripts/supabase-stack-experiment-cleanup.node-test.mjs`, and the
+sourceable helper passed `bash -n scripts/supabase-stack-experiment-cleanup.sh`.
+The current verifier suite passed 17 tests, and the current focused standalone
+suites passed 63 tests in total. These are static/fake-fixture results; the
+strict rejection assertions and cleanup changes have not been live-rerun. The
+historical live matrices did not assert SQLSTATE rejection reasons, so they do
+not establish which SQLSTATEs the revised checks return.
+The earlier syntax checks covered the live verifier and harness files:
 
 ```sh
 node --check scripts/verify-rls-live.mjs && \
