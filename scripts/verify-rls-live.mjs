@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { fileURLToPath } from 'node:url'
+import { isDeepStrictEqual } from 'node:util'
 
 /**
  * Parses the verifier's established command-line flags without interpreting values.
@@ -168,9 +169,28 @@ async function readOne(client, table, id, token, message) {
   return response.json[0]
 }
 
-async function assertOwnerRowUnchanged(client, table, id, token, expectedNotes) {
+async function assertOwnerFieldUnchanged(client, table, id, token, field, expectedValue) {
   const row = await readOne(client, table, id, token, `Owner could not read ${table} after cross-user mutation attempt.`)
-  assert(row.notes === expectedNotes, `Cross-user update changed the ${table} owner row.`)
+  assert(isDeepStrictEqual(row[field], expectedValue), `Cross-user update changed the ${table} owner row.`)
+}
+
+function ownerMutation(table, ownerRow) {
+  if (table === 'providers') {
+    return { field: 'name', ownerValue: 'RLS probe owner provider updated', otherValue: 'RLS probe other provider updated' }
+  }
+  if (table === 'provider_plan_selections') {
+    const currentSnapshot = ownerRow.price_snapshot
+    return {
+      field: 'price_snapshot',
+      ownerValue: { ...currentSnapshot, ac_price_per_kwh: currentSnapshot.ac_price_per_kwh + 1 },
+      otherValue: { ...currentSnapshot, ac_price_per_kwh: currentSnapshot.ac_price_per_kwh + 2 },
+    }
+  }
+  return {
+    field: 'notes',
+    ownerValue: `owner update ${table}`,
+    otherValue: `cross-user update ${table}`,
+  }
 }
 
 async function insertProbe(client, table, body, token) {
@@ -191,11 +211,16 @@ async function verifyTableMatrix(client, table, owner, other, payload, ownerRow,
   assert(anonymous.status === 401 || deniedByTableGrant || deniedByRls, `Unauthenticated read exposed ${table} rows.`)
 
   await readOne(client, table, id, owner.accessToken, `Owner could not read own ${table} row.`)
+  const mutation = ownerMutation(table, ownerRow)
   const ownerUpdate = await client.rest(`${table}?id=eq.${id}`, {
-    method: 'PATCH', token: owner.accessToken, headers: { Prefer: 'return=representation' }, body: { notes: `owner update ${table}` },
+    method: 'PATCH', token: owner.accessToken, headers: { Prefer: 'return=representation' },
+    body: { [mutation.field]: mutation.ownerValue },
   })
   assert(ownerUpdate.ok, safeFailure(`Owner update of ${table}`, ownerUpdate))
-  await assertOwnerRowUnchanged(client, table, id, owner.accessToken, `owner update ${table}`)
+  assert(Array.isArray(ownerUpdate.json) && ownerUpdate.json.length === 1
+    && isDeepStrictEqual(ownerUpdate.json[0][mutation.field], mutation.ownerValue),
+  `Owner update of ${table} did not persist its probe value.`)
+  await assertOwnerFieldUnchanged(client, table, id, owner.accessToken, mutation.field, mutation.ownerValue)
 
   const spoofed = { ...payload, user_id: other.userId }
   const spoofInsert = await client.rest(table, {
@@ -208,12 +233,13 @@ async function verifyTableMatrix(client, table, owner, other, payload, ownerRow,
   assert(Array.isArray(otherRead.json) && otherRead.json.length === 0, `Cross-user read exposed ${table} row.`)
 
   await client.rest(`${table}?id=eq.${id}`, {
-    method: 'PATCH', token: other.accessToken, headers: { Prefer: 'return=representation' }, body: { notes: `cross-user update ${table}` },
+    method: 'PATCH', token: other.accessToken, headers: { Prefer: 'return=representation' },
+    body: { [mutation.field]: mutation.otherValue },
   })
-  await assertOwnerRowUnchanged(client, table, id, owner.accessToken, `owner update ${table}`)
+  await assertOwnerFieldUnchanged(client, table, id, owner.accessToken, mutation.field, mutation.ownerValue)
 
   await client.rest(`${table}?id=eq.${id}`, { method: 'DELETE', token: other.accessToken })
-  await assertOwnerRowUnchanged(client, table, id, owner.accessToken, `owner update ${table}`)
+  await assertOwnerFieldUnchanged(client, table, id, owner.accessToken, mutation.field, mutation.ownerValue)
   log(`[ok] ${table}: anonymous denial, owner CRUD, and cross-user denial verified`)
 }
 
