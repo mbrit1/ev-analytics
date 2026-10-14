@@ -89,6 +89,11 @@ function safeFailure(operation, response) {
   return `${operation} failed: status=${response.status}`
 }
 
+function assertPostgresFailure(response, { status, code, constraint }, message) {
+  const constraintMatches = !constraint || response.json?.message?.includes(`"${constraint}"`)
+  assert(response.status === status && response.json?.code === code && constraintMatches, message)
+}
+
 function probePayloads(userId, ids, suffix) {
   const marker = `RLS probe ${suffix}`
   return {
@@ -203,7 +208,7 @@ async function insertProbe(client, table, body, token) {
   return response.json[0]
 }
 
-async function verifyTableMatrix(client, table, owner, other, payload, ownerRow, log) {
+async function verifyTableMatrix(client, table, owner, other, payload, ownerRow, allocateId, log) {
   const id = ownerRow.id
   const anonymous = await client.rest(`${table}?select=id&limit=1`)
   const deniedByTableGrant = anonymous.status === 403 && anonymous.json?.code === '42501'
@@ -223,47 +228,74 @@ async function verifyTableMatrix(client, table, owner, other, payload, ownerRow,
   await assertOwnerFieldUnchanged(client, table, id, owner.accessToken, mutation.field, mutation.ownerValue)
 
   const spoofed = { ...payload, user_id: other.userId }
+  if (table === 'provider_plan_selections') spoofed.id = allocateId()
   const spoofInsert = await client.rest(table, {
     method: 'POST', token: owner.accessToken, headers: { Prefer: 'return=representation' }, body: [spoofed],
   })
-  assert(!spoofInsert.ok, `Spoofed ownership insert into ${table} was not rejected.`)
+  assertPostgresFailure(spoofInsert, { status: 403, code: '42501' }, `Spoofed ownership insert into ${table} was not denied by RLS.`)
 
   const otherRead = await client.rest(`${table}?select=id&id=eq.${id}`, { token: other.accessToken })
   assert(otherRead.ok, safeFailure(`Cross-user read request for ${table}`, otherRead))
   assert(Array.isArray(otherRead.json) && otherRead.json.length === 0, `Cross-user read exposed ${table} row.`)
 
-  await client.rest(`${table}?id=eq.${id}`, {
+  const otherUpdate = await client.rest(`${table}?id=eq.${id}`, {
     method: 'PATCH', token: other.accessToken, headers: { Prefer: 'return=representation' },
     body: { [mutation.field]: mutation.otherValue },
   })
+  assert(otherUpdate.ok, safeFailure(`Cross-user update request for ${table}`, otherUpdate))
+  assert(Array.isArray(otherUpdate.json) && otherUpdate.json.length === 0, `Cross-user update of ${table} returned a row.`)
   await assertOwnerFieldUnchanged(client, table, id, owner.accessToken, mutation.field, mutation.ownerValue)
 
-  await client.rest(`${table}?id=eq.${id}`, { method: 'DELETE', token: other.accessToken })
+  const otherDelete = await client.rest(`${table}?id=eq.${id}`, {
+    method: 'DELETE', token: other.accessToken, headers: { Prefer: 'return=representation' },
+  })
+  assert(otherDelete.ok, safeFailure(`Cross-user delete request for ${table}`, otherDelete))
+  assert(Array.isArray(otherDelete.json) && otherDelete.json.length === 0, `Cross-user delete of ${table} returned a row.`)
   await assertOwnerFieldUnchanged(client, table, id, owner.accessToken, mutation.field, mutation.ownerValue)
   log(`[ok] ${table}: anonymous denial, owner CRUD, and cross-user denial verified`)
 }
 
-async function verifyCrossOwnerForeignKeys(client, owner, other, ownerPayloads, otherIds, log) {
+async function verifyCrossOwnerForeignKeys(client, owner, ownerPayloads, otherIds, allocateId, log) {
   const attempts = [
-    ['charging_plans provider', 'charging_plans', { ...ownerPayloads.charging_plans, provider_id: otherIds.providerId }],
-    ['selection provider', 'provider_plan_selections', { ...ownerPayloads.provider_plan_selections, id: `${ownerPayloads.provider_plan_selections.id.slice(0, -1)}f`, provider_id: otherIds.providerId }],
-    ['selection plan', 'provider_plan_selections', { ...ownerPayloads.provider_plan_selections, id: `${ownerPayloads.provider_plan_selections.id.slice(0, -1)}e`, tariff_plan_id: otherIds.planId }],
-    ['session provider', 'charging_sessions', { ...ownerPayloads.charging_sessions, provider_id: otherIds.providerId }],
-    ['session plan', 'charging_sessions', { ...ownerPayloads.charging_sessions, tariff_plan_id: otherIds.planId }],
-    ['session selection', 'charging_sessions', { ...ownerPayloads.charging_sessions, plan_selection_id: otherIds.selectionId }],
+    ['charging_plans provider', 'charging_plans', { ...ownerPayloads.charging_plans, provider_id: otherIds.providerId }, 'charging_plans_user_provider_fkey'],
+    ['selection provider', 'provider_plan_selections', { ...ownerPayloads.provider_plan_selections, id: allocateId(), provider_id: otherIds.providerId }, 'provider_plan_selections_user_provider_fkey'],
+    ['selection plan', 'provider_plan_selections', { ...ownerPayloads.provider_plan_selections, id: allocateId(), tariff_plan_id: otherIds.planId }, 'provider_plan_selections_user_tariff_plan_fkey'],
+    ['session provider', 'charging_sessions', { ...ownerPayloads.charging_sessions, provider_id: otherIds.providerId }, 'sessions_user_provider_fkey'],
+    ['session plan', 'charging_sessions', { ...ownerPayloads.charging_sessions, tariff_plan_id: otherIds.planId }, 'sessions_user_tariff_plan_fkey'],
+    ['session selection', 'charging_sessions', { ...ownerPayloads.charging_sessions, plan_selection_id: otherIds.selectionId }, 'sessions_user_plan_selection_fkey'],
   ]
-  for (const [label, table, body] of attempts) {
+  for (const [label, table, body, constraint] of attempts) {
     const response = await client.rest(table, { method: 'POST', token: owner.accessToken, body: [body] })
-    assert(!response.ok, `Cross-owner foreign key (${label}) was accepted.`)
+    assertPostgresFailure(response, { status: 409, code: '23503', constraint }, `Cross-owner foreign key (${label}) did not fail on its ownership constraint.`)
   }
   log('[ok] ownership-scoped foreign keys reject cross-user references')
 }
 
 async function cleanup(client, records, owner, log) {
+  let firstFailure
   for (const { table, id } of [...records].reverse()) {
-    const response = await client.rest(`${table}?id=eq.${id}`, { method: 'DELETE', token: owner.accessToken })
-    assert(response.ok, safeFailure(`Cleanup delete from ${table}`, response))
+    let response
+    try {
+      response = await client.rest(`${table}?id=eq.${id}`, {
+        method: 'DELETE', token: owner.accessToken, headers: { Prefer: 'return=representation' },
+      })
+    } catch (error) {
+      firstFailure ||= error
+      continue
+    }
+    if (!response.ok) firstFailure ||= new Error(safeFailure(`Cleanup delete from ${table}`, response))
+    else if (!Array.isArray(response.json) || response.json.length !== 1 || response.json[0].id !== id) {
+      firstFailure ||= new Error(`Cleanup delete from ${table} did not return the deleted row.`)
+    }
+    try {
+      const remaining = await client.rest(`${table}?select=id&id=eq.${id}`, { token: owner.accessToken })
+      assert(remaining.ok, safeFailure(`Cleanup verification read from ${table}`, remaining))
+      assert(Array.isArray(remaining.json) && remaining.json.length === 0, `Cleanup left the ${table} probe row behind.`)
+    } catch (error) {
+      firstFailure ||= error
+    }
   }
+  if (firstFailure) throw firstFailure
   log('[ok] probe cleanup succeeded in reverse dependency order')
 }
 
@@ -282,12 +314,23 @@ export async function runVerification({ config, fetchImpl = fetch, log = console
   assert(user2.userId && user2.accessToken, 'User2 auth response is missing an id or access token.')
   assert(user1.userId !== user2.userId, 'Users must be different for RLS verification.')
 
-  const ownerIds = { providerId: undefined, planId: undefined, selectionId: idFactory(), sessionId: undefined }
-  const otherIds = { providerId: undefined, planId: undefined, selectionId: idFactory(), sessionId: undefined }
+  const allocatedIds = new Set()
+  const allocateId = () => {
+    const id = idFactory()
+    assert(typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id),
+      'RLS probe ID factory returned a malformed UUID.')
+    const normalizedId = id.toLowerCase()
+    assert(!allocatedIds.has(normalizedId), 'RLS probe ID factory returned a duplicate UUID.')
+    allocatedIds.add(normalizedId)
+    return id
+  }
+  const ownerIds = { providerId: undefined, planId: undefined, selectionId: allocateId(), sessionId: undefined }
+  const otherIds = { providerId: undefined, planId: undefined, selectionId: allocateId(), sessionId: undefined }
   let ownerPayloads = probePayloads(user1.userId, ownerIds, 'owner')
   let otherPayloads = probePayloads(user2.userId, otherIds, 'other')
   const ownerRecords = []
   const otherRecords = []
+  let verificationError
 
   try {
     const ownerProvider = await insertProbe(client, 'providers', ownerPayloads.providers, user1.accessToken)
@@ -325,13 +368,24 @@ export async function runVerification({ config, fetchImpl = fetch, log = console
       ['charging_plans', ownerPayloads.charging_plans, ownerPlan],
       ['provider_plan_selections', ownerPayloads.provider_plan_selections, ownerSelection],
       ['charging_sessions', ownerPayloads.charging_sessions, ownerSession],
-    ]) await verifyTableMatrix(client, table, user1, user2, payload, row, log)
+    ]) await verifyTableMatrix(client, table, user1, user2, payload, row, allocateId, log)
 
-    await verifyCrossOwnerForeignKeys(client, user1, user2, ownerPayloads, otherIds, log)
-  } finally {
-    if (ownerRecords.length) await cleanup(client, ownerRecords, user1, log)
-    if (otherRecords.length) await cleanup(client, otherRecords, user2, log)
+    await verifyCrossOwnerForeignKeys(client, user1, ownerPayloads, otherIds, allocateId, log)
+  } catch (error) {
+    verificationError = error
   }
+  let cleanupError
+  if (ownerRecords.length) {
+    try { await cleanup(client, ownerRecords, user1, log) } catch (error) { cleanupError ||= error }
+  }
+  if (otherRecords.length) {
+    try { await cleanup(client, otherRecords, user2, log) } catch (error) { cleanupError ||= error }
+  }
+  if (verificationError && cleanupError) {
+    throw new Error(`${verificationError.message} Probe cleanup also failed.`, { cause: verificationError })
+  }
+  if (verificationError) throw verificationError
+  if (cleanupError) throw cleanupError
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
