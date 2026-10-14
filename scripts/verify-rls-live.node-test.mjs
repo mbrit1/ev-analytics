@@ -14,8 +14,13 @@ function jsonResponse(status, json) {
   return { ok: status >= 200 && status < 300, status, json: async () => json }
 }
 
+function makeIdFactory(values = []) {
+  let fallback = 0
+  return () => values.shift() || `70000000-0000-0000-0000-${String(++fallback).padStart(12, '0')}`
+}
+
 /** Builds a deterministic RLS-aware REST mock with no network boundary. */
-function createFetchMock({ crossUserPatchTable } = {}) {
+function createFetchMock({ crossUserPatchTable, overrideRequest } = {}) {
   const rows = new Map()
   const calls = []
   const next = new Map(Object.entries(ids).map(([table, values]) => [table, [...values]]))
@@ -24,6 +29,18 @@ function createFetchMock({ crossUserPatchTable } = {}) {
     charging_plans: ['provider_id'],
     provider_plan_selections: ['provider_id', 'tariff_plan_id'],
     charging_sessions: ['provider_id', 'tariff_plan_id', 'plan_selection_id'],
+  }
+  const foreignKeyConstraints = {
+    charging_plans: { provider_id: 'charging_plans_user_provider_fkey' },
+    provider_plan_selections: {
+      provider_id: 'provider_plan_selections_user_provider_fkey',
+      tariff_plan_id: 'provider_plan_selections_user_tariff_plan_fkey',
+    },
+    charging_sessions: {
+      provider_id: 'sessions_user_provider_fkey',
+      tariff_plan_id: 'sessions_user_tariff_plan_fkey',
+      plan_selection_id: 'sessions_user_plan_selection_fkey',
+    },
   }
   const rowFor = (table, id) => rows.get(table)?.get(id)
   const ownForeignKeys = (table, body) => (foreignKeys[table] || []).every((field) => {
@@ -49,13 +66,29 @@ function createFetchMock({ crossUserPatchTable } = {}) {
       const actor = tokenUser.get(token)
       const id = url.searchParams.get('id')?.replace('eq.', '')
       const body = init.body ? JSON.parse(init.body) : undefined
-      calls.push({ kind: 'rest', table, method, actor, id, body })
+      const request = { kind: 'rest', table, method, actor, id, body, headers: init.headers || {} }
+      calls.push(request)
+      const override = overrideRequest?.(request)
+      if (override) return override
       if (!actor) return jsonResponse(401, { message: 'unauthenticated' })
       rows.set(table, rows.get(table) || new Map())
       if (method === 'POST') {
         const value = body[0]
-        if (value.user_id !== actor || !ownForeignKeys(table, value)) return jsonResponse(403, { message: 'denied' })
+        if (value.user_id !== actor) return jsonResponse(403, { code: '42501', message: 'new row violates row-level security policy' })
+        if (!ownForeignKeys(table, value)) {
+          const field = foreignKeys[table].find((candidate) => {
+            const value = body[0][candidate]
+            if (!value) return false
+            const sourceTable = candidate === 'provider_id' ? 'providers' : candidate === 'tariff_plan_id' ? 'charging_plans' : 'provider_plan_selections'
+            return rowFor(sourceTable, value)?.user_id !== body[0].user_id
+          })
+          return jsonResponse(409, {
+            code: '23503',
+            message: `insert or update violates foreign key constraint "${foreignKeyConstraints[table][field]}"`,
+          })
+        }
         const row = { ...value, id: value.id || next.get(table).shift() }
+        if (rows.get(table).has(row.id)) return jsonResponse(409, { code: '23505', message: `duplicate key violates primary key constraint "${table}_pkey"` })
         rows.get(table).set(row.id, row)
         return jsonResponse(201, [row])
       }
@@ -75,8 +108,11 @@ function createFetchMock({ crossUserPatchTable } = {}) {
         return jsonResponse(200, row?.user_id === actor ? [row] : [])
       }
       if (method === 'DELETE') {
-        if (row?.user_id === actor) rows.get(table).delete(id)
-        return jsonResponse(204, [])
+        if (row?.user_id === actor) {
+          rows.get(table).delete(id)
+          return jsonResponse(200, [row])
+        }
+        return jsonResponse(200, [])
       }
       throw new Error(`Unexpected method ${method}`)
     },
@@ -96,10 +132,9 @@ describe('verify-rls-live', () => {
     })
 
     // Act: Exercise every request and assertion path without network access.
-    await runVerification({ config, fetchImpl: mock.fetch, log: (message) => logs.push(message), idFactory: (() => {
-      const values = ['50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002']
-      return () => values.shift()
-    })() })
+    await runVerification({ config, fetchImpl: mock.fetch, log: (message) => logs.push(message), idFactory: makeIdFactory([
+      '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002',
+    ]) })
 
     // Assert: Each domain table receives anonymous, owner, cross-user, and spoofing probes.
     for (const table of ['providers', 'charging_plans', 'provider_plan_selections', 'charging_sessions']) {
@@ -144,6 +179,216 @@ describe('verify-rls-live', () => {
     assert.ok(logs.every((line) => !line.includes(user1.token) && !line.includes(user2.token)))
   })
 
+  it('requires spoofed inserts to fail with the authenticated RLS permission error', async () => {
+    // Arrange: Replace only the owner's spoofed provider insert with unrelated failures.
+    const config = resolveConfig({}, {
+      SUPABASE_URL: 'https://example.test', SUPABASE_ANON_KEY: 'publishable-test-key',
+      RLS_USER1_EMAIL: 'owner@example.test', RLS_USER1_PASSWORD: 'owner-password',
+      RLS_USER2_EMAIL: 'other@example.test', RLS_USER2_PASSWORD: 'other-password',
+    })
+    for (const denial of [
+      { status: 500, body: { code: 'XX000', message: 'internal error' } },
+      { status: 403, body: { code: 'PGRST301', message: 'JWT claim invalid' } },
+    ]) {
+      const base = createFetchMock()
+      const fetchImpl = async (input, init = {}) => {
+        if (new URL(input).pathname === '/rest/v1/providers' && init.method === 'POST'
+          && init.headers?.Authorization === `Bearer ${user1.token}`) {
+          const value = JSON.parse(init.body)[0]
+          if (value.user_id === user2.id) return jsonResponse(denial.status, denial.body)
+        }
+        return base.fetch(input, init)
+      }
+
+      // Act and assert: Generic failures cannot stand in for an RLS denial.
+      await assert.rejects(runVerification({ config, fetchImpl, idFactory: makeIdFactory([
+        '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002',
+      ]) }), /Spoofed ownership insert into providers/)
+    }
+  })
+
+  it('requires each cross-owner reference to fail with its matching foreign-key violation', async () => {
+    // Arrange: Return unrelated SQLSTATE and constraint failures for the provider reference probe.
+    const config = resolveConfig({}, {
+      SUPABASE_URL: 'https://example.test', SUPABASE_ANON_KEY: 'publishable-test-key',
+      RLS_USER1_EMAIL: 'owner@example.test', RLS_USER1_PASSWORD: 'owner-password',
+      RLS_USER2_EMAIL: 'other@example.test', RLS_USER2_PASSWORD: 'other-password',
+    })
+    for (const failure of [
+      { status: 500, body: { code: 'XX000', message: 'internal error' } },
+      { status: 409, body: { code: '23505', message: 'duplicate key violates primary key constraint "charging_plans_pkey"' } },
+      { status: 409, body: { code: '23503', message: 'foreign key violation for constraint "charging_plans_pkey"' } },
+    ]) {
+      const mock = createFetchMock({ overrideRequest: (request) => {
+        if (request.table === 'charging_plans' && request.method === 'POST' && request.actor === user1.id
+          && request.body[0].provider_id === ids.providers[1]) return jsonResponse(failure.status, failure.body)
+        return undefined
+      } })
+
+      // Act and assert: A PK conflict or the wrong FK does not prove ownership scoping.
+      await assert.rejects(runVerification({ config, fetchImpl: mock.fetch, idFactory: makeIdFactory([
+        '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002',
+      ]) }), /Cross-owner foreign key \(charging_plans provider\)/)
+    }
+  })
+
+  it('uses fresh unique ids for every negative insert even when the selection id ends in e or f', async () => {
+    // Arrange: Choose a valid selection id that collides with one of the old derived probe ids.
+    const config = resolveConfig({}, {
+      SUPABASE_URL: 'https://example.test', SUPABASE_ANON_KEY: 'publishable-test-key',
+      RLS_USER1_EMAIL: 'owner@example.test', RLS_USER1_PASSWORD: 'owner-password',
+      RLS_USER2_EMAIL: 'other@example.test', RLS_USER2_PASSWORD: 'other-password',
+    })
+    const ownerSelectionId = '50000000-0000-0000-0000-00000000000e'
+    const otherSelectionId = '50000000-0000-0000-0000-00000000000f'
+    const mock = createFetchMock()
+
+    // Act: Run the full matrix with the collision-prone selection ids.
+    await runVerification({ config, fetchImpl: mock.fetch, idFactory: makeIdFactory([ownerSelectionId, otherSelectionId]) })
+
+    // Assert: Each explicit selection id in a negative insert is distinct from created rows and sibling probes.
+    const ownerSelectionIds = mock.calls
+      .filter((call) => call.method === 'POST' && call.body?.[0]?.user_id === user1.id)
+      .map((call) => call.body[0].id)
+      .filter(Boolean)
+    const allExplicitSelectionIds = mock.calls
+      .filter((call) => call.method === 'POST' && call.table === 'provider_plan_selections')
+      .map((call) => call.body[0].id)
+    assert.equal(new Set(allExplicitSelectionIds).size, allExplicitSelectionIds.length)
+    assert.ok(ownerSelectionIds.includes(ownerSelectionId))
+    assert.ok(allExplicitSelectionIds.includes(otherSelectionId))
+  })
+
+  it('fails closed when the selection id factory returns a malformed or repeated UUID', async () => {
+    // Arrange: Use valid authenticated users while returning invalid allocator values.
+    const config = resolveConfig({}, {
+      SUPABASE_URL: 'https://example.test', SUPABASE_ANON_KEY: 'publishable-test-key',
+      RLS_USER1_EMAIL: 'owner@example.test', RLS_USER1_PASSWORD: 'owner-password',
+      RLS_USER2_EMAIL: 'other@example.test', RLS_USER2_PASSWORD: 'other-password',
+    })
+
+    // Act and assert: Invalid identifiers fail before any REST writes are issued.
+    for (const [idFactory, message] of [
+      [() => 'malformed-id', /malformed UUID/],
+      [(() => { let count = 0; return () => count++ === 0
+        ? '50000000-0000-0000-0000-00000000000e'
+        : '50000000-0000-0000-0000-00000000000e'.toUpperCase() })(), /duplicate UUID/],
+    ]) {
+      const mock = createFetchMock()
+      await assert.rejects(runVerification({ config, fetchImpl: mock.fetch, idFactory }), message)
+      assert.equal(mock.calls.filter((call) => call.kind === 'rest').length, 0)
+    }
+  })
+
+  it('requires cross-user mutation requests to succeed with an empty representation', async () => {
+    // Arrange: Fail the cross-user PATCH request despite preserving the owner's row.
+    const config = resolveConfig({}, {
+      SUPABASE_URL: 'https://example.test', SUPABASE_ANON_KEY: 'publishable-test-key',
+      RLS_USER1_EMAIL: 'owner@example.test', RLS_USER1_PASSWORD: 'owner-password',
+      RLS_USER2_EMAIL: 'other@example.test', RLS_USER2_PASSWORD: 'other-password',
+    })
+    const mock = createFetchMock({ overrideRequest: (request) => {
+      if (request.table === 'providers' && request.method === 'PATCH' && request.actor === user2.id) {
+        return jsonResponse(500, { message: 'server failure' })
+      }
+      if (request.method === 'DELETE' && request.actor === user1.id) return jsonResponse(500, { message: 'cleanup failure' })
+      return undefined
+    } })
+    // Act and assert: A request error cannot be interpreted as successful RLS filtering.
+    await assert.rejects(runVerification({ config, fetchImpl: mock.fetch, idFactory: makeIdFactory([
+      '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002',
+    ]) }), /Cross-user update request for providers.*Probe cleanup also failed/)
+    assert.ok(mock.calls.some((call) => call.method === 'DELETE' && call.actor === user2.id), 'Other-owner cleanup was not attempted after owner cleanup failed.')
+  })
+
+  it('rejects a successful cross-user PATCH that returns a row', async () => {
+    // Arrange: Return a representation for the other user's PATCH of the owner row.
+    const config = resolveConfig({}, {
+      SUPABASE_URL: 'https://example.test', SUPABASE_ANON_KEY: 'publishable-test-key',
+      RLS_USER1_EMAIL: 'owner@example.test', RLS_USER1_PASSWORD: 'owner-password',
+      RLS_USER2_EMAIL: 'other@example.test', RLS_USER2_PASSWORD: 'other-password',
+    })
+    const mock = createFetchMock({ overrideRequest: (request) => request.table === 'providers'
+      && request.method === 'PATCH' && request.actor === user2.id
+      ? jsonResponse(200, [{ id: request.id }]) : undefined })
+
+    // Act and assert: Successful RLS-filtered updates must return no rows.
+    await assert.rejects(runVerification({ config, fetchImpl: mock.fetch, idFactory: makeIdFactory([
+      '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002',
+    ]) }), /Cross-user update of providers returned a row/)
+  })
+
+  it('requires cross-user deletes to succeed with the expected empty representation', async () => {
+    // Arrange: Fail the cross-user DELETE request while leaving the owner's row untouched.
+    const config = resolveConfig({}, {
+      SUPABASE_URL: 'https://example.test', SUPABASE_ANON_KEY: 'publishable-test-key',
+      RLS_USER1_EMAIL: 'owner@example.test', RLS_USER1_PASSWORD: 'owner-password',
+      RLS_USER2_EMAIL: 'other@example.test', RLS_USER2_PASSWORD: 'other-password',
+    })
+    const mock = createFetchMock({ overrideRequest: (request) => request.table === 'providers'
+      && request.method === 'DELETE' && request.actor === user2.id && request.id === ids.providers[0]
+      ? jsonResponse(500, { message: 'server failure' }) : undefined })
+    // Act and assert: A failed request cannot count as successful RLS filtering.
+    await assert.rejects(runVerification({ config, fetchImpl: mock.fetch, idFactory: makeIdFactory([
+      '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002',
+    ]) }), /Cross-user delete request for providers/)
+  })
+
+  it('rejects a successful cross-user DELETE that returns a row', async () => {
+    // Arrange: Return a representation for the other user's DELETE of the owner row.
+    const config = resolveConfig({}, {
+      SUPABASE_URL: 'https://example.test', SUPABASE_ANON_KEY: 'publishable-test-key',
+      RLS_USER1_EMAIL: 'owner@example.test', RLS_USER1_PASSWORD: 'owner-password',
+      RLS_USER2_EMAIL: 'other@example.test', RLS_USER2_PASSWORD: 'other-password',
+    })
+    const mock = createFetchMock({ overrideRequest: (request) => request.table === 'providers'
+      && request.method === 'DELETE' && request.actor === user2.id && request.id === ids.providers[0]
+      ? jsonResponse(200, [{ id: request.id }]) : undefined })
+
+    // Act and assert: Successful RLS-filtered deletes must return no rows.
+    await assert.rejects(runVerification({ config, fetchImpl: mock.fetch, idFactory: makeIdFactory([
+      '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002',
+    ]) }), /Cross-user delete of providers returned a row/)
+  })
+
+  it('requires owner cleanup to return the deleted row and leave it absent', async () => {
+    // Arrange: Return an empty successful representation for the owner cleanup delete.
+    const config = resolveConfig({}, {
+      SUPABASE_URL: 'https://example.test', SUPABASE_ANON_KEY: 'publishable-test-key',
+      RLS_USER1_EMAIL: 'owner@example.test', RLS_USER1_PASSWORD: 'owner-password',
+      RLS_USER2_EMAIL: 'other@example.test', RLS_USER2_PASSWORD: 'other-password',
+    })
+    const mock = createFetchMock({ overrideRequest: (request) => request.table === 'charging_sessions'
+      && request.method === 'DELETE' && request.actor === user1.id
+      ? jsonResponse(200, []) : undefined })
+    // Act and assert: Cleanup must prove it removed the owner row.
+    await assert.rejects(runVerification({ config, fetchImpl: mock.fetch, idFactory: makeIdFactory([
+      '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002',
+    ]) }), /Cleanup delete from charging_sessions did not return the deleted row/)
+    const deleteIndex = mock.calls.findIndex((call) => call.table === 'charging_sessions'
+      && call.method === 'DELETE' && call.actor === user1.id)
+    assert.ok(mock.calls.slice(deleteIndex + 1).some((call) => call.table === 'charging_sessions'
+      && call.method === 'GET' && call.actor === user1.id && call.id === ids.charging_sessions[0]),
+    'Cleanup did not verify the owner row was absent after the delete response.')
+  })
+
+  it('rejects cleanup that returns a deleted row while leaving it present', async () => {
+    // Arrange: Return a plausible deleted row without removing it from the fake database.
+    const config = resolveConfig({}, {
+      SUPABASE_URL: 'https://example.test', SUPABASE_ANON_KEY: 'publishable-test-key',
+      RLS_USER1_EMAIL: 'owner@example.test', RLS_USER1_PASSWORD: 'owner-password',
+      RLS_USER2_EMAIL: 'other@example.test', RLS_USER2_PASSWORD: 'other-password',
+    })
+    const mock = createFetchMock({ overrideRequest: (request) => request.table === 'charging_sessions'
+      && request.method === 'DELETE' && request.actor === user1.id
+      ? jsonResponse(200, [{ id: request.id }]) : undefined })
+
+    // Act and assert: The follow-up owner read must prove cleanup removed the row.
+    await assert.rejects(runVerification({ config, fetchImpl: mock.fetch, idFactory: makeIdFactory([
+      '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002',
+    ]) }), /Cleanup left the charging_sessions probe row behind/)
+  })
+
   it('detects cross-user changes to each table-specific owner mutation field', async () => {
     // Arrange: Make one cross-user update bypass the mock policy for each domain table.
     const values = ['50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002']
@@ -162,7 +407,7 @@ describe('verify-rls-live', () => {
     ]) {
       const mock = createFetchMock({ crossUserPatchTable: table })
       await assert.rejects(
-        runVerification({ config, fetchImpl: mock.fetch, idFactory: () => values.shift() }),
+        runVerification({ config, fetchImpl: mock.fetch, idFactory: makeIdFactory(values) }),
         new RegExp(`Cross-user update changed the ${table} owner row\\.`),
         `${table}.${valueField} should be checked after a cross-user update`,
       )
@@ -216,10 +461,9 @@ describe('verify-rls-live', () => {
     }
 
     // Act: Run the normal verifier with that single expected-denial response.
-    await runVerification({ config, fetchImpl, log: (message) => logs.push(message), idFactory: (() => {
-      const values = ['50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002']
-      return () => values.shift()
-    })() })
+    await runVerification({ config, fetchImpl, log: (message) => logs.push(message), idFactory: makeIdFactory([
+      '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002',
+    ]) })
 
     // Assert: The verifier accepts the grant-level denial and continues its matrix.
     assert.ok(logs.some((line) => line.includes('[ok] providers: anonymous denial')))
@@ -243,8 +487,9 @@ describe('verify-rls-live', () => {
     }
 
     // Act and assert: An unrelated 403 must remain a failed authorization check.
-    const values = ['50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002']
-    await assert.rejects(runVerification({ config, fetchImpl, idFactory: () => values.shift() }), /Unauthenticated read exposed providers rows\./)
+    await assert.rejects(runVerification({ config, fetchImpl, idFactory: makeIdFactory([
+      '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002',
+    ]) }), /Unauthenticated read exposed providers rows\./)
   })
 
   it('accepts an empty 200 anonymous read and rejects a nonempty 200 response', async () => {
@@ -262,8 +507,9 @@ describe('verify-rls-live', () => {
         if (url.pathname === '/rest/v1/providers' && !init.headers?.Authorization) return anonymousResponse
         return mock.fetch(input, init)
       }
-      const values = ['50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002']
-      await runVerification({ config, fetchImpl, log: (message) => logs.push(message), idFactory: () => values.shift() })
+      await runVerification({ config, fetchImpl, log: (message) => logs.push(message), idFactory: makeIdFactory([
+        '50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002',
+      ]) })
       return logs
     }
 
