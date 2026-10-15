@@ -98,33 +98,55 @@ async function responseJson(response) {
   return response.json().catch(() => null)
 }
 
+function safeFailure(message) {
+  const error = new Error(message)
+  error.safeFailureMessage = message
+  return error
+}
+
+function safeFailureMessage(error) {
+  return typeof error?.safeFailureMessage === 'string' ? error.safeFailureMessage : 'request failed'
+}
+
 async function createLocalUser(endpoint, email) {
   const password = randomPassword()
-  const response = await localFetch(`${endpoint.apiUrl}/auth/v1/admin/users`, {
-    method: 'POST',
-    headers: {
-      apikey: endpoint.serviceKey,
-      Authorization: `Bearer ${endpoint.serviceKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ email, password, email_confirm: true }),
-  })
+  let response
+  try {
+    response = await localFetch(`${endpoint.apiUrl}/auth/v1/admin/users`, {
+      method: 'POST',
+      headers: {
+        apikey: endpoint.serviceKey,
+        Authorization: `Bearer ${endpoint.serviceKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, password, email_confirm: true }),
+    })
+  } catch {
+    throw safeFailure('Local user provisioning failed: network request failed')
+  }
   const result = await responseJson(response)
-  if (!response.ok) throw new Error(`Local user provisioning failed: status=${response.status}`)
+  if (!response.ok) throw safeFailure(`Local user provisioning failed: status=${response.status}`)
   const userId = result?.user?.id ?? result?.id
-  assert(typeof userId === 'string' && userId.length > 0, 'Local user provisioning response omitted the user id.')
+  if (typeof userId !== 'string' || userId.length === 0) {
+    throw safeFailure('Local user provisioning response omitted the user id.')
+  }
   return { email, password, userId }
 }
 
 async function deleteLocalUser(endpoint, userId) {
-  const response = await localFetch(`${endpoint.apiUrl}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
-    method: 'DELETE',
-    headers: {
-      apikey: endpoint.serviceKey,
-      Authorization: `Bearer ${endpoint.serviceKey}`,
-    },
-  })
-  if (!response.ok) throw new Error(`Local user cleanup failed: status=${response.status}`)
+  let response
+  try {
+    response = await localFetch(`${endpoint.apiUrl}/auth/v1/admin/users/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+      headers: {
+        apikey: endpoint.serviceKey,
+        Authorization: `Bearer ${endpoint.serviceKey}`,
+      },
+    })
+  } catch {
+    throw safeFailure('Local user cleanup failed: network request failed')
+  }
+  if (!response.ok) throw safeFailure(`Local user cleanup failed: status=${response.status}`)
 }
 
 async function provisionStackUsers(endpoint) {
@@ -134,14 +156,16 @@ async function provisionStackUsers(endpoint) {
     return users
   } catch (error) {
     const cleanupErrors = []
-    for (const user of users.reverse()) {
+    for (let index = users.length - 1; index >= 0; index -= 1) {
       try {
-        await deleteLocalUser(endpoint, user.userId)
+        await deleteLocalUser(endpoint, users[index].userId)
       } catch (cleanupError) {
-        cleanupErrors.push(cleanupError)
+        cleanupErrors.push(`user ${index + 1} ${safeFailureMessage(cleanupError)}`)
       }
     }
-    if (cleanupErrors.length) throw new Error('Local user provisioning failed and partial user cleanup was incomplete.')
+    if (cleanupErrors.length) {
+      throw safeFailure(`Local user provisioning failed: ${safeFailureMessage(error)}; partial cleanup failures: ${cleanupErrors.join(', ')}`)
+    }
     throw error
   }
 }
@@ -291,18 +315,21 @@ async function runExperiment(statusPaths, { log = console.log } = {}) {
     } catch (error) {
       failures.push(`marker isolation failed: ${error.message}`)
     }
+  } catch (error) {
+    failures.push(`stack ${users.length + 1} provisioning failed: ${safeFailureMessage(error)}`)
   } finally {
     const cleanupFailures = []
     for (let index = endpoints.length - 1; index >= 0; index -= 1) {
-      for (const user of [...(users[index] ?? [])].reverse()) {
+      const stackUsers = users[index] ?? []
+      for (let userIndex = stackUsers.length - 1; userIndex >= 0; userIndex -= 1) {
         try {
-          await deleteLocalUser(endpoints[index], user.userId)
+          await deleteLocalUser(endpoints[index], stackUsers[userIndex].userId)
         } catch (error) {
-          cleanupFailures.push(error)
+          cleanupFailures.push(`stack ${index + 1} user ${userIndex + 1} cleanup failed: ${safeFailureMessage(error)}`)
         }
       }
     }
-    if (cleanupFailures.length) failures.push('local user cleanup failed for one or more stacks')
+    failures.push(...cleanupFailures)
   }
 
   if (failures.length) throw new Error(failures.join('; '))
