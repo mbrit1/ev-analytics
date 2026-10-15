@@ -1,4 +1,9 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, it } from 'node:test'
 import { validateStackEndpoints } from './supabase-stack-experiment.mjs'
 
@@ -101,5 +106,115 @@ describe('supabase-stack-experiment endpoint validation', () => {
     assert.equal(requestOptions.redirect, 'error')
     assert.ok(requestOptions.signal instanceof AbortSignal)
     assert.equal(requestOptions.signal.aborted, false)
+  })
+})
+
+function runProvisioningFailureScenario({ failCleanup, missingUserId = false }) {
+  const tempDir = mkdtempSync(join(tmpdir(), 'supabase-stack-test-'))
+  const statusA = join(tempDir, 'a.json')
+  const statusB = join(tempDir, 'b.json')
+  const cleanupLog = join(tempDir, 'cleanup.log')
+  writeFileSync(statusA, JSON.stringify(stackStatus(54321, 54322)))
+  writeFileSync(statusB, JSON.stringify(stackStatus(55321, 55322)))
+
+  // The preload substitutes network calls before the CLI captures global fetch.
+  const preload = `
+    import { appendFileSync } from 'node:fs';
+    const logPath = process.env.CLEANUP_LOG;
+    const creations = new Map();
+    globalThis.fetch = async (input, init = {}) => {
+      const url = new URL(input);
+      const method = init.method ?? 'GET';
+      if (method === 'POST' && url.pathname.endsWith('/auth/v1/admin/users')) {
+        const count = (creations.get(url.port) ?? 0) + 1;
+        creations.set(url.port, count);
+        if (url.port === '55321' && count === 1 && process.env.MISSING_USER_ID === 'true') {
+          return Response.json({ email: 'owner@example.test' });
+        }
+        if (url.port === '55321' && count === 2) {
+          return Response.json({ error: 'secret provisioning response body' }, { status: 503 });
+        }
+        return Response.json({ id: (url.port === '54321' ? 'A-' : 'B-') + count });
+      }
+      if (method === 'DELETE') {
+        const userId = decodeURIComponent(url.pathname.split('/').at(-1));
+        appendFileSync(logPath, userId + '\\n');
+        if (process.env.FAIL_CLEANUP === 'true') {
+          if (userId === 'B-1') return Response.json({ error: 'secret cleanup body' }, { status: 502 });
+          if (userId === 'A-2') throw new Error('network failure with authorization secret');
+          if (userId === 'A-1') return Response.json({ error: 'secret response body' }, { status: 504 });
+        }
+        return new Response(null, { status: 204 });
+      }
+      throw new Error('Unexpected fake request');
+    };
+  `
+  const preloadUrl = `data:text/javascript;base64,${Buffer.from(preload).toString('base64')}`
+  try {
+    const result = spawnSync(process.execPath, [
+      '--import', preloadUrl,
+      fileURLToPath(new URL('./supabase-stack-experiment.mjs', import.meta.url)),
+      statusA,
+      statusB,
+    ], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        CLEANUP_LOG: cleanupLog,
+        FAIL_CLEANUP: String(failCleanup),
+        MISSING_USER_ID: String(missingUserId),
+      },
+    })
+    const cleanupAttempts = readFileSync(cleanupLog, 'utf8').trim().split('\n').filter(Boolean)
+    return { result, cleanupAttempts }
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true })
+  }
+}
+
+/** Covers cleanup reporting when stack B provisioning fails after stack A is provisioned. */
+describe('supabase-stack-experiment user cleanup', () => {
+  it('preserves provisioning and every cleanup failure while continuing owned user cleanup', () => {
+    // Arrange: Stack B partially provisions; its cleanup and both stack A deletions fail differently.
+    const scenario = runProvisioningFailureScenario({ failCleanup: true })
+
+    // Act: Inspect the real CLI process result and cleanup trace.
+
+    // Assert: All owned users were attempted and safe failure identifiers remain visible.
+    assert.deepEqual(scenario.cleanupAttempts, ['B-1', 'A-2', 'A-1'])
+    assert.notEqual(scenario.result.status, 0)
+    assert.match(scenario.result.stderr, /status=503/)
+    assert.match(scenario.result.stderr, /stack 2.*user 1.*status=502/i)
+    assert.match(scenario.result.stderr, /stack 1.*user 2.*network/i)
+    assert.match(scenario.result.stderr, /stack 1.*user 1.*status=504/i)
+    assert.doesNotMatch(scenario.result.stderr, /secret|authorization/i)
+  })
+
+  it('cleans stack A after B provisioning fails even when cleanup itself succeeds', () => {
+    // Arrange: Stack B creates one account, then returns a provisioning error.
+    const scenario = runProvisioningFailureScenario({ failCleanup: false })
+
+    // Act: Inspect the real CLI process result and cleanup trace.
+
+    // Assert: Partial B cleanup and both A users are removed, while provisioning stays failed.
+    assert.deepEqual(scenario.cleanupAttempts, ['B-1', 'A-2', 'A-1'])
+    assert.notEqual(scenario.result.status, 0)
+    assert.match(scenario.result.stderr, /status=503/)
+    assert.doesNotMatch(scenario.result.stderr, /secret/i)
+  })
+
+  it('preserves the missing user id reason while reporting later cleanup failures', () => {
+    // Arrange: Stack B returns a successful but malformed provisioning response; stack A cleanup fails.
+    const scenario = runProvisioningFailureScenario({ failCleanup: true, missingUserId: true })
+
+    // Act: Inspect the real CLI process result and cleanup trace.
+
+    // Assert: The safe response reason and each later cleanup failure remain visible.
+    assert.deepEqual(scenario.cleanupAttempts, ['A-2', 'A-1'])
+    assert.notEqual(scenario.result.status, 0)
+    assert.match(scenario.result.stderr, /response omitted the user id/i)
+    assert.match(scenario.result.stderr, /stack 1.*user 2.*network request failed/i)
+    assert.match(scenario.result.stderr, /stack 1.*user 1.*status=504/i)
+    assert.doesNotMatch(scenario.result.stderr, /secret|authorization/i)
   })
 })
