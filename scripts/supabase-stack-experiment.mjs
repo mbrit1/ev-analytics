@@ -181,17 +181,18 @@ function verificationConfig(endpoint, users) {
   }
 }
 
-async function runMarkerIsolation(endpoints, users) {
+/** Checks REST and privileged database isolation; injectable boundaries keep regression tests local. */
+export async function runMarkerIsolation(endpoints, users, { fetchImpl = localFetch, countRows = countMarkerRows } = {}) {
   const [stackA, stackB] = endpoints
   const [usersA, usersB] = users
-  const clientA = createClient({ supabaseUrl: stackA.apiUrl, anonKey: stackA.anonKey, fetchImpl: localFetch })
-  const clientB = createClient({ supabaseUrl: stackB.apiUrl, anonKey: stackB.anonKey, fetchImpl: localFetch })
+  const clientA = createClient({ supabaseUrl: stackA.apiUrl, anonKey: stackA.anonKey, fetchImpl })
+  const clientB = createClient({ supabaseUrl: stackB.apiUrl, anonKey: stackB.anonKey, fetchImpl })
   const ownerA = await clientA.signIn(usersA[0].email, usersA[0].password)
   const ownerB = await clientB.signIn(usersB[0].email, usersB[0].password)
   assert(ownerA.userId && ownerA.accessToken, 'Stack A sign-in response omitted user credentials.')
   assert(ownerB.userId && ownerB.accessToken, 'Stack B sign-in response omitted user credentials.')
 
-  const insert = await localFetch(`${stackA.apiUrl}/rest/v1/providers`, {
+  const insert = await fetchImpl(`${stackA.apiUrl}/rest/v1/providers`, {
     method: 'POST',
     headers: {
       apikey: stackA.anonKey,
@@ -221,8 +222,8 @@ async function runMarkerIsolation(endpoints, users) {
     assert(isolatedRead.ok && Array.isArray(isolatedRead.json) && isolatedRead.json.length === 0,
       `Stack B exposed the stack A marker or rejected the authenticated query: status=${isolatedRead.status}`)
 
-    const countA = countMarkerRows(stackA, markerId)
-    const countB = countMarkerRows(stackB, markerId)
+    const countA = countRows(stackA, markerId)
+    const countB = countRows(stackB, markerId)
     assert(countA === 1, `Direct database check found ${countA} marker rows in stack A; expected one.`)
     assert(countB === 0, `Direct database check found ${countB} marker rows in stack B; expected none.`)
   } finally {
@@ -234,7 +235,7 @@ async function runMarkerIsolation(endpoints, users) {
         cleanupUrl.searchParams.set('name', `eq.${MARKER_NAME}`)
         cleanupUrl.searchParams.set('user_id', `eq.${ownerA.userId}`)
       }
-      const cleanup = await localFetch(cleanupUrl, {
+      const cleanup = await fetchImpl(cleanupUrl, {
         method: 'DELETE',
         headers: {
           apikey: stackA.anonKey,
@@ -266,7 +267,8 @@ function countMarkerRows(endpoint, markerId) {
     timeout: 10_000,
     maxBuffer: 1024,
     env: {
-      ...process.env,
+      ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('PG'))),
+      PGCONNECT_TIMEOUT: '5',
       PGHOST: hostname,
       PGPORT: String(endpoint.dbPort),
       PGUSER: decodeURIComponent(db.username),
@@ -288,6 +290,11 @@ async function runExperiment(statusPaths, { log = console.log } = {}) {
       throw new Error('Unable to read valid stack status JSON.')
     }
   }))
+  return runStackVerification(statuses, { log })
+}
+
+/** Verifies validated in-memory statuses using the current runner, independently of schema source. */
+export async function runStackVerification(statuses, { log = console.log } = {}) {
   const endpoints = validateStackEndpoints(...statuses)
   const users = []
   const failures = []

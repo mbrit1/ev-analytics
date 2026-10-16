@@ -218,3 +218,35 @@ describe('supabase-stack-experiment user cleanup', () => {
     assert.doesNotMatch(scenario.result.stderr, /secret|authorization/i)
   })
 })
+
+/** Proves the REST marker and privileged database checks detect accidental shared storage. */
+describe('supabase-stack-experiment marker isolation', () => {
+  for (const leakedRows of [0, 1]) it(`requires the marker absent from the second database (rows=${leakedRows})`, async () => {
+    // Arrange: Both owners can authenticate, but REST hides the marker in stack B in both cases.
+    const { runMarkerIsolation } = await import('./supabase-stack-experiment.mjs')
+    const endpoints = validateStackEndpoints(stackStatus(54321, 54322), stackStatus(55321, 55322))
+    const markerId = '10000000-0000-0000-0000-000000000001'
+    const row = { id: markerId, user_id: 'owner-a', name: 'RLS local stack isolation marker' }
+    const cleanup = []
+    const databaseChecks = []
+    const fetchImpl = async (input, init = {}) => {
+      const url = new URL(input)
+      if (url.pathname === '/auth/v1/token') return Response.json({ access_token: 'synthetic-token', user: { id: url.port === '54321' ? 'owner-a' : 'owner-b' } })
+      if (init.method === 'DELETE') { cleanup.push(url.href); return new Response(null, { status: 204 }) }
+      if (init.method === 'POST') return Response.json([row], { status: 201 })
+      return Response.json(url.port === '54321' ? [row] : [])
+    }
+    const countRows = (endpoint, id) => {
+      databaseChecks.push([endpoint.dbPort, id])
+      return endpoint.dbPort === 54322 ? 1 : leakedRows
+    }
+    // Act: Run the real isolation algorithm with controlled transport/database boundaries.
+    const verification = runMarkerIsolation(endpoints, [[{ email: 'a@example.test', password: 'synthetic' }], [{ email: 'b@example.test', password: 'synthetic' }]], { fetchImpl, countRows })
+    // Assert: Direct DB evidence detects leakage despite a misleading empty REST response, and cleanup always runs.
+    if (leakedRows) await assert.rejects(verification, /stack B; expected none/)
+    else await verification
+    assert.deepEqual(databaseChecks, [[54322, markerId], [55322, markerId]])
+    assert.equal(cleanup.length, 1)
+    assert.match(cleanup[0], new RegExp(markerId))
+  })
+})

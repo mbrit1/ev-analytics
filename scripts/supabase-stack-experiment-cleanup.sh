@@ -3,6 +3,7 @@
 
 supabase_stack_experiment_install_cleanup_traps() {
   SUPABASE_STACK_EXPERIMENT_START_ATTEMPTED=0
+  SUPABASE_STACK_EXPERIMENT_REQUIRE_EMPTY=0
   SUPABASE_STACK_EXPERIMENT_ID_A=''
   SUPABASE_STACK_EXPERIMENT_ID_B=''
   SUPABASE_STACK_EXPERIMENT_TOOLS=''
@@ -208,6 +209,15 @@ supabase_stack_experiment_on_exit() {
   exit 0
 }
 
+supabase_stack_experiment_run_cli() {
+  local operation="$1"
+  shift
+  # Keep the module path out of argv[1], which its public entrypoint guard checks.
+  node --input-type=module -e 'import(process.argv[3]).then(m => m.runCliCommand(process.argv[1], process.argv[2], process.argv.slice(4)).then(status => { process.exitCode = status })).catch(() => { console.error("Supabase CLI command wrapper failed."); process.exitCode = 1 })' \
+    "$operation" "$SUPABASE_STACK_EXPERIMENT_CLI" \
+    "$(cd -P "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/supabase-local-backend.mjs" "$@"
+}
+
 supabase_stack_experiment_cleanup() {
   local cleanup_failed=0
   local need_recovery=0
@@ -239,7 +249,7 @@ supabase_stack_experiment_cleanup() {
         cleanup_failed=1
       elif ! supabase_stack_experiment_validate_home; then
         cleanup_failed=1
-      elif ! env SUPABASE_HOME="$SUPABASE_STACK_EXPERIMENT_OWNED_HOME" SUPABASE_EXPERIMENTAL_STACK=1 "$SUPABASE_STACK_EXPERIMENT_CLI" stack list --output-format json >"$list_path" 2>>"$SUPABASE_STACK_EXPERIMENT_OWNED_TOOLS/cleanup.stderr"; then
+      elif ! SUPABASE_HOME="$SUPABASE_STACK_EXPERIMENT_OWNED_HOME" SUPABASE_EXPERIMENTAL_STACK=1 supabase_stack_experiment_run_cli list stack list --output-format json >"$list_path" 2>>"$SUPABASE_STACK_EXPERIMENT_OWNED_TOOLS/cleanup.stderr"; then
         supabase_stack_experiment_diagnostic 'isolated stack list failed; private recovery files retained'
         cleanup_failed=1
       elif ! node - "$list_path" "$recovered_path" 2>>"$SUPABASE_STACK_EXPERIMENT_OWNED_TOOLS/cleanup.stderr" <<'NODE'
@@ -308,7 +318,7 @@ NODE
       supabase_stack_experiment_diagnostic 'tools ownership changed; skipping CLI lifecycle calls and retaining recovery files'
       continue
     fi
-    if ! env SUPABASE_HOME="$SUPABASE_STACK_EXPERIMENT_OWNED_HOME" SUPABASE_EXPERIMENTAL_STACK=1 "$SUPABASE_STACK_EXPERIMENT_CLI" stack stop --stack-id "$id" >>"$SUPABASE_STACK_EXPERIMENT_OWNED_TOOLS/cleanup.stderr" 2>&1; then
+    if ! SUPABASE_HOME="$SUPABASE_STACK_EXPERIMENT_OWNED_HOME" SUPABASE_EXPERIMENTAL_STACK=1 supabase_stack_experiment_run_cli stop stack stop --stack-id "$id" >>"$SUPABASE_STACK_EXPERIMENT_OWNED_TOOLS/cleanup.stderr" 2>&1; then
       supabase_stack_experiment_diagnostic 'stack stop failed; private recovery files retained'
       cleanup_failed=1
     fi
@@ -317,11 +327,24 @@ NODE
       supabase_stack_experiment_diagnostic 'tools ownership changed; skipping CLI lifecycle calls and retaining recovery files'
       continue
     fi
-    if ! env SUPABASE_HOME="$SUPABASE_STACK_EXPERIMENT_OWNED_HOME" SUPABASE_EXPERIMENTAL_STACK=1 "$SUPABASE_STACK_EXPERIMENT_CLI" stack destroy --stack-id "$id" --yes >>"$SUPABASE_STACK_EXPERIMENT_OWNED_TOOLS/cleanup.stderr" 2>&1; then
+    if ! SUPABASE_HOME="$SUPABASE_STACK_EXPERIMENT_OWNED_HOME" SUPABASE_EXPERIMENTAL_STACK=1 supabase_stack_experiment_run_cli destroy stack destroy --stack-id "$id" --yes >>"$SUPABASE_STACK_EXPERIMENT_OWNED_TOOLS/cleanup.stderr" 2>&1; then
       supabase_stack_experiment_diagnostic 'stack destroy failed; private recovery files retained'
       cleanup_failed=1
     fi
   done
+
+  if [[ "$SUPABASE_STACK_EXPERIMENT_REQUIRE_EMPTY" == 1 && "$SUPABASE_STACK_EXPERIMENT_START_ATTEMPTED" == 1 && "$cleanup_failed" == 0 ]]; then
+    if ! supabase_stack_experiment_validate_home || ! supabase_stack_experiment_validate_owned_dir tools; then
+      cleanup_failed=1
+    elif ! SUPABASE_HOME="$SUPABASE_STACK_EXPERIMENT_OWNED_HOME" SUPABASE_EXPERIMENTAL_STACK=1 supabase_stack_experiment_run_cli list stack list --output-format json >"$SUPABASE_STACK_EXPERIMENT_OWNED_TOOLS/final-stacks.json" 2>>"$SUPABASE_STACK_EXPERIMENT_OWNED_TOOLS/cleanup.stderr"; then
+      cleanup_failed=1
+    elif ! node -e 'const fs=require("node:fs"); try { const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const stacks=Array.isArray(value)?value:value?.stacks; if(!Array.isArray(stacks)||stacks.length!==0) process.exit(1) } catch { process.exit(1) }' "$SUPABASE_STACK_EXPERIMENT_OWNED_TOOLS/final-stacks.json"; then
+      cleanup_failed=1
+    fi
+    if [[ "$cleanup_failed" != 0 ]]; then
+      supabase_stack_experiment_diagnostic 'final isolated stack list was not empty or could not be verified; private recovery files retained'
+    fi
+  fi
 
   if [[ "$cleanup_failed" != 0 ]]; then
     supabase_stack_experiment_print_recovery_paths
