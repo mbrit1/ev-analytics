@@ -64,6 +64,127 @@ origin and may reload the page once. Use `npm run preview` or a deployment to
 check the production PWA worker. Mock mode is not enabled in preview or
 production builds.
 
+## Validate a disposable local backend
+
+This opt-in command validates the **`baseline-crud-v1`** contract against a SQL
+schema from an explicit local Git revision. It uses real local Auth, JWT,
+PostgREST, RLS and direct database isolation checks, plus read-only database MCP
+discovery and metadata on both backends. It runs two complete
+create/verify/destroy rounds with identical extracted SQL.
+
+Prerequisites are macOS arm64 (macOS 14 or later), a supported Node.js version,
+Git, `psql`, `curl`, `tar`, and `shasum`. Only Supabase CLI **2.120.0**, the
+official `supabase_darwin_arm64.tar.gz` archive with SHA-256
+`3b8546cc61aeabab6fd1f68edc7f664ebdfa96bdd6a9b18d8d612708f430ae28`, and the
+explicit native runtime are supported. Docker, Podman and hosted projects are
+outside this procedure. The CLI and native artifacts are downloaded into
+private temporary directories; no global CLI install is required.
+The verified native artifacts selected by this CLI pin are PostgreSQL
+`17.11.0.004-r1`, Auth `v2.197.0-r0`, PostgREST `v16.4-r0`, pg-meta
+`v0.100.0-r0`, and Studio `2026.10.05-sha-94b8b06-r0`. The local MCP server
+reports `0.12.0`. These pins do not imply container isolation.
+
+From the runner checkout:
+
+```bash
+npm run backend:validate -- --schema-ref daa07b0 --contract baseline-crud-v1
+```
+
+Replace `daa07b0` with another locally available commit, tag or branch.
+`--schema-ref` and `--contract` are mandatory. The optional
+`--schema-path supabase/schema.sql` selects a regular, repository-relative SQL
+file at that revision. Unknown flags, duplicate arguments, unsupported
+contracts, invalid revisions, missing/empty schema files, symlinks, and psql
+metacommand lines fail before any download or service startup. Git resolves the
+revision once to its full commit ID; `git show` reads that commit's SQL without
+checking out its code or executing target-revision scripts. The selected SQL is
+trusted schema input, not a sandbox for arbitrary SQL from an untrusted source.
+
+The runner emits the selected commit, schema path, SHA-256 and contract before
+startup. Success records also include the checked CLI pin/archive digest,
+native runtime, host/Node/psql versions and validated PostgreSQL/MCP versions,
+then each round's verification and destruction result. The final lifecycle
+record preserves the provenance and exit status even when a round fails.
+Redirect the command output to a local report if retained evidence is needed.
+Never publish raw status documents, private logs, credentials or local recovery
+paths. Failed early argument/revision selection emits an error and nonzero exit
+without claiming that services ran.
+
+The baseline contract requires direct owner CRUD on `providers`,
+`charging_plans`, `provider_plan_selections`, and `charging_sessions`, anonymous
+and cross-user denial, and named owner-scoped foreign-key violations. The current
+runner reuses `scripts/verify-rls-live.mjs` and the two-stack isolation harness.
+A schema that imports but disallows direct selection writes fails this contract;
+there is no automatic switch to selection RPCs, weaker assertions, or another
+contract. A future contract needs a separate explicit implementation. Commit
+`daa07b0` and runner baseline `afc3e23` contain byte-identical canonical schema;
+checking both establishes revision selection, not different-schema coverage.
+
+All API, database and MCP endpoints must use literal loopback IPs and explicit
+ports. API/database ports differ across both stacks; MCP may share its own
+stack's API port but cannot collide with the other stack or a database. Each
+round creates its own empty work directories and dedicated `SUPABASE_HOME`,
+with public signup disabled and only synthetic `example.test` users. HTTP
+requests have deadlines and reject redirects. Both databases receive the same
+staged schema with a digest check before import. The isolation marker must be
+present only in backend A by both authenticated REST and direct database reads.
+MCP exposes exactly the four database tools and its metadata query must confirm
+the four baseline tables; HTTP, JSON-RPC, tool and invalid-result errors fail.
+
+To reuse an already downloaded official archive, set
+`SUPABASE_LOCAL_CLI_ARCHIVE` to its local path before running the same command.
+The copied archive must still match the exact checksum and report CLI 2.120.0;
+this variable never permits a different executable or pin. Fresh native runtime
+homes may download their service artifacts in each round.
+
+### Local backend cleanup and recovery
+
+The wrapper sources `scripts/supabase-stack-experiment-cleanup.sh` and installs
+EXIT/INT/TERM traps before allocation. It records private directory identities,
+uses exclusive generated configs, stops and destroys every owned stack, and
+requires an empty stack list in that round's home before reporting destruction
+success. It removes only owned resources after identity checks. It never lists
+the global home or modifies either the runner checkout or a schema checkout.
+The original failure status survives cleanup; cleanup failures also return
+nonzero. A partial start triggers ID recovery only from the dedicated home.
+CLI startup has a ten-minute deadline; status, recovery/list, stop and destroy
+calls each have a one-minute deadline. A stalled cleanup call fails, retains
+private recovery files and allows the remaining cleanup calls to continue.
+Terminating a CLI command does not establish that its services stopped; verify
+the dedicated home's stack list during recovery.
+
+If stop, destroy, final-list or ownership validation fails, cleanup retains the
+private runtime/tools directories and prints their recovery locations locally.
+Inspect that home's list with the verified pinned CLI. Confirm each ID belongs
+to the failed run before acting:
+
+```bash
+RECOVERY_HOME='<reported dedicated home>'
+RECOVERY_TOOLS='<reported owned tools directory>'
+RECOVERY_CLI="$RECOVERY_TOOLS/supabase"
+SUPABASE_HOME="$RECOVERY_HOME" SUPABASE_EXPERIMENTAL_STACK=1 \
+  "$RECOVERY_CLI" stack list --output-format json
+CONFIRMED_ID='<verified run-owned ID>'
+SUPABASE_HOME="$RECOVERY_HOME" SUPABASE_EXPERIMENTAL_STACK=1 \
+  "$RECOVERY_CLI" stack stop --stack-id "$CONFIRMED_ID"
+SUPABASE_HOME="$RECOVERY_HOME" SUPABASE_EXPERIMENTAL_STACK=1 \
+  "$RECOVERY_CLI" stack destroy --stack-id "$CONFIRMED_ID" --yes
+```
+
+If ownership changed, do not execute a CLI from that path; use a separately
+checksum-verified pinned copy with the reported dedicated home. Recovery accepts
+only the pinned CLI's direct array of `{id}` entries or `{stacks:[{id}]}` envelope;
+unknown output fails closed. Keep recovery paths local.
+After the dedicated list is empty, remove retained directories only after
+confirming they are still the original run-owned paths. Retain evidence if
+ownership or cleanup remains uncertain.
+
+This procedure supplies native local backend evidence. Native stacks share the
+host and provide weaker isolation than containers. Passing does not establish
+managed Supabase behavior, physical-device/offline replay, selection-history
+RPCs or production readiness. Historical experiment results are preserved in
+[the experiment report](./experiments/supabase-local-stack.md#results).
+
 ## Provision Supabase
 
 Use a new or empty Supabase project for the clean import path below. `supabase/schema.sql` is the canonical remote schema, not an incremental migration.

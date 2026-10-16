@@ -24,233 +24,184 @@ and [Docker and native runtimes guide](https://supabase.com/docs/guides/local-de
 
 ## Procedure
 
-Run the following as one Bash subshell from retained worktree A (`/bin/bash`
-3.2 or later). The helper only defines functions when sourced. The script
-installs its traps before allocating temporary directories or worktree B, so
-setup, import, and harness errors all reach the same cleanup path. The traps
-preserve worktree B and retain private recovery files whenever stack cleanup or
-safe-path validation fails.
+The maintained opt-in command, prerequisites, fixed baseline CRUD contract,
+revision provenance, cleanup and recovery instructions are in the
+[local backend validation runbook](../infrastructure-runbook.md#validate-a-disposable-local-backend).
+The command extracts SQL from an explicit immutable Git revision and runs two
+complete create/verify/destroy rounds with the current runner; it does not
+check out the selected revision or execute its scripts.
 
-```bash
-bash <<'BASH'
-set -eu
-umask 077
-A="$(git rev-parse --show-toplevel)"
-source "$A/scripts/supabase-stack-experiment-cleanup.sh"
-supabase_stack_experiment_install_cleanup_traps
-
-TASK_TMP_ROOT="$(cd -P "${TMPDIR:-/private/tmp}" && pwd -P)"
-B="$TASK_TMP_ROOT/ev-stack-b-$$"
-TOOLS="$(mktemp -d "$TASK_TMP_ROOT/ev-stack-tools.XXXXXX")"
-SUPABASE_STACK_EXPERIMENT_TOOLS="$TOOLS"
-supabase_stack_experiment_register_tools_dir "$TOOLS"
-RUNTIME="$(mktemp -d "$TASK_TMP_ROOT/ev-stack-runtime.XXXXXX")"
-SUPABASE_STACK_EXPERIMENT_RUNTIME="$RUNTIME"
-supabase_stack_experiment_register_runtime_dir "$RUNTIME"
-mkdir -m 700 "$RUNTIME/supabase-home"
-SUPABASE_HOME="$RUNTIME/supabase-home"
-supabase_stack_experiment_register_home "$SUPABASE_HOME"
-export SUPABASE_HOME
-
-git worktree add --detach "$B" daa07b0
-curl -fL \
-  https://github.com/supabase/cli/releases/download/v2.120.0/supabase_darwin_arm64.tar.gz \
-  -o "$TOOLS/supabase.tar.gz"
-printf '%s  %s\n' \
-  3b8546cc61aeabab6fd1f68edc7f664ebdfa96bdd6a9b18d8d612708f430ae28 \
-  "$TOOLS/supabase.tar.gz" | shasum -a 256 -c -
-tar -xzf "$TOOLS/supabase.tar.gz" -C "$TOOLS"
-CLI="$TOOLS/supabase"
-SUPABASE_STACK_EXPERIMENT_CLI="$CLI"
-
-CONFIG_TEMPLATE="$A/experiments/supabase-local-stack/config.toml"
-supabase_stack_experiment_create_config a "$A/supabase/config.toml" "$CONFIG_TEMPLATE"
-supabase_stack_experiment_create_config b "$B/supabase/config.toml" "$CONFIG_TEMPLATE"
-
-id_from_status() {
-  node -e 'const s=JSON.parse(require("node:fs").readFileSync(process.argv[1],"utf8")); if(typeof s.identity?.id!=="string"||!s.identity.id) process.exit(1); process.stdout.write(s.identity.id)' "$1"
-}
-
-export SUPABASE_EXPERIMENTAL_STACK=1
-cd "$A"
-SUPABASE_STACK_EXPERIMENT_START_ATTEMPTED=1
-SUPABASE_HOME="$SUPABASE_HOME" SUPABASE_EXPERIMENTAL_STACK=1 "$CLI" stack start --runtime native --eager --output-format json \
-  >"$TOOLS/start-a.json" 2>"$TOOLS/start-a.stderr"
-SUPABASE_HOME="$SUPABASE_HOME" SUPABASE_EXPERIMENTAL_STACK=1 "$CLI" stack status --output-format json >"$TOOLS/status-a.json" 2>"$TOOLS/status-a.stderr"
-ID_A="$(id_from_status "$TOOLS/status-a.json")"
-SUPABASE_STACK_EXPERIMENT_ID_A="$ID_A"
-cd "$B"
-SUPABASE_HOME="$SUPABASE_HOME" SUPABASE_EXPERIMENTAL_STACK=1 "$CLI" stack start --runtime native --eager --output-format json \
-  >"$TOOLS/start-b.json" 2>"$TOOLS/start-b.stderr"
-SUPABASE_HOME="$SUPABASE_HOME" SUPABASE_EXPERIMENTAL_STACK=1 "$CLI" stack status --output-format json >"$TOOLS/status-b.json" 2>"$TOOLS/status-b.stderr"
-ID_B="$(id_from_status "$TOOLS/status-b.json")"
-SUPABASE_STACK_EXPERIMENT_ID_B="$ID_B"
-
-# Import separately into both stacks. The endpoint guard accepts only literal
-# loopback; database credentials reach psql through environment variables.
-import_schema() {
-  node --input-type=module - "$1" "$2" <<'NODE'
-import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
-
-const status = JSON.parse(readFileSync(process.argv[2], 'utf8'))
-const db = new URL(status.env.DB_URL)
-if (!['postgres:', 'postgresql:'].includes(db.protocol) || db.hostname !== '127.0.0.1' || !db.port) {
-  console.error('Refusing schema import: database endpoint is not literal loopback.')
-  process.exit(2)
-}
-const result = spawnSync('psql', ['-X', '-v', 'ON_ERROR_STOP=1', '-f', process.argv[3]], {
-  encoding: 'utf8',
-  env: {
-    ...process.env,
-    PGHOST: db.hostname,
-    PGPORT: db.port,
-    PGUSER: decodeURIComponent(db.username),
-    PGPASSWORD: decodeURIComponent(db.password),
-    PGDATABASE: decodeURIComponent(db.pathname.slice(1)),
-  },
-})
-console.log(`psql exit status: ${result.status ?? 1}`)
-process.exitCode = result.status ?? 1
-NODE
-}
-import_schema "$TOOLS/status-a.json" "$A/supabase/schema.sql"
-import_schema "$TOOLS/status-b.json" "$B/supabase/schema.sql"
-
-# Preserve the actual harness status so the EXIT trap receives it on failure.
-if node "$A/scripts/supabase-stack-experiment.mjs" \
-  "$TOOLS/status-a.json" "$TOOLS/status-b.json" \
-  >"$TOOLS/harness.log" 2>&1; then
-  echo "Harness passed."
-else
-  harness_status=$?
-  echo "Harness failed; inspect the private log."
-  exit "$harness_status"
-fi
-
-# The read-only MCP check accepts plain HTTP loopback and emits text content
-# only; request headers and credentials remain private.
-node --input-type=module - "$TOOLS/status-a.json" <<'NODE'
-import { readFileSync } from 'node:fs'
-
-const status = JSON.parse(readFileSync(process.argv[2], 'utf8'))
-const endpoint = new URL(status.env.MCP_URL)
-if (endpoint.protocol !== 'http:' || endpoint.hostname !== '127.0.0.1') {
-  console.error('Refusing MCP request: endpoint is not plain HTTP loopback.')
-  process.exit(2)
-}
-const expectedTools = ['execute_sql', 'list_extensions', 'list_migrations', 'list_tables']
-for (const [id, method, params] of [
-  [1, 'initialize', {
-    protocolVersion: '2024-11-05',
-    capabilities: {},
-    clientInfo: { name: 'local-experiment', version: '1' },
-  }],
-  [2, 'tools/list', {}],
-]) {
-  const discovery = await fetch(`${endpoint.origin}${endpoint.pathname}?features=database&read_only=true`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'application/json,text/event-stream' },
-    body: JSON.stringify({ jsonrpc: '2.0', id, method, params }),
-  })
-  const raw = await discovery.text()
-  const data = raw.split(/\r?\n/).find((line) => line.startsWith('data: '))?.slice(6) ?? raw
-  const envelope = JSON.parse(data)
-  if (!discovery.ok || envelope.error) {
-    console.error(`MCP ${method} failed: HTTP ${discovery.status}`)
-    process.exit(1)
-  }
-  const tools = envelope.result?.tools?.map((tool) => tool.name) ?? []
-  if (method === 'tools/list' && JSON.stringify([...tools].sort()) !== JSON.stringify(expectedTools)) {
-    console.error('MCP tools/list returned an unexpected database tool set.')
-    process.exit(1)
-  }
-  console.log(JSON.stringify({
-    method,
-    httpStatus: discovery.status,
-    serverInfo: envelope.result?.serverInfo,
-    tools: method === 'tools/list' ? tools : undefined,
-  }))
-}
-const query = `select current_database() as database_name,
-  current_setting('server_version') as server_version,
-  count(*)::integer as domain_tables
-from information_schema.tables
-where table_schema = 'public'
-  and table_name in ('providers', 'charging_plans', 'provider_plan_selections', 'charging_sessions')`
-const response = await fetch(`${endpoint.origin}${endpoint.pathname}?features=database&read_only=true`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json', Accept: 'application/json,text/event-stream' },
-  body: JSON.stringify({
-    jsonrpc: '2.0',
-    id: 4,
-    method: 'tools/call',
-    params: { name: 'execute_sql', arguments: { query } },
-  }),
-})
-const raw = await response.text()
-const data = raw.split(/\r?\n/).find((line) => line.startsWith('data: '))?.slice(6) ?? raw
-const envelope = JSON.parse(data)
-// HTTP, JSON-RPC, and MCP tool-level errors must all fail without exposing the
-// returned error content in the diagnostic.
-if (!response.ok || envelope.error || envelope.result?.isError === true) {
-  console.error(`MCP metadata query failed: HTTP ${response.status}`)
-  process.exit(1)
-}
-const content = (envelope.result?.content ?? [])
-  .filter((block) => block.type === 'text')
-  .map((block) => block.text)
-console.log(JSON.stringify({ httpStatus: response.status, content }))
-NODE
-exit 0
-BASH
-```
-
-The MCP query inspects the local database catalog separately from JWT
-authorization and row-level security evidence. At shell exit, the helper stops
-and destroys tracked IDs, removes only run-created configs that still match
-the template, then removes the registered temporary directories. A stop,
-destroy, isolated-list, or safe-path failure returns nonzero and retains private
-status files, logs, tools, and runtime for bounded manual recovery. Cleanup
-diagnostics do not include CLI stderr, endpoint URLs, or status bodies. The
-helper always sets `SUPABASE_EXPERIMENTAL_STACK=1` and the dedicated
-`SUPABASE_HOME` for lifecycle calls, never invokes a global stack list, and
-never removes either worktree.
-
-When cleanup retains recovery files, local diagnostics print their private
-`SUPABASE_HOME`, tools, and runtime paths. Keep these paths local. After
-verifying the reported tools directory is still the original private
-directory, inspect only that home's stack list and manually confirm each ID
-belongs to this experiment before stopping or destroying it:
-
-```bash
-RECOVERY_HOME='<reported SUPABASE_HOME path>'
-RECOVERY_TOOLS='<reported private tools directory>'
-RECOVERY_CLI="$RECOVERY_TOOLS/supabase"
-SUPABASE_HOME="$RECOVERY_HOME" SUPABASE_EXPERIMENTAL_STACK=1 \
-  "$RECOVERY_CLI" stack list --output-format json
-
-# After inspecting the list and confirming one ID belongs to this run:
-CONFIRMED_ID='<visually verified run-owned ID>'
-SUPABASE_HOME="$RECOVERY_HOME" SUPABASE_EXPERIMENTAL_STACK=1 \
-  "$RECOVERY_CLI" stack stop --stack-id "$CONFIRMED_ID"
-SUPABASE_HOME="$RECOVERY_HOME" SUPABASE_EXPERIMENTAL_STACK=1 \
-  "$RECOVERY_CLI" stack destroy --stack-id "$CONFIRMED_ID" --yes
-```
-
-If diagnostics say tools ownership changed, do not execute a CLI from that
-path. Use a separately verified copy of the pinned CLI with the reported
-`SUPABASE_HOME`; do not run global list or act on unverified IDs.
-
-The stack mode and its CLI lifecycle are experimental. The recovery parser is
-intentionally limited to a direct array of `{id}` objects or a
-`{stacks:[{id}]}` response; verify the pinned CLI's actual list envelope before
-relying on automatic recovery after a failed start. An unknown envelope fails
-closed and retains the private recovery files. These steps and their results
-apply only to the disposable local environment, not managed Supabase or
-production.
+The reusable-command results below record its acceptance runs. Earlier dated
+sections retain historical evidence from the original experiment and its
+corrections; those earlier runs do not establish acceptance for the command.
 
 ## Results
+
+### Publication review and lifecycle deadlines: 2026-10-16
+
+Review found that stalled CLI lifecycle commands could block later cleanup.
+The runner now bounds startup to ten minutes and status, list, stop and destroy
+to one minute each. It sends TERM at the deadline and escalates to KILL after
+one second. A timeout returns nonzero; cleanup continues through other owned
+actions and retains recovery files. An optional shorter test deadline cannot
+extend or disable the production limit.
+
+Behavioral RED for
+`node --test --test-name-pattern='times out a stalled stop' scripts/supabase-stack-experiment-cleanup.node-test.mjs`
+exceeded its outer five-second guard. GREEN covers stalled start/status/stop
+commands that ignore TERM, a stalled recovery list, subsequent cleanup,
+retained evidence, original failure status, and invalid timeout overrides.
+A further regression caught a helper import invoking the public argument
+parser; reordering its internal arguments removed the spurious diagnostic.
+
+The deadline-enabled lifecycle was independently rerun with:
+
+```bash
+npm run backend:validate -- --schema-ref afc3e23 --contract baseline-crud-v1
+```
+
+Both complete rounds passed with two backends per round. Auth/JWT/PostgREST,
+direct database isolation, and database-only MCP metadata passed, including
+PostgreSQL `17.11`, MCP `0.12.0`, and four domain tables on each backend.
+The selected commit and schema digest matched the acceptance table below.
+Each round verified an empty owned stack list; all owned runtime/tools
+directories were removed. An early hanging synthetic RED fixture was also
+identified and its exact process tree removed; no recovery resources remain.
+
+This live rerun preceded the final helper-import argument correction. That
+correction only suppresses unintended argument parsing; the full lifecycle
+regression suite and a direct helper invocation verify the final import path.
+It does not change schema bytes, CLI arguments, verification or cleanup logic,
+so the expensive live rounds were not repeated again. The original two-revision
+evidence remains subject to its identical-schema and native-runtime limits.
+
+Final review validation passed `node --test scripts/*.node-test.mjs` with
+**134 tests**, plus the Node/Bash syntax checks listed below, `npm run typecheck`,
+`npm run docs:check` (**3 tests / 20 active files**), and `git diff --check`.
+The publication gate passed lint, **1,115 application tests / 77 files**, and
+build with non-secret HTTPS placeholder Supabase configuration. Deadline
+fixtures use idle processes and a five-second injected limit to allow
+subprocess startup under parallel test load; production limits are unchanged.
+
+### Reusable revision-selected command: 2026-10-16
+
+Status: **passed** for `baseline-crud-v1`. Routine usage and recovery now live
+in the [infrastructure runbook](../infrastructure-runbook.md#validate-a-disposable-local-backend).
+The historical results below remain evidence of their original experiments.
+
+Changed files are the new `scripts/supabase-local-backend.mjs`,
+`scripts/supabase-local-backend.sh`, and
+`scripts/supabase-local-backend.node-test.mjs`; the existing
+`scripts/supabase-stack-experiment.mjs`,
+`scripts/supabase-stack-experiment.node-test.mjs`,
+`scripts/supabase-stack-experiment-cleanup.sh`, and
+`scripts/supabase-stack-experiment-cleanup.node-test.mjs`; `package.json`;
+`docs/infrastructure-runbook.md`; and this report.
+
+The final command selected these immutable sources for `supabase/schema.sql`:
+
+| Requested ref | Resolved commit | Round 1 | Round 2 | Final exit |
+| --- | --- | --- | --- | --- |
+| `daa07b0` | `daa07b0d7d13e324c8331c47ae85323e29c667d4` | Passed | Passed | 0 |
+| `afc3e23` | `afc3e236d3a2d82814af9dd8cf49f295c0337199` | Passed | Passed | 0 |
+
+Both schema files have SHA-256
+`08e3fd95fc92017e0251d0fd5a78abf3151a4eb3eb094328136144270aee2c28`.
+Their complete schema diff is empty. Inspection confirmed the baseline direct
+CRUD grants, owner RLS, selection columns, and six named ownership-scoped
+foreign keys used by the existing verifier. This establishes two-revision
+selection and repeatability, **not different-schema coverage**.
+
+The live invocations were:
+
+```bash
+npm run backend:validate -- --schema-ref daa07b0 --contract baseline-crud-v1
+npm run backend:validate -- --schema-ref afc3e23 --contract baseline-crud-v1
+```
+
+Both invocations reused an official downloaded CLI archive through
+`SUPABASE_LOCAL_CLI_ARCHIVE`; each invocation rechecked its pinned checksum and
+CLI version. The four runner/harness/cleanup source files were checksum-checked
+before and after the final target runs and were not edited between targets.
+The schema was extracted with Git, not checked out, and no target-revision
+scripts ran. Each round imported the same digest-checked bytes into both
+backends in a transaction. The runner resolved the schema before provisioning.
+
+All four final rounds passed both real Auth/JWT/PostgREST matrices. Each matrix
+checked owner CRUD and representations, anonymous denial, spoofed inserts
+(HTTP `403` / SQLSTATE `42501`), empty cross-user reads/mutations with owner-state
+rechecks, and all six cross-owner FK failures (HTTP `409` / `23503` and the
+matching named constraint). Reverse-order probe deletions returned the deleted
+rows and subsequent reads confirmed absence. Authenticated REST and direct
+PostgreSQL queries confirmed one isolation marker in A and zero in B.
+
+On both backends in every round, database-only read-only MCP discovery exposed
+exactly `execute_sql`, `list_extensions`, `list_migrations`, and `list_tables`.
+Initialization and metadata requests returned HTTP `200`; the verifier rejected
+HTTP, JSON-RPC and tool errors and checked response IDs. Metadata confirmed
+`postgres`, PostgreSQL `17.11`, and exactly four domain tables. MCP reported
+`0.12.0`. A separate bounded, read-only format probe confirmed the pinned tool's
+text content is a JSON object whose `result` string contains the tagged rows.
+Only metadata structure and validated values were retained for this report.
+
+The actual CLI start result uses top-level `id`; status uses `identity.id` and
+reported `native`, `running`, and `ready`. Its list envelope is
+`{"stacks":[],"message":""}` after successful destruction. Each round verified
+that empty list before removing owned files. API/database ports were distinct
+and literal loopback; MCP used its own stack's loopback API listener.
+The host was macOS `26.6.2` arm64, Node.js `26.8.1`, and `psql 17.11`.
+CLI `2.120.0` and the native artifact versions matched the runbook's pins.
+
+Three development attempts exited `1` and cleaned their owned resources before
+the final runs. The first failure exposed insufficient public diagnostics.
+The next confirmed the Auth/CRUD/isolation harness passed but MCP row parsing
+failed; an anchored boundary regression reproduced prose mentioning the tag
+before its standalone data block. A subsequent live failure exposed the outer
+`{result: string}` tool-output object. The decoder now handles that exact
+framing and still rejects wrong metadata values, types, mismatched/ambiguous
+blocks, JSON-RPC errors, and `isError: true`. These failures are not counted as
+passing acceptance runs. No assertion was skipped or weakened.
+
+Final static and integration checks:
+
+```bash
+node --test scripts/*.node-test.mjs
+node --check scripts/supabase-local-backend.mjs
+node --check scripts/supabase-local-backend.node-test.mjs
+node --check scripts/supabase-stack-experiment.mjs
+node --check scripts/supabase-stack-experiment.node-test.mjs
+node --check scripts/supabase-stack-experiment-cleanup.node-test.mjs
+bash -n scripts/supabase-local-backend.sh scripts/supabase-stack-experiment-cleanup.sh
+npm run docs:check
+git diff --check
+npm run lint
+npm run test -- --run --maxWorkers=2
+npm run build
+```
+
+The standalone suite passed **128 tests** without failures or skips. Syntax and
+diff checks passed. Documentation checks passed **3 tests / 20 active files**.
+Lint and build passed; application tests passed **1,115 tests / 77 files**.
+The integration gate used non-secret placeholder Supabase configuration, with
+no live application connection. A copied-module mutation removing the MCP
+tool-error guard produced the expected failing regression; the real source was
+not mutated. Fake lifecycle tests also cover partial-start recovery, cleanup
+continuation, retained evidence, changed-path ownership, version/checksum
+rejection, and redaction. Invalid/missing refs, absent schema paths and an
+unsupported contract were also rejected by the real CLI before backend
+allocation.
+
+Cleanup verified empty owned stack lists for all final rounds. Task-owned
+runtime homes, generated configs, tools, downloaded service caches, CLI copy,
+status documents and sensitive diagnostic captures were removed. No recovery
+resources remain outstanding. The feature worktree and reviewable uncommitted
+changes were retained. Other sessions' worktrees, services and configuration
+were not modified.
+
+These are local synthetic native-backend results. They do not establish
+container isolation, managed-project or production behavior, browser/offline
+replay, physical-device behavior, or selection-history RPC compatibility.
+Execution remains opt-in and outside CI; no publication was performed.
 
 ### Cleanup reporting fix and approved-network retry: 2026-10-15
 
