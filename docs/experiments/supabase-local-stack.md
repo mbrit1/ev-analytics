@@ -191,7 +191,9 @@ const response = await fetch(`${endpoint.origin}${endpoint.pathname}?features=da
 const raw = await response.text()
 const data = raw.split(/\r?\n/).find((line) => line.startsWith('data: '))?.slice(6) ?? raw
 const envelope = JSON.parse(data)
-if (!response.ok || envelope.error) {
+// HTTP, JSON-RPC, and MCP tool-level errors must all fail without exposing the
+// returned error content in the diagnostic.
+if (!response.ok || envelope.error || envelope.result?.isError === true) {
   console.error(`MCP metadata query failed: HTTP ${response.status}`)
   process.exit(1)
 }
