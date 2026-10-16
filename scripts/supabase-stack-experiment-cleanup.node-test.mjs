@@ -8,7 +8,7 @@ import { afterEach, describe, it } from 'node:test'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const helperPath = path.join(repoRoot, 'scripts/supabase-stack-experiment-cleanup.sh')
-const docsPath = path.join(repoRoot, 'docs/experiments/supabase-local-stack.md')
+const runnerPath = path.join(repoRoot, 'scripts/supabase-local-backend.sh')
 const fixtures = []
 
 afterEach(() => {
@@ -39,12 +39,18 @@ fail_when_requested() {
     return 1
   fi
 }
+hang_when_requested() {
+  if [[ " \${FAKE_HANG-} " == *" $1 "* ]]; then
+    exec ${shellQuote(process.execPath)} -e 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'
+  fi
+}
 case "$*" in
-  'stack stop --stack-id stack-a') fail_when_requested stop-a || exit 1 ;;
-  'stack destroy --stack-id stack-a --yes') fail_when_requested destroy-a || exit 1 ;;
-  'stack stop --stack-id stack-b') fail_when_requested stop-b || exit 1 ;;
-  'stack destroy --stack-id stack-b --yes') fail_when_requested destroy-b || exit 1 ;;
+  'stack stop --stack-id stack-a') hang_when_requested stop-a; fail_when_requested stop-a || exit 1 ;;
+  'stack destroy --stack-id stack-a --yes') hang_when_requested destroy-a; fail_when_requested destroy-a || exit 1 ;;
+  'stack stop --stack-id stack-b') hang_when_requested stop-b; fail_when_requested stop-b || exit 1 ;;
+  'stack destroy --stack-id stack-b --yes') hang_when_requested destroy-b; fail_when_requested destroy-b || exit 1 ;;
   'stack list --output-format json')
+    hang_when_requested list
     fail_when_requested list || exit 19
     printf '%s\\n' "$FAKE_STACK_LIST_JSON"
     ;;
@@ -61,6 +67,8 @@ function runCleanup(fixture, {
   originalStatus = 0,
   ids = ['stack-a', 'stack-b'],
   failures = '',
+  hangs = '',
+  commandTimeoutMs = '',
   preexistingA = false,
   preexistingTemplateA = false,
   preexistingSymlinkA = false,
@@ -109,7 +117,8 @@ ${missingStatus ? '' : `printf '%s\\n' '{"id":"stack-a","env":{"DB_URL":"postgre
 printf '%s\\n' 'private diagnostics' >${shellQuote(logs)}
 SUPABASE_STACK_EXPERIMENT_ID_A=${ids[0] ? shellQuote(ids[0]) : ''}
 SUPABASE_STACK_EXPERIMENT_ID_B=${ids[1] ? shellQuote(ids[1]) : ''}
-export SUPABASE_HOME=${shellQuote(fixture.home)} SUPABASE_EXPERIMENTAL_STACK=1 FAKE_CLI_LOG=${shellQuote(fixture.log)} FAKE_FAIL=${shellQuote(failures)}
+export SUPABASE_HOME=${shellQuote(fixture.home)} SUPABASE_EXPERIMENTAL_STACK=1 FAKE_CLI_LOG=${shellQuote(fixture.log)} FAKE_FAIL=${shellQuote(failures)} FAKE_HANG=${shellQuote(hangs)}
+${commandTimeoutMs ? `export SUPABASE_STACK_EXPERIMENT_COMMAND_TIMEOUT_MS=${shellQuote(commandTimeoutMs)}` : ''}
 export FAKE_STACK_LIST_JSON=${shellQuote(stackListJson)}
 ${replaceToolsWithSymlink ? `rm -rf ${shellQuote(fixture.tools)}; ln -s ${shellQuote(replaceToolsWithSymlink)} ${shellQuote(fixture.tools)}` : ''}
 ${signal ? `kill -${signal} "$$"` : ''}
@@ -153,6 +162,7 @@ exec /bin/rm "$@"
       SUPABASE_STACK_EXPERIMENT_ID_A: inheritedIds ? 'foreign-a' : '',
       SUPABASE_STACK_EXPERIMENT_ID_B: inheritedIds ? 'foreign-b' : '',
     },
+    timeout: commandTimeoutMs ? 20_000 : undefined,
   })
   return { result, configs, startA, statusA, statusB, logs }
 }
@@ -177,13 +187,13 @@ function readFilesUnder(directory) {
   })
 }
 
-function documentedHarnessWrapper() {
-  const documentation = readFileSync(docsPath, 'utf8')
+function actualHarnessWrapper() {
+  const documentation = readFileSync(runnerPath, 'utf8').split('\n').map((line) => line.replace(/^  /, '')).join('\n')
   const marker = '# Preserve the actual harness status so the EXIT trap receives it on failure.'
   const start = documentation.indexOf(marker)
-  assert.notEqual(start, -1, 'documented harness wrapper marker exists')
+  assert.notEqual(start, -1, 'actual harness wrapper marker exists')
   const end = documentation.indexOf('\nfi', start)
-  assert.notEqual(end, -1, 'documented harness wrapper closes its status branch')
+  assert.notEqual(end, -1, 'actual harness wrapper closes its status branch')
   return documentation.slice(start, end + 3).split('\n').slice(1).join('\n')
 }
 
@@ -228,8 +238,8 @@ describe('Supabase stack experiment cleanup lifecycle', () => {
     assert.equal(calls(fixture).length, 4)
   })
 
-  it('runs the documented harness wrapper with its failure status reaching EXIT', () => {
-    // Arrange: Make the documented node harness command fail with status 37.
+  it('runs the actual harness wrapper with its failure status reaching EXIT', () => {
+    // Arrange: Make the actual node harness command fail with status 37.
     const fixture = makeFixture()
     const fakeBin = path.join(fixture.root, 'bin')
     mkdirSync(fakeBin)
@@ -237,8 +247,8 @@ describe('Supabase stack experiment cleanup lifecycle', () => {
     writeFileSync(fakeNode, '#!/bin/sh\nexit 37\n')
     chmodSync(fakeNode, 0o700)
     const trapStatus = path.join(fixture.root, 'trap-status.txt')
-    const wrapper = documentedHarnessWrapper()
-    // Act: Execute the exact wrapper from the documentation with a recording EXIT trap.
+    const wrapper = actualHarnessWrapper()
+    // Act: Execute the exact wrapper from the lifecycle source with a recording EXIT trap.
     const script = `set -eu\ntrap 'printf "%s" "$?" >${shellQuote(trapStatus)}' EXIT\nPATH=${shellQuote(fakeBin)}:$PATH\nA=${shellQuote(fixture.root)}\nTOOLS=${shellQuote(fixture.root)}\n${wrapper}\n`
     const result = spawnSync('bash', ['-c', script], { encoding: 'utf8' })
     // Assert: The wrapper exits nonzero and the EXIT trap receives that status.
@@ -304,6 +314,45 @@ describe('Supabase stack experiment cleanup lifecycle', () => {
     assert.ok(existsSync(fixture.tools))
     assert.ok(existsSync(fixture.runtime))
     assert.ok(existsSync(path.join(fixture.tools, 'harness.log')))
+  })
+
+  it('times out a stalled stop, continues cleanup, and retains recovery evidence', () => {
+    // Arrange: Allow subprocess startup under parallel load, then bound the stalled stop.
+    const fixture = makeFixture()
+    const startedAt = Date.now()
+    // Act: Cleanup must terminate the stalled CLI and proceed through later actions.
+    const { result } = runCleanup(fixture, { originalStatus: 37, hangs: 'stop-a', commandTimeoutMs: '5000' })
+    const elapsedMs = Date.now() - startedAt
+    // Assert: The timeout is nonzero, sanitized, bounded, and does not skip later cleanup.
+    assert.equal(result.status, 37)
+    assert.ok(elapsedMs < 20_000, `cleanup exceeded its deadline: ${elapsedMs}ms`)
+    assert.deepEqual(calls(fixture), [
+      'stack stop --stack-id stack-a', 'stack destroy --stack-id stack-a --yes',
+      'stack stop --stack-id stack-b', 'stack destroy --stack-id stack-b --yes',
+    ])
+    assert.match(readFileSync(path.join(fixture.tools, 'cleanup.stderr'), 'utf8'), /timed out/i)
+    assert.doesNotMatch(result.stderr, /private CLI stderr sentinel|postgres:\/\/private/)
+    assert.ok(existsSync(fixture.tools))
+    assert.ok(existsSync(fixture.runtime))
+    assert.ok(existsSync(path.join(fixture.tools, 'status-a.json')))
+  })
+
+  it('times out isolated recovery listing but still cleans known stacks and retains evidence', () => {
+    // Arrange: A partial start leaves one known ID while isolated recovery listing stalls.
+    const fixture = makeFixture()
+    // Act: Inject a bounded test deadline; cleanup must still process the known ID.
+    const { result } = runCleanup(fixture, {
+      ids: ['stack-a', ''], missingStatus: true, hangs: 'list', commandTimeoutMs: '5000',
+    })
+    // Assert: The timed-out list fails closed, known cleanup proceeds, and private evidence remains.
+    assert.notEqual(result.status, 0)
+    assert.deepEqual(calls(fixture), [
+      'stack list --output-format json', 'stack stop --stack-id stack-a', 'stack destroy --stack-id stack-a --yes',
+    ])
+    assert.match(readFileSync(path.join(fixture.tools, 'cleanup.stderr'), 'utf8'), /timed out/i)
+    assert.ok(existsSync(fixture.tools))
+    assert.ok(existsSync(fixture.runtime))
+    assert.ok(existsSync(path.join(fixture.tools, 'start-a.json')))
   })
 
   it('retains private recovery files when destroy or isolated list fails', () => {
