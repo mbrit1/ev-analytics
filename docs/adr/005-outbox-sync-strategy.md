@@ -65,4 +65,4 @@ Use Dexie as the local source for domain data and a transactional outbox for rem
 - **Eventual consistency:** Remote state may lag local state until a qualifying runtime trigger processes eligible work.
 - **Ordering trade-off:** The fixed-point worklist preserves durable parent-child ordering while allowing unrelated ready work and explicitly item-local overlap conflicts to continue. A terminal dependency remains a replay boundary until repaired.
 - **Conflict limitations:** The strategy does not provide a general multi-writer merge algorithm; the product remains private and single-user, and constraint conflicts require explicit resolution.
-- **Hydration limitation:** Initial pull does not currently hydrate `provider_plan_selections`; adding it requires corresponding remote selection, normalization, and tests.
+- **Hydration limitation:** Initial pull does not currently hydrate `provider_plan_selections`; adding it requires corresponding remote selection, normalization, and tests. [ADR 012](./012-provider-plan-selection-reconstruction.md) records the accepted continuity requirement and pending remote implementation boundary.

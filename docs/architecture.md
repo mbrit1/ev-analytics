@@ -186,7 +186,7 @@ An unchanged-pricing historical edit retains the stored selection ID, names,
 price snapshot and applied prices without resolving selection history. It can
 recalculate quantity-based cost from the stored price even when the selection
 row is unavailable locally. Remote replay, selection hydration and cross-device
-convergence remain outside these local guarantees.
+convergence remain outside these local guarantees. [ADR 012](./adr/012-provider-plan-selection-reconstruction.md) records the accepted same-user continuity requirement and its acceptance boundary.
 
 ### Retry and failure behavior
 
