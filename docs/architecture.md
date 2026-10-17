@@ -166,6 +166,28 @@ The current reconciliation model is deliberately simple: remote hydration uses p
 
 `provider_plan_selections` can be written locally and replayed remotely, but the current initial hydration does not pull that table. Charging sessions retain selection identifiers and immutable price/name snapshots needed for historical rendering. This limitation and retry behavior are documented in [ADR 005](./adr/005-outbox-sync-strategy.md).
 
+### Local provider-plan selection history
+
+Covering-selection lookup uses half-open intervals and chooses across all plans
+by `valid_from DESC, id DESC` before checking plan compatibility. Session
+persistence rechecks the prepared selection inside its Dexie transaction,
+including requests that supplied a reusable ID without a selection change.
+A compatible row is reused; otherwise captured session pricing supplies a
+provisional selection. The stored session and its queued payload use the same ID.
+
+Local event insertion fits between the preceding and following events. It only
+shortens existing ends, preserves finite closures, and retains tombstones as
+boundaries. Equal-start losers remain stored with zero-length intervals and
+stable IDs. Mutations refuse malformed or overlapping legacy history rather
+than silently repairing it. Selection writes and their outbox entries remain
+atomic, including when composed with session persistence.
+
+An unchanged-pricing historical edit retains the stored selection ID, names,
+price snapshot and applied prices without resolving selection history. It can
+recalculate quantity-based cost from the stored price even when the selection
+row is unavailable locally. Remote replay, selection hydration and cross-device
+convergence remain outside these local guarantees.
+
 ### Retry and failure behavior
 
 Outbox processing derives parent dependencies from durable queue state and uses a
