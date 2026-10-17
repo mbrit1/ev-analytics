@@ -13,6 +13,7 @@ import type {
 } from '../model/types';
 import { sortSessionsNewestFirst } from '../model/types';
 import {
+  applyPlanSelectionForSession,
   assertOwnedProviderReference,
   type SetActivePlanSelectionInput,
 } from '../../charging-plans';
@@ -85,56 +86,6 @@ async function assertAdHocSessionHasNoActiveSavedTariff(session: ChargingSession
   if (activeSavedTariff) {
     throw new AdHocTariffConflictError();
   }
-}
-
-async function buildPlanSelectionMutationWithinSessionTransaction(
-  input: SetActivePlanSelectionInput
-): Promise<{
-  nextSelection: {
-    id: string;
-    user_id: string;
-    provider_id: string;
-    tariff_plan_id: string;
-    valid_from: Date;
-    valid_to: null;
-    price_snapshot: SetActivePlanSelectionInput['priceSnapshot'];
-    created_at: Date;
-    updated_at: Date;
-  };
-  currentUpdate?: {
-    id: string;
-    valid_to: Date;
-    updated_at: Date;
-  };
-}> {
-  const current = await db.provider_plan_selections
-    .where('provider_id')
-    .equals(input.providerId)
-    .filter((row) => row.user_id === input.userId && !row.deleted_at && row.valid_to == null)
-    .first();
-
-  const now = new Date();
-  const selectionId = crypto.randomUUID();
-  return {
-    currentUpdate: current
-      ? {
-        id: current.id,
-        valid_to: input.validFrom,
-        updated_at: now,
-      }
-      : undefined,
-    nextSelection: {
-    id: selectionId,
-    user_id: input.userId,
-    provider_id: input.providerId,
-    tariff_plan_id: input.tariffPlanId,
-    valid_from: input.validFrom,
-    valid_to: null,
-    price_snapshot: structuredClone(input.priceSnapshot),
-    created_at: now,
-    updated_at: now,
-    },
-  };
 }
 
 function assertChargingSessionInvariants(baseInput: SessionPreparationInput): void {
@@ -423,33 +374,12 @@ export function prepareSessionEdit(
     && !hasPlanPricingIdentityChanged(existing, input)
   ) {
     assertChargingSessionInvariants(input);
-
-    const appliedPrice = existing.applied_price_per_kwh ?? existing.price_snapshot?.kWhPrice;
-    if (appliedPrice == null) {
-      throw new Error('Historical plan price is unavailable for this session');
-    }
-    const appliedSessionFee = existing.applied_session_fee
-      ?? existing.price_snapshot?.sessionFee
-      ?? 0;
-
+    const historical = preserveHistoricalPlanFacts(existing, { ...existing, ...input });
     return {
-      ...existing,
-      ...input,
+      ...historical,
       id: existing.id,
       user_id: existing.user_id,
       session_mode: existing.session_mode,
-      provider_name_snapshot: existing.provider_name_snapshot,
-      charging_plan_name_snapshot: existing.charging_plan_name_snapshot,
-      plan_selection_id: existing.plan_selection_id,
-      price_snapshot: structuredClone(existing.price_snapshot),
-      applied_price_per_kwh: appliedPrice,
-      applied_ac_price_per_kwh: existing.applied_ac_price_per_kwh,
-      applied_dc_price_per_kwh: existing.applied_dc_price_per_kwh,
-      applied_roaming_ac_price_per_kwh: existing.applied_roaming_ac_price_per_kwh,
-      applied_roaming_dc_price_per_kwh: existing.applied_roaming_dc_price_per_kwh,
-      applied_monthly_base_fee: existing.applied_monthly_base_fee,
-      applied_session_fee: appliedSessionFee,
-      total_cost: Math.round(input.kwh_billed * appliedPrice) + appliedSessionFee,
       created_at: existing.created_at,
       updated_at: new Date(),
       deleted_at: existing.deleted_at,
@@ -511,6 +441,52 @@ async function persistSessionUpdate(session: ChargingSession): Promise<void> {
   await db.sync_outbox.add(createSyncOutboxEntry('sessions', 'UPDATE', updatedSession, updatedAt));
 }
 
+function preserveHistoricalPlanFacts(
+  existing: Extract<ChargingSession, { session_mode: 'plan' }>,
+  candidate: Extract<ChargingSession, { session_mode: 'plan' }>
+): Extract<ChargingSession, { session_mode: 'plan' }> {
+  const appliedPrice = existing.applied_price_per_kwh ?? existing.price_snapshot?.kWhPrice;
+  if (appliedPrice == null) {
+    throw new Error('Historical plan price is unavailable for this session');
+  }
+  const appliedSessionFee = existing.applied_session_fee ?? existing.price_snapshot?.sessionFee ?? 0;
+
+  return {
+    ...candidate,
+    plan_selection_id: existing.plan_selection_id,
+    provider_name_snapshot: existing.provider_name_snapshot,
+    charging_plan_name_snapshot: existing.charging_plan_name_snapshot,
+    price_snapshot: structuredClone(existing.price_snapshot),
+    applied_price_per_kwh: appliedPrice,
+    applied_ac_price_per_kwh: existing.applied_ac_price_per_kwh,
+    applied_dc_price_per_kwh: existing.applied_dc_price_per_kwh,
+    applied_roaming_ac_price_per_kwh: existing.applied_roaming_ac_price_per_kwh,
+    applied_roaming_dc_price_per_kwh: existing.applied_roaming_dc_price_per_kwh,
+    applied_monthly_base_fee: existing.applied_monthly_base_fee,
+    applied_session_fee: appliedSessionFee,
+    total_cost: Math.round(candidate.kwh_billed * appliedPrice) + appliedSessionFee,
+  };
+}
+
+function assertSelectionRequestMatchesSession(
+  selection: Pick<SetActivePlanSelectionInput, 'userId' | 'providerId' | 'tariffPlanId'>,
+  session: ChargingSession,
+  existing?: ChargingSession
+): void {
+  if (
+    session.session_mode !== 'plan'
+    || selection.userId !== session.user_id
+    || selection.providerId !== session.provider_id
+    || selection.tariffPlanId !== session.tariff_plan_id
+    || (existing != null && (
+      existing.session_mode !== 'plan'
+      || selection.userId !== existing.user_id
+    ))
+  ) {
+    throw new Error('Plan selection change must match the session');
+  }
+}
+
 async function persistSessionRequest(
   request: SessionPersistenceRequest,
   mode: 'insert' | 'update'
@@ -524,24 +500,40 @@ async function persistSessionRequest(
     db.sync_outbox,
     async () => {
       let session = request.session;
-      let planSelectionMutation: Awaited<ReturnType<typeof buildPlanSelectionMutationWithinSessionTransaction>> | undefined;
+      const existing = mode === 'update' ? await db.sessions.get(session.id) : undefined;
+      if (mode === 'update' && !existing) {
+        throw new Error(`Session not found: ${session.id}`);
+      }
 
       if (request.planSelectionChange) {
-        if (session.session_mode !== 'plan') {
-          throw new Error('Plan selection changes require a plan session');
-        }
-        if (
-          request.planSelectionChange.userId !== session.user_id
-          || request.planSelectionChange.providerId !== session.provider_id
-          || request.planSelectionChange.tariffPlanId !== session.tariff_plan_id
-        ) {
+        assertSelectionRequestMatchesSession(request.planSelectionChange, session, existing);
+      }
+
+      if (existing && session.session_mode === 'plan' && existing.session_mode === 'plan') {
+        if (session.user_id !== existing.user_id) {
           throw new Error('Plan selection change must match the session');
         }
-        planSelectionMutation = await buildPlanSelectionMutationWithinSessionTransaction(request.planSelectionChange);
-        session = {
-          ...session,
-          plan_selection_id: planSelectionMutation.nextSelection.id,
+        if (!hasPlanPricingIdentityChanged(existing, session)) {
+          session = preserveHistoricalPlanFacts(existing, session);
+        }
+      }
+
+      const historicalPlanEdit = existing?.session_mode === 'plan'
+        && session.session_mode === 'plan'
+        && !hasPlanPricingIdentityChanged(existing, session);
+      if (session.session_mode === 'plan' && !historicalPlanEdit) {
+        const selectionInput = request.planSelectionChange ?? {
+          userId: existing?.user_id ?? session.user_id,
+          providerId: session.provider_id,
+          tariffPlanId: session.tariff_plan_id,
+          validFrom: session.session_timestamp,
+          priceSnapshot: session.price_snapshot,
         };
+        assertSelectionRequestMatchesSession(selectionInput, session, existing);
+        const selection = await applyPlanSelectionForSession(selectionInput);
+        session = { ...session, plan_selection_id: selection.id };
+      } else if (request.planSelectionChange && session.session_mode !== 'plan') {
+        throw new Error('Plan selection changes require a plan session');
       }
 
       if (mode === 'insert') {
@@ -549,34 +541,6 @@ async function persistSessionRequest(
       } else {
         await persistSessionUpdate(session);
       }
-
-      if (!planSelectionMutation) {
-        return;
-      }
-
-      if (planSelectionMutation.currentUpdate) {
-        await db.provider_plan_selections.update(
-          planSelectionMutation.currentUpdate.id,
-          planSelectionMutation.currentUpdate
-        );
-        const updatedCurrent = await db.provider_plan_selections.get(planSelectionMutation.currentUpdate.id);
-        if (updatedCurrent) {
-          await db.sync_outbox.add(createSyncOutboxEntry(
-            'provider_plan_selections',
-            'UPDATE',
-            updatedCurrent,
-            planSelectionMutation.currentUpdate.updated_at,
-          ));
-        }
-      }
-
-      await db.provider_plan_selections.add(planSelectionMutation.nextSelection);
-      await db.sync_outbox.add(createSyncOutboxEntry(
-        'provider_plan_selections',
-        'INSERT',
-        planSelectionMutation.nextSelection,
-        planSelectionMutation.nextSelection.created_at,
-      ));
     }
   );
 }

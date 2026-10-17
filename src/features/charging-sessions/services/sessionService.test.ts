@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { EVAnalyticsDB, db as sharedDb, type ChargingPlan, type Provider, type ChargingSession, type AdHocPricingSnapshot } from '../../../infra/db'
-import { resolveEffectivePlanForDate } from '../../charging-plans'
+import { EVAnalyticsDB, db as sharedDb, type ChargingPlan, type Provider, type ProviderPlanSelection, type ChargingSession, type AdHocPricingSnapshot } from '../../../infra/db'
+import { getActivePlanSelectionAt, resolveEffectivePlanForDate } from '../../charging-plans'
 import {
   hasPlanPricingIdentityChanged,
   prepareSession,
@@ -121,6 +121,21 @@ describe('sessionService', () => {
       name: 'Versioned Plan',
       valid_from: utc('2026-01-01'),
       valid_to: null,
+      created_at: utc('2026-01-01'),
+      updated_at: utc('2026-01-01'),
+      ...overrides,
+    };
+  }
+
+  function buildSelectionFixture(overrides: Partial<ProviderPlanSelection> = {}): ProviderPlanSelection {
+    return {
+      id: 'selection-fixture',
+      user_id: 'user-456',
+      provider_id: 'provider-1',
+      tariff_plan_id: 'plan-1',
+      valid_from: utc('2026-01-01'),
+      valid_to: null,
+      price_snapshot: { label: 'Historical selection', kWhPrice: 45, sessionFee: 0 },
       created_at: utc('2026-01-01'),
       updated_at: utc('2026-01-01'),
       ...overrides,
@@ -1409,6 +1424,295 @@ describe('sessionService', () => {
         expect.objectContaining({ table_name: 'provider_plan_selections', action: 'INSERT' }),
       ])
     );
+  });
+
+  it('rechecks a prepared selection ID and replaces it with the transactional compatible winner', async () => {
+    // Arrange: preflight sees one row, then another database connection inserts the later canonical row.
+    await sharedDb.provider_plan_selections.add(
+      buildSelectionFixture({ id: 'selection-old', tariff_plan_id: 'plan-1', valid_from: utc('2026-01-01') })
+    );
+    const session = buildSessionFixture({
+      id: 'session-rechecked-selection',
+      provider_id: 'provider-1',
+      tariff_plan_id: 'plan-1',
+      session_timestamp: utc('2026-06-15'),
+      plan_selection_id: 'stale-preflight-id',
+    });
+    expect((await getActivePlanSelectionAt('provider-1', session.user_id, session.session_timestamp))?.id)
+      .toBe('selection-old');
+    const secondRuntime = new EVAnalyticsDB();
+    await secondRuntime.provider_plan_selections.add(
+      buildSelectionFixture({ id: 'selection-canonical', tariff_plan_id: 'plan-1', valid_from: utc('2026-04-01') })
+    );
+
+    // Act: persist after the canonical compatible selection became available.
+    await saveSessionWithPlanSelection({ session });
+    secondRuntime.close();
+
+    // Assert: the stored reference follows the transactional winner without adding duplicate history.
+    expect(await sharedDb.sessions.get(session.id)).toMatchObject({ plan_selection_id: 'selection-canonical' });
+    expect(await sharedDb.sync_outbox.toArray()).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        table_name: 'sessions',
+        action: 'INSERT',
+        payload: expect.objectContaining({ plan_selection_id: 'selection-canonical' }),
+      }),
+    ]));
+    expect(await sharedDb.provider_plan_selections.count()).toBe(2);
+  });
+
+  it('rechecks an explicit selection change after another database connection inserts a compatible winner', async () => {
+    // Arrange: preflight history is empty; a second runtime adds the compatible selection before persistence.
+    const session = buildSessionFixture({
+      id: 'session-explicit-selection-recheck',
+      provider_id: 'provider-1',
+      tariff_plan_id: 'plan-1',
+      session_timestamp: utc('2026-06-15'),
+      plan_selection_id: 'stale-explicit-preflight',
+    });
+    expect(await getActivePlanSelectionAt('provider-1', session.user_id, session.session_timestamp)).toBeNull();
+    const secondRuntime = new EVAnalyticsDB();
+    await secondRuntime.provider_plan_selections.add(
+      buildSelectionFixture({ id: 'selection-late-compatible', tariff_plan_id: 'plan-1', valid_from: utc('2026-04-01') })
+    );
+
+    // Act: persist the prepared explicit change after the row appears.
+    await saveSessionWithPlanSelection({
+      session,
+      planSelectionChange: {
+        userId: session.user_id,
+        providerId: session.provider_id ?? '',
+        tariffPlanId: session.tariff_plan_id ?? '',
+        validFrom: session.session_timestamp,
+        priceSnapshot: { label: 'Prepared', kWhPrice: 45 },
+      },
+    });
+    secondRuntime.close();
+
+    // Assert: transaction reuse points at the concurrent winner and does not add a duplicate row.
+    expect(await sharedDb.sessions.get(session.id)).toMatchObject({ plan_selection_id: 'selection-late-compatible' });
+    expect(await sharedDb.provider_plan_selections.count()).toBe(1);
+  });
+
+  it('creates a provisional selection atomically when canonical history is absent or incompatible', async () => {
+    // Arrange: an older matching row is covered by a newer canonical row for a different plan.
+    await sharedDb.provider_plan_selections.bulkAdd([
+      buildSelectionFixture({ id: 'older-matching', tariff_plan_id: 'plan-1', valid_from: utc('2026-01-01'), valid_to: utc('2026-04-01') }),
+      buildSelectionFixture({ id: 'canonical-other-plan', tariff_plan_id: 'plan-2', valid_from: utc('2026-04-01') }),
+    ]);
+    const session = buildSessionFixture({
+      id: 'session-provisional-selection',
+      provider_id: 'provider-1',
+      tariff_plan_id: 'plan-1',
+      session_timestamp: utc('2026-06-15'),
+      plan_selection_id: 'preflight-unavailable',
+      price_snapshot: { label: 'Captured plan', kWhPrice: 45, sessionFee: 0 },
+    });
+
+    // Act: persist the already-priced session against the incompatible canonical winner.
+    await saveSessionWithPlanSelection({ session });
+
+    // Assert: a new session-time selection carries captured pricing and keeps writes in one outbox transaction.
+    const storedSession = await sharedDb.sessions.get(session.id);
+    const created = await sharedDb.provider_plan_selections.get(storedSession?.plan_selection_id ?? '');
+    expect(created).toMatchObject({
+      user_id: session.user_id,
+      provider_id: session.provider_id,
+      tariff_plan_id: session.tariff_plan_id,
+      valid_from: session.session_timestamp,
+      price_snapshot: session.price_snapshot,
+    });
+    expect(await sharedDb.sync_outbox.toArray()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ table_name: 'sessions', action: 'INSERT' }),
+      expect.objectContaining({ table_name: 'provider_plan_selections', action: 'INSERT' }),
+    ]));
+  });
+
+  it('preserves unavailable historical selection references and snapshots on unchanged-pricing edits', async () => {
+    // Arrange: the historical row is absent locally, but its immutable pricing facts remain on the session.
+    const original = buildSessionFixture({
+      id: 'historical-selection-unavailable',
+      session_timestamp: utc('2024-03-15'),
+      plan_selection_id: 'selection-not-hydrated',
+      price_snapshot: { label: 'Original captured price', kWhPrice: 42, sessionFee: 125 },
+      applied_price_per_kwh: 42,
+      applied_session_fee: 125,
+      total_cost: 1805,
+    });
+    if (original.session_mode !== 'plan') {
+      throw new Error('Expected a plan session fixture');
+    }
+    await sharedDb.sessions.add(original);
+
+    // Act: submit an unchanged-pricing edit with a matching composed selection request.
+    await updateSessionWithPlanSelection({
+      session: {
+        ...original,
+        notes: 'Edited without repricing',
+        plan_selection_id: 'stale-form-selection',
+        provider_name_snapshot: 'Renamed provider form value',
+        charging_plan_name_snapshot: 'Renamed plan form value',
+        price_snapshot: { label: 'Stale form price', kWhPrice: 99, sessionFee: 999 },
+        applied_price_per_kwh: 99,
+        applied_ac_price_per_kwh: 98,
+        applied_dc_price_per_kwh: 97,
+        applied_roaming_ac_price_per_kwh: 96,
+        applied_roaming_dc_price_per_kwh: 95,
+        applied_monthly_base_fee: 994,
+        applied_session_fee: 999,
+      },
+      planSelectionChange: {
+        userId: original.user_id,
+        providerId: original.provider_id ?? '',
+        tariffPlanId: original.tariff_plan_id ?? '',
+        validFrom: original.session_timestamp,
+        priceSnapshot: { label: 'Should not replace history', kWhPrice: 99 },
+      },
+    });
+
+    // Assert: no selection resolution or mutation changes the historical identity or pricing snapshot.
+    const stored = await sharedDb.sessions.get(original.id);
+    expect(stored).toMatchObject({
+      plan_selection_id: original.plan_selection_id,
+      provider_name_snapshot: original.provider_name_snapshot,
+      charging_plan_name_snapshot: original.charging_plan_name_snapshot,
+      price_snapshot: original.price_snapshot,
+      applied_price_per_kwh: original.applied_price_per_kwh,
+      applied_ac_price_per_kwh: original.applied_ac_price_per_kwh,
+      applied_dc_price_per_kwh: original.applied_dc_price_per_kwh,
+      applied_roaming_ac_price_per_kwh: original.applied_roaming_ac_price_per_kwh,
+      applied_roaming_dc_price_per_kwh: original.applied_roaming_dc_price_per_kwh,
+      applied_monthly_base_fee: original.applied_monthly_base_fee,
+      applied_session_fee: original.applied_session_fee,
+      total_cost: original.total_cost,
+      notes: 'Edited without repricing',
+    });
+    expect(await sharedDb.sync_outbox.toArray()).toEqual([
+      expect.objectContaining({
+        table_name: 'sessions',
+        action: 'UPDATE',
+        payload: expect.objectContaining({
+          plan_selection_id: original.plan_selection_id,
+          provider_name_snapshot: original.provider_name_snapshot,
+          charging_plan_name_snapshot: original.charging_plan_name_snapshot,
+          price_snapshot: original.price_snapshot,
+          applied_price_per_kwh: original.applied_price_per_kwh,
+          applied_session_fee: original.applied_session_fee,
+        }),
+      }),
+    ]);
+    expect(await sharedDb.provider_plan_selections.count()).toBe(0);
+    expect(await sharedDb.sync_outbox.count()).toBe(1);
+  });
+
+  it('rolls back the session, selection, and outbox when the composed session outbox write fails', async () => {
+    // Arrange: fail the session queue write after the selection mutation has been queued in the transaction.
+    const session = buildSessionFixture({
+      id: 'session-selection-outbox-rollback',
+      provider_id: 'provider-1',
+      tariff_plan_id: 'plan-1',
+      session_timestamp: utc('2026-06-15'),
+      plan_selection_id: 'preflight-id',
+    });
+    const outboxSpy = vi.spyOn(sharedDb.sync_outbox, 'add')
+      .mockRejectedValueOnce(new Error('Session outbox failed'));
+
+    // Act/Assert: transaction failure rolls back every related local write.
+    await expect(saveSessionWithPlanSelection({
+      session,
+      planSelectionChange: {
+        userId: session.user_id,
+        providerId: session.provider_id ?? '',
+        tariffPlanId: session.tariff_plan_id ?? '',
+        validFrom: utc('2026-06-15'),
+        priceSnapshot: { label: 'Captured', kWhPrice: 45 },
+      },
+    })).rejects.toThrow('Session outbox failed');
+    outboxSpy.mockRestore();
+
+    expect(await sharedDb.sessions.get(session.id)).toBeUndefined();
+    expect(await sharedDb.provider_plan_selections.count()).toBe(0);
+    expect(await sharedDb.sync_outbox.count()).toBe(0);
+  });
+
+  it('rejects a composed update whose candidate owner differs from the persisted session owner', async () => {
+    // Arrange: the immutable stored owner differs from the caller's candidate owner.
+    const existing = buildSessionFixture({
+      id: 'session-owner-boundary',
+      user_id: 'user-456',
+      provider_id: 'provider-1',
+      tariff_plan_id: 'plan-1',
+    });
+    await sharedDb.sessions.add(existing);
+
+    // Act/Assert: selection work cannot be redirected across the persisted ownership boundary.
+    await expect(updateSessionWithPlanSelection({
+      session: { ...existing, user_id: 'user-999', notes: 'Cross-owner candidate' },
+      planSelectionChange: {
+        userId: 'user-999',
+        providerId: 'provider-1',
+        tariffPlanId: 'plan-1',
+        validFrom: utc('2026-06-01'),
+        priceSnapshot: { label: 'Foreign owner', kWhPrice: 50 },
+      },
+    })).rejects.toThrow('Plan selection change must match the session');
+    expect(await sharedDb.sessions.get(existing.id)).toEqual(existing);
+    expect(await sharedDb.provider_plan_selections.count()).toBe(0);
+    expect(await sharedDb.sync_outbox.count()).toBe(0);
+  });
+
+  it('allows a coherent composed repricing update to move providers for the stored owner', async () => {
+    // Arrange: the stored session belongs to the current owner and a second owned provider is available.
+    const existing = buildSessionFixture({
+      id: 'session-provider-reprice',
+      session_timestamp: utc('2026-06-15'),
+      provider_id: 'provider-1',
+      tariff_plan_id: 'plan-1',
+    });
+    if (existing.session_mode !== 'plan') {
+      throw new Error('Expected a plan session fixture');
+    }
+    await sharedDb.sessions.add(existing);
+    await sharedDb.providers.add({
+      id: 'provider-2',
+      user_id: existing.user_id,
+      name: 'Second provider',
+      created_at: utc('2026-01-01'),
+      updated_at: utc('2026-01-01'),
+    });
+
+    // Act: submit a candidate and selection change that agree on the new provider and plan.
+    await updateSessionWithPlanSelection({
+      session: {
+        ...existing,
+        provider_id: 'provider-2',
+        tariff_plan_id: 'plan-2',
+        plan_selection_id: 'prepared-selection',
+        price_snapshot: { label: 'Second provider plan', kWhPrice: 52, sessionFee: 0 },
+        applied_price_per_kwh: 52,
+      },
+      planSelectionChange: {
+        userId: existing.user_id,
+        providerId: 'provider-2',
+        tariffPlanId: 'plan-2',
+        validFrom: existing.session_timestamp,
+        priceSnapshot: { label: 'Second provider plan', kWhPrice: 52, sessionFee: 0 },
+      },
+    });
+
+    // Assert: repricing moves the linkage while retaining the persisted owner and creating its selection.
+    const stored = await sharedDb.sessions.get(existing.id);
+    const selection = await sharedDb.provider_plan_selections.get(stored?.plan_selection_id ?? '');
+    expect(stored).toMatchObject({
+      user_id: existing.user_id,
+      provider_id: 'provider-2',
+      tariff_plan_id: 'plan-2',
+    });
+    expect(selection).toMatchObject({
+      user_id: existing.user_id,
+      provider_id: 'provider-2',
+      tariff_plan_id: 'plan-2',
+    });
   });
 
   it('rejects plan-selection saves whose ownership, provider, or tariff differs from the session', async () => {
