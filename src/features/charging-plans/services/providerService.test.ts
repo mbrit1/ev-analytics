@@ -84,7 +84,11 @@ describe('providerService', () => {
     expect(providers[0].id).toBe('active-provider');
   });
 
-  it('should reject duplicate active provider names case-insensitively', async () => {
+  it.each([
+    ['exact', 'EnBW'],
+    ['case-insensitive', 'eNbW'],
+    ['surrounding whitespace', '  enbw  '],
+  ])('should reject an %s active provider name collision and expose the existing provider', async (_kind, duplicateName) => {
     // Arrange: Seed one active provider for the same user.
     const existingProvider: Provider = {
       id: 'provider-existing',
@@ -94,11 +98,12 @@ describe('providerService', () => {
       updated_at: new Date()
     };
     await db.providers.add(existingProvider);
+    const outboxBefore = await db.sync_outbox.toArray();
 
     const duplicateProvider: Provider = {
       id: 'provider-duplicate',
       user_id: 'user-1',
-      name: '  enbw  ',
+      name: duplicateName,
       created_at: new Date(),
       updated_at: new Date()
     };
@@ -113,6 +118,9 @@ describe('providerService', () => {
       message: 'Provider name already exists (active, case-insensitive)',
       provider: existingProvider
     });
+    expect(await db.providers.get(existingProvider.id)).toEqual(existingProvider);
+    expect(await db.providers.get(duplicateProvider.id)).toBeUndefined();
+    expect(await db.sync_outbox.toArray()).toEqual(outboxBefore);
   });
 
   it('should reject a provider name that is empty after trimming', async () => {
@@ -199,6 +207,7 @@ describe('providerService', () => {
     // Assert: Save succeeds and a normalized name is persisted.
     const savedProvider = await db.providers.get('provider-new');
     expect(savedProvider?.name).toBe('FASTNED');
+    expect(await db.providers.get('provider-deleted')).toMatchObject({ deleted_at: expect.any(Date) });
   });
 
   it('should allow editing same provider without changing effective name', async () => {

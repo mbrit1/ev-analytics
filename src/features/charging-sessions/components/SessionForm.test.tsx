@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { StrictMode, act } from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -10,8 +10,9 @@ import {
   useChargingPlans,
   useProviders,
 } from '../../charging-plans';
-import { type ChargingPlan, type ChargingSession, type Provider } from '../../../infra/db';
+import { db, type ChargingPlan, type ChargingSession, type Provider } from '../../../infra/db';
 import { AdHocTariffConflictError, type SessionPersistenceRequest } from '../services/sessionService';
+import { useAuth } from '../../auth';
 
 // Mock dependent hooks so form tests can exercise validation and submission UI
 // without requiring tariff/provider IndexedDB state.
@@ -26,7 +27,7 @@ vi.mock('../../charging-plans', async () => {
   };
 });
 vi.mock('../../auth', () => ({
-  useAuth: () => ({ user: { id: 'user-1' }, loading: false, session: null, signIn: vi.fn(), signOut: vi.fn() })
+  useAuth: vi.fn(),
 }));
 
 /**
@@ -44,6 +45,7 @@ describe('SessionForm', () => {
   const getLabelByTextContent = (labelText: string) =>
     screen.getByText((_, element) => element?.tagName === 'LABEL' && element.textContent?.replace(/\s+/g, ' ').trim() === labelText);
   const utc = (date: string): Date => new Date(`${date}T00:00:00.000Z`);
+  const authUser = (id: string): NonNullable<ReturnType<typeof useAuth>['user']> => ({ id } as NonNullable<ReturnType<typeof useAuth>['user']>);
 
   function getPickerMonth(): string {
     const monthHeading = screen.getByTestId('date-picker-month');
@@ -230,6 +232,13 @@ describe('SessionForm', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(useAuth).mockReturnValue({
+      user: authUser('user-1'),
+      loading: false,
+      session: null,
+      signIn: vi.fn(),
+      signOut: vi.fn(),
+    });
     HTMLElement.prototype.scrollIntoView = mockScrollIntoView;
     setChargingPlansMock([
       buildPlanFixture({
@@ -252,9 +261,9 @@ describe('SessionForm', () => {
     ]);
     vi.mocked(useProviders).mockReturnValue({
       providers: [
-        { id: 'p1', name: 'ChargePoint' },
-        { id: 'p2', name: 'Ionity' },
-        { id: 'p3', name: 'NoPlan Energy' }
+        { id: 'p1', user_id: 'user-1', name: 'ChargePoint' },
+        { id: 'p2', user_id: 'user-1', name: 'Ionity' },
+        { id: 'p3', user_id: 'user-1', name: 'NoPlan Energy' }
       ] as unknown as Provider[],
       isLoading: false
     });
@@ -852,7 +861,7 @@ describe('SessionForm', () => {
 
     // Act: Replace historical fallbacks with asynchronously hydrated active options.
     vi.mocked(useProviders).mockReturnValue({
-      providers: [{ id: 'p1', name: 'ChargePoint' }] as unknown as Provider[],
+      providers: [{ id: 'p1', user_id: 'user-1', name: 'ChargePoint' }] as unknown as Provider[],
       isLoading: false,
     });
     setChargingPlansMock([
@@ -933,6 +942,7 @@ describe('SessionForm', () => {
   it('shows a gap warning and blocks save when no tariff version applies on the selected date', async () => {
     // Arrange: create a logical tariff with a gap between raw versions.
     setChargingPlansMock([
+      buildPlanFixture({ id: 'gap-provider-remains-eligible', name: 'P1 Flex', valid_from: utc('2024-01-01'), valid_to: null }),
       buildPlanFixture({
         id: 'gap-before',
         name: 'P1 Home',
@@ -972,6 +982,7 @@ describe('SessionForm', () => {
   it('clears the gap warning after the user picks a date with an effective version', async () => {
     // Arrange: select a logical tariff whose chosen date starts in a gap.
     setChargingPlansMock([
+      buildPlanFixture({ id: 'gap-provider-remains-eligible', name: 'P1 Flex', valid_from: utc('2024-01-01'), valid_to: null }),
       buildPlanFixture({
         id: 'gap-before',
         name: 'P1 Home',
@@ -1135,7 +1146,13 @@ describe('SessionForm', () => {
       valid_to: utc('2026-08-17'),
     });
     setChargingPlansMock([retiredPlan]);
-    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    render(
+      <SessionForm
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        initialValues={{ session_timestamp: utc('2026-08-16') } as Partial<ChargingSession>}
+      />
+    );
     fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
     fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
       target: { value: getLogicalTariffKey(retiredPlan) },
@@ -1189,6 +1206,89 @@ describe('SessionForm', () => {
         total_cost: 1100,
       }),
     })));
+    expect(mockOnSubmit.mock.calls[0]?.[0]?.planSelectionChange).toBeUndefined();
+  });
+
+  it('preserves raw identities and pricing when the referenced tariff is deleted and its provider is ineligible', async () => {
+    // Arrange: The original owner retains a saved session after its provider tariff was deleted.
+    const deletedPlan = buildPlanFixture({
+      id: 'deleted-historical-version',
+      name: 'P1 Deleted',
+      deleted_at: utc('2026-08-11'),
+      ac_price_per_kwh: 40,
+      session_fee: 100,
+    });
+    setChargingPlansMock([deletedPlan]);
+    const initialValues = buildSessionFixture({
+      id: 'deleted-historical-session',
+      session_timestamp: utc('2026-08-12'),
+      tariff_plan_id: deletedPlan.id,
+      plan_selection_id: 'deleted-historical-selection',
+      price_snapshot: { label: 'ChargePoint P1 Deleted', kWhPrice: 40, sessionFee: 100 },
+      applied_price_per_kwh: 40,
+      applied_session_fee: 100,
+      total_cost: 1100,
+    });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+    expect(screen.getByLabelText(/provider/i)).toHaveValue(initialValues.provider_id);
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue(`historical::${deletedPlan.id}`);
+    fireEvent.change(screen.getByLabelText(/notes/i), { target: { value: 'Receipt note added later' } });
+
+    // Act: Save an unrelated note edit without selecting a newly eligible tariff.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: Historical raw identifiers and the exact pricing snapshot remain untouched.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+    expect(mockOnSubmit.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      session: expect.objectContaining({
+        provider_id: initialValues.provider_id,
+        tariff_plan_id: deletedPlan.id,
+        plan_selection_id: initialValues.plan_selection_id,
+        price_snapshot: initialValues.price_snapshot,
+        total_cost: initialValues.total_cost,
+        notes: 'Receipt note added later',
+      }),
+    }));
+    expect(mockOnSubmit.mock.calls[0]?.[0]?.planSelectionChange).toBeUndefined();
+  });
+
+  it('saves an unchanged snapshot when the original provider and tariff are absent from active queries', async () => {
+    // Arrange: Historical session identities remain owner-matched even when both active queries omit them.
+    vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({ isLoading: false }));
+    const initialValues = buildSessionFixture({
+      id: 'missing-historical-session',
+      provider_id: 'missing-original-provider',
+      provider_name_snapshot: 'Original Provider',
+      tariff_plan_id: 'missing-original-tariff',
+      plan_selection_id: 'missing-original-selection',
+      charging_plan_name_snapshot: 'Original Tariff',
+      price_snapshot: { label: 'Original Provider Original Tariff', kWhPrice: 40, sessionFee: 100 },
+      applied_price_per_kwh: 40,
+      applied_session_fee: 100,
+      total_cost: 1100,
+    });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={initialValues} />);
+    expect(screen.getByLabelText(/provider/i)).toHaveValue(initialValues.provider_id);
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue(`historical::${initialValues.tariff_plan_id}`);
+    fireEvent.change(screen.getByLabelText(/notes/i), { target: { value: 'Saved with original pricing' } });
+
+    // Act: Save a note-only edit while no active provider or plan can be selected.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: Missing live rows do not replace raw identifiers or historical pricing.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(1));
+    expect(mockOnSubmit.mock.calls[0]?.[0]).toEqual(expect.objectContaining({
+      session: expect.objectContaining({
+        provider_id: initialValues.provider_id,
+        provider_name_snapshot: initialValues.provider_name_snapshot,
+        tariff_plan_id: initialValues.tariff_plan_id,
+        plan_selection_id: initialValues.plan_selection_id,
+        price_snapshot: initialValues.price_snapshot,
+        total_cost: initialValues.total_cost,
+        notes: 'Saved with original pricing',
+      }),
+    }));
     expect(mockOnSubmit.mock.calls[0]?.[0]?.planSelectionChange).toBeUndefined();
   });
 
@@ -1839,6 +1939,436 @@ describe('SessionForm', () => {
     );
   });
 
+  it('shows only active providers with an effective plan on the entered UTC date', () => {
+    // Arrange: Include missing, deleted, future, gap, and exact-start plan histories.
+    const providers = [
+      { id: 'p1', user_id: 'user-1', name: 'Effective' },
+      { id: 'p2', user_id: 'user-1', name: 'No Plans' },
+      { id: 'p3', user_id: 'user-1', name: 'Deleted' },
+      { id: 'p4', user_id: 'user-1', name: 'Future' },
+      { id: 'p5', user_id: 'user-1', name: 'Gap' },
+      { id: 'p6', user_id: 'user-1', name: 'Starts Today' },
+    ] as unknown as Provider[];
+    vi.mocked(useProviders).mockReturnValue({ providers, isLoading: false });
+    setChargingPlansMock([
+      buildPlanFixture({ id: 'p1-current', provider_id: 'p1', valid_from: utc('2026-08-10'), valid_to: utc('2026-08-13') }),
+      buildPlanFixture({ id: 'p3-deleted', provider_id: 'p3', deleted_at: utc('2026-08-11') }),
+      buildPlanFixture({ id: 'p4-future', provider_id: 'p4', valid_from: utc('2026-08-13') }),
+      buildPlanFixture({ id: 'p5-before-gap', provider_id: 'p5', valid_from: utc('2026-08-01'), valid_to: utc('2026-08-10') }),
+      buildPlanFixture({ id: 'p5-after-gap', provider_id: 'p5', valid_from: utc('2026-08-13') }),
+      buildPlanFixture({ id: 'p6-starts-today', provider_id: 'p6', valid_from: utc('2026-08-12') }),
+    ]);
+
+    // Act: Enter the date inside p1's interval and at p6's inclusive start.
+    render(
+      <SessionForm
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        initialValues={{ session_timestamp: utc('2026-08-12') } as Partial<ChargingSession>}
+      />
+    );
+
+    // Assert: Only plans effective at that UTC date make their active provider selectable.
+    const options = Array.from(screen.getByLabelText(/provider/i).querySelectorAll('option'));
+    expect(options.map((option) => option.value)).toEqual(['', 'p1', 'p6']);
+  });
+
+  it('clears an ineligible new-session provider and plan without switching providers or losing draft fields', async () => {
+    // Arrange: Choose one provider whose tariff ends before the newly entered date.
+    setChargingPlansMock([
+      buildPlanFixture({
+        id: 'p1-short',
+        provider_id: 'p1',
+        valid_from: utc('2026-01-01'),
+        valid_to: utc('2026-08-10'),
+      }),
+      buildPlanFixture({ id: 'p2-current', provider_id: 'p2' }),
+    ]);
+    render(
+      <SessionForm
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        initialValues={{ session_timestamp: utc('2026-08-09') } as Partial<ChargingSession>}
+      />
+    );
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText(/notes/i), { target: { value: 'Keep this receipt note' } });
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue(getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }));
+
+    // Act: Move onto the tariff's exclusive end boundary.
+    pickDate(/date/i, '2026-08-10');
+
+    // Assert: Eligibility loss clears both bindings, keeps the other draft, and never selects p2.
+    expect(screen.getByLabelText(/provider/i)).toHaveValue('');
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('');
+    expect(screen.getByLabelText(/kwh billed/i)).toHaveValue('10');
+    expect(screen.getByLabelText(/notes/i)).toHaveValue('Keep this receipt note');
+  });
+
+  it('retains a selected draft while provider and plan queries are still loading empty', () => {
+    // Arrange: Select a valid draft, then simulate a transient loading-empty query result.
+    const { rerender } = render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }) },
+    });
+
+    // Act: Re-render against both owner-scoped hooks while they report loading.
+    vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: true });
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({ isLoading: true }));
+    rerender(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Assert: A transient empty result does not erase the in-progress provider/plan draft.
+    expect(screen.getByRole('status')).toHaveTextContent('Loading providers and tariffs');
+    expect(screen.getByLabelText(/provider/i)).toBeDisabled();
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toBeDisabled();
+    expect(screen.getByRole('button', { name: /save session/i })).toBeDisabled();
+    expect(screen.getByLabelText(/provider/i)).toHaveValue('p1');
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue(getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }));
+  });
+
+  it('clears only provider bindings when loaded owner-scoped queries are empty', () => {
+    // Arrange: Keep a valid selected provider and unrelated session draft values.
+    const { rerender } = render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText(/notes/i), { target: { value: 'Keep this note' } });
+
+    // Act: The completed local queries have no active provider or plan.
+    vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });
+    vi.mocked(useChargingPlans).mockReturnValue(buildChargingPlansResult({ isLoading: false }));
+    rerender(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Assert: Provider and plan are cleared while the rest of the form draft survives.
+    expect(screen.getByRole('status')).toHaveTextContent('No providers have a tariff for this date');
+    expect(screen.getByLabelText(/provider/i)).toHaveValue('');
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('');
+    expect(screen.getByLabelText(/kwh billed/i)).toHaveValue('10');
+    expect(screen.getByLabelText(/notes/i)).toHaveValue('Keep this note');
+  });
+
+  it('restores the same provider option when a local plan becomes eligible again', () => {
+    // Arrange: Begin with p1 eligible and selected while p2 remains available.
+    const plan = buildPlanFixture({ id: 'local-p1-plan', provider_id: 'p1' });
+    setChargingPlansMock([plan]);
+    const { rerender } = render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    expect(screen.getByLabelText(/provider/i)).toHaveValue('p1');
+
+    // Act: A local deletion hides p1, then a local replacement version restores eligibility.
+    setChargingPlansMock([]);
+    rerender(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    expect(screen.getByLabelText(/provider/i)).toHaveValue('');
+    setChargingPlansMock([buildPlanFixture({ id: 'local-p1-restored', provider_id: 'p1' })]);
+    rerender(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Assert: The same UUID is immediately available again without an automatic provider switch.
+    const providerOptions = Array.from(screen.getByLabelText(/provider/i).querySelectorAll('option'));
+    expect(providerOptions.map((option) => option.value)).toContain('p1');
+    expect(screen.getByLabelText(/provider/i)).toHaveValue('');
+  });
+
+  it('updates provider eligibility through the real Dexie live queries', async () => {
+    // Arrange: Run the real owner-scoped hooks against the test IndexedDB.
+    const actualChargingPlans = await vi.importActual<typeof import('../../charging-plans')>('../../charging-plans');
+    const originalNavigatorOnLine = Object.getOwnPropertyDescriptor(window.navigator, 'onLine');
+    const liveProvider = {
+      id: 'live-query-provider', user_id: 'user-1', name: 'Live Query Provider',
+      created_at: utc('2026-01-01'), updated_at: utc('2026-01-01'),
+    };
+    const initialLivePlan = buildPlanFixture({
+      id: 'live-query-initial-plan', user_id: 'user-1', provider_id: liveProvider.id,
+      name: 'Live Query Tariff',
+    });
+    await db.providers.add(liveProvider);
+    await actualChargingPlans.saveChargingPlan(initialLivePlan);
+    vi.mocked(useProviders).mockImplementation(actualChargingPlans.useProviders);
+    vi.mocked(useChargingPlans).mockImplementation(actualChargingPlans.useChargingPlans);
+    let unmount: (() => void) | undefined;
+
+    try {
+      // Act: Create a tariff through the local persistence service while offline.
+      Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false });
+      const view = render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+      unmount = view.unmount;
+      expect(await screen.findByRole('option', { name: 'Live Query Provider' })).toBeInTheDocument();
+      await act(async () => {
+        await db.charging_plans.update(initialLivePlan.id, {
+          deleted_at: utc('2026-01-02'),
+          updated_at: utc('2026-01-02'),
+        });
+      });
+      await waitFor(() => expect(screen.queryByRole('option', { name: 'Live Query Provider' })).not.toBeInTheDocument());
+      await act(async () => {
+        await actualChargingPlans.saveChargingPlan(buildPlanFixture({
+          id: 'live-query-plan',
+          user_id: 'user-1',
+          provider_id: liveProvider.id,
+          name: 'Live Query Tariff',
+        }));
+      });
+
+      // Assert: The real Dexie live query exposes the same retained provider UUID immediately.
+      expect(await screen.findByRole('option', { name: 'Live Query Provider' })).toHaveValue(liveProvider.id);
+      expect(await db.charging_plans.get('live-query-plan')).toMatchObject({ provider_id: liveProvider.id });
+      expect(await db.providers.get(liveProvider.id)).toEqual(liveProvider);
+      expect(window.navigator.onLine).toBe(false);
+    } finally {
+      unmount?.();
+      const ownPlanIds = new Set([initialLivePlan.id, 'live-query-plan']);
+      const ownOutboxEntries = (await db.sync_outbox.toArray()).filter((entry) => (
+        entry.table_name === 'charging_plans'
+        && ownPlanIds.has((entry.payload as unknown as { id?: string }).id ?? '')
+      ));
+      await db.sync_outbox.bulkDelete(ownOutboxEntries.flatMap((entry) => entry.id == null ? [] : [entry.id]));
+      await db.provider_plan_selections.where('provider_id').equals(liveProvider.id).delete();
+      await db.providers.delete(liveProvider.id);
+      await db.charging_plans.delete(initialLivePlan.id);
+      await db.charging_plans.delete('live-query-plan');
+      if (originalNavigatorOnLine) {
+        Object.defineProperty(window.navigator, 'onLine', originalNavigatorOnLine);
+      }
+    }
+  });
+
+  it('hides prior-owner options and blocks a saved session owned by another user', async () => {
+    // Arrange: Render a stored user-1 session while auth and active reads belong to user-2.
+    vi.mocked(useAuth).mockReturnValue({
+      user: authUser('user-2'), loading: false, session: null, signIn: vi.fn(), signOut: vi.fn(),
+    });
+    vi.mocked(useProviders).mockReturnValue({
+      providers: [{ id: 'p2', user_id: 'user-2', name: 'Other owner' }] as unknown as Provider[],
+      isLoading: false,
+    });
+    setChargingPlansMock([buildPlanFixture({ id: 'user-2-plan', provider_id: 'p2', user_id: 'user-2' })]);
+    const originalSession = buildSessionFixture({ user_id: 'user-1' });
+    render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} initialValues={originalSession} />);
+
+    // Act: Attempt to save the historical row from the different owner.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+
+    // Assert: The old provider is not offered and no cross-owner write is submitted.
+    expect(Array.from(screen.getByLabelText(/provider/i).querySelectorAll('option')).map((option) => option.value))
+      .not.toContain('p1');
+    await waitFor(() => expect(mockOnSubmit).not.toHaveBeenCalled());
+  });
+
+  it.each(['replacement owner', 'logout'])('clears stale bindings and hides hook results after %s', async (transition) => {
+    // Arrange: Start with a valid user-1 binding and old owner rows in both hooks.
+    const { rerender } = render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }) },
+    });
+    vi.mocked(useProviders).mockReturnValue({
+      providers: [{ id: 'p1', user_id: 'user-1', name: 'ChargePoint' }] as unknown as Provider[],
+      isLoading: false,
+    });
+    setChargingPlansMock([buildPlanFixture({ id: 'old-owner-plan', provider_id: 'p1', user_id: 'user-1' })]);
+    vi.mocked(useAuth).mockReturnValue({
+      user: transition === 'logout' ? null : authUser('user-2'),
+      loading: false, session: null, signIn: vi.fn(), signOut: vi.fn(),
+    });
+
+    // Act: Keep the prior owner's arrays in place across the auth transition.
+    rerender(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Assert: No stale provider or plan choice survives the owner boundary.
+    expect(screen.getByLabelText(/provider/i)).toHaveValue('');
+    expect(screen.getByLabelText(/^plan\s*\*?$/i)).toHaveValue('');
+    expect(Array.from(screen.getByLabelText(/provider/i).querySelectorAll('option')).map((option) => option.value))
+      .not.toContain('p1');
+  });
+
+  it('does not submit a plan after auth changes while active selection lookup is pending', async () => {
+    // Arrange: Hold local selection lookup open after starting a valid user-1 submit.
+    let resolveSelection!: (value: Awaited<ReturnType<typeof getActivePlanSelectionAt>>) => void;
+    vi.mocked(getActivePlanSelectionAt).mockImplementation(() => new Promise((resolve) => {
+      resolveSelection = resolve;
+    }));
+    const { rerender } = render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }) },
+    });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+    await waitFor(() => expect(getActivePlanSelectionAt).toHaveBeenCalled());
+
+    // Act: Change owner and active local data before resolving the outstanding lookup.
+    vi.mocked(useAuth).mockReturnValue({
+      user: authUser('user-2'), loading: false, session: null, signIn: vi.fn(), signOut: vi.fn(),
+    });
+    vi.mocked(useProviders).mockReturnValue({
+      providers: [{ id: 'p2', user_id: 'user-2', name: 'Other owner' }] as unknown as Provider[],
+      isLoading: false,
+    });
+    setChargingPlansMock([buildPlanFixture({ id: 'user-2-plan', provider_id: 'p2', user_id: 'user-2' })]);
+    rerender(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    await act(async () => {
+      resolveSelection(null);
+      await Promise.resolve();
+    });
+
+    // Assert: The stale user-1 request is stopped before persistence callback invocation.
+    await waitFor(() => expect(screen.getByRole('button', { name: /save session/i })).toBeEnabled());
+    expect(mockOnSubmit).not.toHaveBeenCalled();
+  });
+
+  it('blocks a pending plan submit when eligibility queries reload with retained rows', async () => {
+    // Arrange: Hold selection lookup after starting a valid plan submission.
+    let resolveSelection!: (value: Awaited<ReturnType<typeof getActivePlanSelectionAt>>) => void;
+    vi.mocked(getActivePlanSelectionAt).mockImplementation(() => new Promise((resolve) => {
+      resolveSelection = resolve;
+    }));
+    const { rerender } = render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }) },
+    });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+    await waitFor(() => expect(getActivePlanSelectionAt).toHaveBeenCalled());
+
+    // Act: Keep the same rows while the provider query reports a refresh in progress.
+    vi.mocked(useProviders).mockReturnValue({
+      providers: [{ id: 'p1', user_id: 'user-1', name: 'ChargePoint' }] as unknown as Provider[],
+      isLoading: true,
+    });
+    rerender(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    await act(async () => {
+      resolveSelection(null);
+      await Promise.resolve();
+    });
+
+    // Assert: The pending request stops when eligibility becomes unknown.
+    expect(mockOnSubmit).not.toHaveBeenCalled();
+  });
+
+  it('blocks a pending plan submit when providers disappear but prior plan rows remain', async () => {
+    // Arrange: Hold selection lookup after starting a valid plan submission.
+    let resolveSelection!: (value: Awaited<ReturnType<typeof getActivePlanSelectionAt>>) => void;
+    vi.mocked(getActivePlanSelectionAt).mockImplementation(() => new Promise((resolve) => {
+      resolveSelection = resolve;
+    }));
+    const initialValues = buildSessionFixture({ id: 'session-provider-refresh', tariff_plan_id: 't1' });
+    const { rerender } = render(
+      <SessionForm
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        initialValues={initialValues}
+      />
+    );
+    fireEvent.click(screen.getByRole('radio', { name: /roaming ac/i }));
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+    await waitFor(() => expect(getActivePlanSelectionAt).toHaveBeenCalled());
+
+    // Act: Remove the provider and commit the settled query while retaining historical bindings.
+    vi.mocked(useProviders).mockReturnValue({ providers: [], isLoading: false });
+    rerender(
+      <SessionForm
+        onSubmit={mockOnSubmit}
+        onCancel={mockOnCancel}
+        initialValues={initialValues}
+      />
+    );
+    await act(async () => {
+      resolveSelection(null);
+      await Promise.resolve();
+    });
+
+    // Assert: A provider absent from the settled owner query cannot be submitted.
+    expect(mockOnSubmit).not.toHaveBeenCalled();
+  });
+
+  it('blocks an old pending plan submit after logout and reauthentication to the same owner', async () => {
+    // Arrange: Hold a valid user-1 submission during its active-selection lookup.
+    let resolveSelection!: (value: Awaited<ReturnType<typeof getActivePlanSelectionAt>>) => void;
+    vi.mocked(getActivePlanSelectionAt).mockImplementation(() => new Promise((resolve) => {
+      resolveSelection = resolve;
+    }));
+    const { rerender } = render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }) },
+    });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+    await waitFor(() => expect(getActivePlanSelectionAt).toHaveBeenCalled());
+
+    // Act: Complete logout, then reauthenticate as the same owner with the same local rows.
+    vi.mocked(useAuth).mockReturnValue({
+      user: null, loading: false, session: null, signIn: vi.fn(), signOut: vi.fn(),
+    });
+    rerender(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    expect(screen.getByLabelText(/provider/i)).toHaveValue('');
+    vi.mocked(useAuth).mockReturnValue({
+      user: authUser('user-1'), loading: false, session: null, signIn: vi.fn(), signOut: vi.fn(),
+    });
+    rerender(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p1' } });
+    fireEvent.change(screen.getByLabelText(/^plan\s*\*?$/i), {
+      target: { value: getLogicalTariffKey({ provider_id: 'p1', name: 'P1 Home' }) },
+    });
+
+    await act(async () => {
+      resolveSelection(null);
+      await Promise.resolve();
+    });
+
+    // Assert: A request begun before logout cannot persist after identity returns to the same ID.
+    await waitFor(() => expect(screen.getByRole('button', { name: /save session/i })).toBeEnabled());
+    expect(mockOnSubmit).not.toHaveBeenCalled();
+  });
+
+  it('blocks an ad-hoc submit when auth becomes loading during async form validation', async () => {
+    // Arrange: Enter valid ad-hoc details while the authenticated user is available.
+    const { rerender } = render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
+    fireEvent.change(screen.getByLabelText(/^billing provider/i), { target: { value: 'Cariqa' } });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText(/price per kwh/i), { target: { value: '0,59' } });
+
+    // Act: Start RHF's async resolver and synchronously transition auth before it settles.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+    vi.mocked(useAuth).mockReturnValue({
+      user: null, loading: true, session: null, signIn: vi.fn(), signOut: vi.fn(),
+    });
+    rerender(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Assert: Wait for the async submit path to settle before checking persistence was blocked.
+    await screen.findByRole('alert');
+    expect(screen.getByRole('button', { name: /save session/i })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent('Wait for account loading to finish');
+    expect(mockOnSubmit).not.toHaveBeenCalled();
+  });
+
+  it('blocks an ad-hoc submit when the same owner returns before async validation settles', async () => {
+    // Arrange: Enter valid ad-hoc details while RHF will validate asynchronously.
+    const { rerender } = render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.click(screen.getByRole('radio', { name: /ad-hoc/i }));
+    fireEvent.change(screen.getByLabelText(/^billing provider/i), { target: { value: 'Cariqa' } });
+    fireEvent.change(screen.getByLabelText(/kwh billed/i), { target: { value: '10' } });
+    fireEvent.change(screen.getByLabelText(/price per kwh/i), { target: { value: '0,59' } });
+
+    // Act: Round-trip through logout and back to user-1 before the resolver continuation runs.
+    fireEvent.click(screen.getByRole('button', { name: /save session/i }));
+    vi.mocked(useAuth).mockReturnValue({
+      user: null, loading: false, session: null, signIn: vi.fn(), signOut: vi.fn(),
+    });
+    rerender(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    vi.mocked(useAuth).mockReturnValue({
+      user: authUser('user-1'), loading: false, session: null, signIn: vi.fn(), signOut: vi.fn(),
+    });
+    rerender(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Assert: The auth generation captured before validation makes this request stale.
+    expect(await screen.findByRole('alert')).toHaveTextContent('changed while this session was being validated');
+    expect(mockOnSubmit).not.toHaveBeenCalled();
+  });
+
   it('shows validation feedback when ad-hoc price per kwh format is invalid', async () => {
     // Arrange: Switch to ad-hoc mode and enter invalid price text.
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
@@ -1857,12 +2387,15 @@ describe('SessionForm', () => {
     expect(mockOnSubmit).not.toHaveBeenCalled();
   });
 
-  it('disables plan select when selected provider has no plans', () => {
-    // Arrange: render form and select a provider without plans.
+  it('keeps the plan control disabled when no provider has an eligible tariff', () => {
+    // Arrange: render with p3 as the active provider that has no plan history.
+    setChargingPlansMock([]);
     render(<SessionForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
-    fireEvent.change(screen.getByLabelText(/provider/i), { target: { value: 'p3' } });
 
-    // Assert: plan select is disabled because there are no options to choose.
+    // Assert: the ineligible provider is hidden and no plan can be selected.
+    expect(Array.from(screen.getByLabelText(/provider/i).querySelectorAll('option')).map((option) => option.value))
+      .not.toContain('p3');
+    expect(screen.getByRole('status')).toHaveTextContent('No providers have a tariff for this date');
     expect(screen.getByLabelText(/^plan\s*\*?$/i)).toBeDisabled();
   });
 

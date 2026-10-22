@@ -479,6 +479,23 @@ describe('TariffForm', () => {
     expect(providerOptions[1]).toHaveAttribute('aria-checked', 'false');
   });
 
+  it('keeps retained active providers available when Sessions may hide them by tariff eligibility', () => {
+    // Arrange: A retained active provider can have no currently selectable session tariff.
+    vi.mocked(useProviders).mockReturnValue({
+      providers: [
+        { id: 'p1', name: 'ChargePoint', user_id: 'user-1', created_at: new Date(), updated_at: new Date() },
+        { id: 'p2', name: 'Retained Provider', user_id: 'user-1', created_at: new Date(), updated_at: new Date() },
+      ],
+      isLoading: false,
+    });
+
+    // Act: Render the tariff form's provider matrix.
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+    // Assert: Tariff creation continues to expose every active provider.
+    expect(screen.getByRole('radio', { name: 'Retained Provider' })).toBeInTheDocument();
+  });
+
   it('selects the same known-provider ID by pointer and keyboard and submits it', async () => {
     // Arrange: Render a known-provider matrix and identify the second provider.
     vi.mocked(useProviders).mockReturnValue({
@@ -773,6 +790,43 @@ describe('TariffForm', () => {
     // Assert: Existing mode and selection replace only the staged provider state.
     expect(screen.getByRole('radio', { name: 'EWE Go' })).toBeChecked();
     expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,49');
+  });
+
+  it.each([
+    ['exact', 'EWE Go'],
+    ['case-insensitive', 'eWe gO'],
+    ['surrounding whitespace', '  EWE Go  '],
+  ])('recovers an %s duplicate by selecting the retained provider and preserving entered prices', async (_kind, enteredName) => {
+    // Arrange: The provider service returns the canonical active provider on normalized-name collision.
+    const existing = { id: 'p2', name: 'EWE Go', user_id: 'user-1', created_at: new Date(), updated_at: new Date() };
+    vi.mocked(useProviders).mockReturnValue({ providers: [existing], isLoading: false });
+    mockOnSubmit.mockRejectedValueOnce(new DuplicateProviderNameError(existing));
+    render(<TariffForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+    fireEvent.click(screen.getByRole('button', { name: /add new provider/i }));
+    fireEvent.change(screen.getByLabelText(/new provider name/i), { target: { value: enteredName } });
+    fireEvent.change(screen.getByLabelText(/^ac price$/i), { target: { value: '0,52' } });
+
+    // Act: Submit the staged provider and accept the typed recovery action.
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /select ewe go instead/i }));
+
+    // Assert: Recovery keeps the existing UUID and unrelated tariff draft values.
+    expect(screen.getByRole('radio', { name: 'EWE Go' })).toBeChecked();
+    expect(screen.getByLabelText(/^ac price$/i)).toHaveValue('0,52');
+
+    // Act: Submit the accepted tariff with the retained provider selection.
+    fireEvent.change(screen.getByLabelText(/tariff name/i), { target: { value: 'Road Trip' } });
+    fireEvent.click(screen.getByRole('button', { name: /save tariff/i }));
+
+    // Assert: The final payload links the existing provider and retains entered tariff values.
+    await waitFor(() => expect(mockOnSubmit).toHaveBeenCalledTimes(2));
+    expect(mockOnSubmit.mock.calls[1]?.[0]).toEqual(expect.objectContaining({
+      plan: expect.objectContaining({
+        provider_id: 'p2',
+        name: 'Road Trip',
+        ac_price_per_kwh: 52,
+      }),
+    }));
   });
 
   it('locks provider selection in edit mode and exposes no add/new-provider action', () => {
