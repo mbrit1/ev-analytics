@@ -101,6 +101,19 @@ focus feedback, honor reduced-motion preferences, and apply tabular numerals
 only where they improve scanning. Malformed locally persisted timestamps render
 as `Date unavailable` without inventing a time.
 
+## Session provider and tariff eligibility
+
+Plan-mode session entry offers same-owner providers that have an active tariff
+version effective on the entered UTC date, using the half-open interval
+`[valid_from, valid_to)`. Provider and tariff loading remains distinct from a
+settled empty result. When a draft becomes ineligible, its provider and tariff
+bindings are cleared while unrelated draft fields remain intact. Historical
+edits can retain their original provider, tariff, selection IDs, and pricing
+snapshot when the active tariff is unavailable; unchanged pricing remains
+snapshot-based. Auth-owner changes invalidate stale choices and pending
+submissions. Tariff creation continues to expose retained active providers and
+normalized duplicate-name recovery reuses the existing provider identity.
+
 ## Local Write Path
 
 User-visible mutations are local-first:

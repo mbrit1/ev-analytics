@@ -351,12 +351,26 @@ interface SessionFormProps {
  */
 export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, initialValues }) => {
   const legacyInitialValues = initialValues as LegacySessionInitialValues | undefined;
-  const { user } = useAuth();
-  const { planVersions } = useChargingPlans();
-  const { providers } = useProviders();
+  const { user, loading: isAuthLoading } = useAuth();
+  const { planVersions, isLoading: arePlansLoading } = useChargingPlans();
+  const { providers, isLoading: areProvidersLoading } = useProviders();
+  const ownerId = user?.id ?? null;
+  const previousOwnerIdRef = React.useRef(ownerId ?? initialValues?.user_id ?? null);
   const headingRef = React.useRef<HTMLHeadingElement | null>(null);
   const hasUserChangedProviderRef = React.useRef(false);
   const hasUserChangedLogicalSelectionRef = React.useRef(false);
+  const currentOwnerRef = React.useRef(ownerId);
+  const currentAuthLoadingRef = React.useRef(isAuthLoading);
+  const authGenerationRef = React.useRef(0);
+  const committedAuthStateRef = React.useRef({ ownerId, isLoading: isAuthLoading });
+  const ownerProviders = React.useMemo(
+    () => ownerId ? providers.filter((provider) => provider.user_id === ownerId) : [],
+    [ownerId, providers]
+  );
+  const ownerPlanVersions = React.useMemo(
+    () => ownerId ? planVersions.filter((plan) => plan.user_id === ownerId) : [],
+    [ownerId, planVersions]
+  );
 
   const initialAdHocOtherFeesTotal = React.useMemo(() => {
     return initialValues?.ad_hoc_pricing?.otherFees?.reduce((sum, fee) => sum + fee.amount, 0) ?? 0;
@@ -416,37 +430,109 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   const selectedSessionDate = useWatch({ control, name: 'session_timestamp' });
   const isEditMode = Boolean(initialValues?.id);
   const existingSession = isEditMode ? initialValues as ChargingSession : undefined;
+  React.useLayoutEffect(() => {
+    if (
+      committedAuthStateRef.current.ownerId !== ownerId
+      || committedAuthStateRef.current.isLoading !== isAuthLoading
+    ) {
+      authGenerationRef.current += 1;
+      committedAuthStateRef.current = { ownerId, isLoading: isAuthLoading };
+    }
+    currentAuthLoadingRef.current = isAuthLoading;
+    if (isAuthLoading) {
+      currentOwnerRef.current = null;
+      return;
+    }
+
+    if (previousOwnerIdRef.current !== ownerId) {
+      previousOwnerIdRef.current = ownerId;
+      setValue('provider_id', '', { shouldDirty: true });
+      setValue('logical_tariff_key', '', { shouldDirty: true });
+    }
+    currentOwnerRef.current = ownerId;
+  }, [isAuthLoading, ownerId, setValue]);
+
   const closeActionLabel = isEditMode ? 'Close session editor' : 'Close new session form';
   const cancelActionLabel = isEditMode ? 'Discard changes' : 'Back to history';
   const pricingSourceLabel = selectedPricingSource === 'ad_hoc' ? 'Ad-Hoc' : 'Charging Plan';
   const isChargingPlanPricing = selectedPricingSource === 'plan';
-  const providerPlans = React.useMemo(
-    () => planVersions.filter(plan => plan.provider_id === selectedProviderId),
-    [planVersions, selectedProviderId]
-  );
+  const isPlanEligibilityLoading = areProvidersLoading || arePlansLoading;
   const resolvedSelectedSessionDate = selectedSessionDate || formatDateInputValue(new Date());
-  const logicalTariffsForProvider = React.useMemo(
-    () => buildLogicalTariffs(providerPlans, parseUtcDateInput(resolvedSelectedSessionDate)),
-    [providerPlans, resolvedSelectedSessionDate]
+  const sessionDate = parseUtcDateInput(resolvedSelectedSessionDate);
+  const eligibleProviders = React.useMemo(() => ownerProviders.filter((provider) => (
+    buildLogicalTariffs(
+      ownerPlanVersions.filter((plan) => plan.provider_id === provider.id),
+      sessionDate
+    ).some((logicalTariff) => Boolean(logicalTariff.currentVersion))
+  )), [ownerPlanVersions, ownerProviders, sessionDate]);
+  const currentPlanEligibilityRef = React.useRef<{
+    ownerId: string | null;
+    providerId: string;
+    isProviderEligible: boolean;
+    logicalTariffKey: string;
+    sessionDate: string;
+    effectivePlanIds: string[];
+    isLoading: boolean;
+  }>({
+    ownerId,
+    providerId: '',
+    isProviderEligible: false,
+    logicalTariffKey: '',
+    sessionDate: '',
+    effectivePlanIds: [],
+    isLoading: false,
+  });
+  const providerPlans = React.useMemo(
+    () => ownerPlanVersions.filter(plan => plan.provider_id === selectedProviderId),
+    [ownerPlanVersions, selectedProviderId]
   );
+  const isOriginalSessionOwner = Boolean(
+    existingSession && ownerId && existingSession.user_id === ownerId
+  );
+  const isForeignSession = Boolean(existingSession && !isOriginalSessionOwner);
+  const logicalTariffsForProvider = React.useMemo(
+    () => buildLogicalTariffs(providerPlans, sessionDate),
+    [providerPlans, sessionDate]
+  );
+  React.useLayoutEffect(() => {
+    currentPlanEligibilityRef.current = {
+      ownerId,
+      providerId: selectedProviderId ?? '',
+      isProviderEligible: eligibleProviders.some((provider) => provider.id === selectedProviderId),
+      logicalTariffKey: selectedLogicalTariffKey ?? '',
+      sessionDate: resolvedSelectedSessionDate,
+      effectivePlanIds: logicalTariffsForProvider.flatMap(
+        (logicalTariff) => logicalTariff.currentVersion ? [logicalTariff.currentVersion.id] : []
+      ),
+      isLoading: arePlansLoading || areProvidersLoading,
+    };
+  }, [arePlansLoading, areProvidersLoading, eligibleProviders, logicalTariffsForProvider, ownerId, resolvedSelectedSessionDate, selectedLogicalTariffKey, selectedProviderId]);
   const initialLogicalKey = React.useMemo(
-    () => resolveInitialLogicalKey(legacyInitialValues, planVersions),
-    [legacyInitialValues, planVersions]
+    () => resolveInitialLogicalKey(
+      legacyInitialValues,
+      ownerPlanVersions.filter((plan) => !plan.deleted_at)
+    ),
+    [legacyInitialValues, ownerPlanVersions]
   );
   const isUsingExistingProviderSelection = Boolean(
-    existingSession && selectedProviderId === existingSession.provider_id
+    existingSession && isOriginalSessionOwner && selectedProviderId === existingSession.provider_id
   );
   const hasHistoricalProviderFallback = Boolean(
     existingSession
-    && !providers.some((provider) => provider.id === existingSession.provider_id)
+    && isOriginalSessionOwner
+    && !eligibleProviders.some((provider) => provider.id === existingSession.provider_id)
   );
+  const noEligibleProvider = isChargingPlanPricing
+    && !isPlanEligibilityLoading
+    && eligibleProviders.length === 0
+    && !hasHistoricalProviderFallback;
   const historicalLogicalTariffKey = existingSession?.tariff_plan_id
     ? `historical::${existingSession.tariff_plan_id}`
     : '';
   const hasHistoricalPlanFallback = Boolean(
     existingSession?.tariff_plan_id
     && isUsingExistingProviderSelection
-    && !providerPlans.some((plan) => plan.id === existingSession.tariff_plan_id)
+    && !providerPlans.some((plan) => plan.id === existingSession.tariff_plan_id && !plan.deleted_at)
   );
   const selectedLogicalTariff = React.useMemo(
     () => logicalTariffsForProvider.find((logical) => logical.key === selectedLogicalTariffKey),
@@ -503,6 +589,16 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
   ]);
 
   React.useEffect(() => {
+    if (isForeignSession) {
+      if (getValues('provider_id')) {
+        setValue('provider_id', '', { shouldDirty: true });
+      }
+      if (getValues('logical_tariff_key')) {
+        setValue('logical_tariff_key', '', { shouldDirty: true });
+      }
+      return;
+    }
+
     if (selectedPricingSource === 'ad_hoc') {
       return;
     }
@@ -516,6 +612,24 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       return;
     }
 
+    if (areProvidersLoading || arePlansLoading) {
+      return;
+    }
+
+    const providerRemainsEligible = eligibleProviders.some((provider) => provider.id === selectedProviderId);
+    const isOriginalProvider = Boolean(
+      existingSession
+      && isOriginalSessionOwner
+      && selectedProviderId === existingSession.provider_id
+    );
+    if (!providerRemainsEligible && !isOriginalProvider) {
+      setValue('provider_id', '', { shouldDirty: true });
+      if (currentLogicalKey) {
+        setValue('logical_tariff_key', '', { shouldDirty: true });
+      }
+      return;
+    }
+
     const currentLogicalTariffStillValid = logicalTariffsForProvider.some(
       (logicalTariff) => logicalTariff.key === currentLogicalKey
     );
@@ -525,20 +639,27 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
       return;
     }
 
-    if (logicalTariffsForProvider.length === 1) {
+    if (logicalTariffsForProvider.length === 1 && providerRemainsEligible) {
       setValue('logical_tariff_key', logicalTariffsForProvider[0].key, { shouldDirty: true });
       return;
     }
 
-    setValue('logical_tariff_key', '');
+    if (currentLogicalKey) {
+      setValue('logical_tariff_key', '');
+    }
   }, [
+    arePlansLoading,
+    areProvidersLoading,
+    eligibleProviders,
     existingSession,
+    getValues,
+    isForeignSession,
+    isOriginalSessionOwner,
+    logicalTariffsForProvider,
     selectedPricingSource,
     selectedProviderId,
-    getValues,
-    hasHistoricalPlanFallback,
     historicalLogicalTariffKey,
-    logicalTariffsForProvider,
+    hasHistoricalPlanFallback,
     setValue,
   ]);
 
@@ -622,14 +743,42 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     heading.focus({ preventScroll: true });
   }, []);
 
-  const handleFormSubmit = async (values: SessionFormValues) => {
+  const handleFormSubmit = async (values: SessionFormValues, submittedAuthGeneration: number) => {
     clearErrors('root.submit');
     clearErrors('billing_provider_name');
 
     try {
       // A session must belong to the active user; unauthenticated renders should
       // not be able to create orphaned local records.
-      if (!user) return;
+      if (isAuthLoading || currentAuthLoadingRef.current) {
+        setError('root.submit', {
+          type: 'manual',
+          message: 'Wait for account loading to finish before saving this session.',
+        });
+        return;
+      }
+
+      if (submittedAuthGeneration !== authGenerationRef.current) {
+        setError('root.submit', {
+          type: 'manual',
+          message: 'The active account changed while this session was being validated. Review it before saving.',
+        });
+        return;
+      }
+
+      if (!user || currentOwnerRef.current !== user.id
+        || (existingSession && existingSession.user_id !== user.id)
+        || (values.session_mode === 'plan' && (isPlanEligibilityLoading || currentPlanEligibilityRef.current.isLoading))
+      ) {
+        setError('root.submit', {
+          type: 'manual',
+          message: values.session_mode === 'plan'
+            && (isPlanEligibilityLoading || currentPlanEligibilityRef.current.isLoading)
+            ? 'Wait for providers and tariffs to finish loading before saving this session.'
+            : 'The active account changed. Review this session before saving.',
+        });
+        return;
+      }
 
       const sessionTimestamp = resolveSubmittedSessionTimestamp(
         values.session_timestamp,
@@ -696,8 +845,13 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
           return;
         }
 
-        const provider = providers.find((candidate) => candidate.id === providerId);
-        if (!effectivePlan) {
+        const submittedProvider = ownerProviders.find((candidate) => candidate.id === providerId);
+        const submittedLogicalTariff = buildLogicalTariffs(
+          ownerPlanVersions.filter((plan) => plan.provider_id === providerId),
+          planSelectionDate
+        ).find((logicalTariff) => logicalTariff.key === values.logical_tariff_key);
+        const submittedEffectivePlan = submittedLogicalTariff?.currentVersion ?? null;
+        if (!eligibleProviders.some((provider) => provider.id === providerId) || !submittedEffectivePlan) {
           setError('logical_tariff_key', {
             type: 'manual',
             message: 'No tariff version applies on the selected date',
@@ -705,37 +859,57 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
           return;
         }
 
+        const provider = submittedProvider;
         if (!provider) {
           throw new Error('Select an active provider and charging plan to change historical pricing');
         }
 
         const snapshot = buildTariffPriceSnapshot(
-          effectivePlan,
+          submittedEffectivePlan,
           provider.name,
           values.pricing_mode,
           values.charging_type
         );
         const activeSelection = await getActivePlanSelectionAt(providerId, user.id, planSelectionDate);
+        const latestEligibility = currentPlanEligibilityRef.current;
+        if (
+          submittedAuthGeneration !== authGenerationRef.current
+          ||
+          currentOwnerRef.current !== user.id
+          || latestEligibility.ownerId !== user.id
+          || latestEligibility.isLoading
+          || latestEligibility.providerId !== providerId
+          || !latestEligibility.isProviderEligible
+          || latestEligibility.logicalTariffKey !== values.logical_tariff_key
+          || latestEligibility.sessionDate !== values.session_timestamp
+          || !latestEligibility.effectivePlanIds.includes(submittedEffectivePlan.id)
+        ) {
+          setError('logical_tariff_key', {
+            type: 'manual',
+            message: 'No tariff version applies on the selected date',
+          });
+          return;
+        }
         // Logical tariff selection is date-derived in the browser, but
         // provider-plan selection history still persists the raw effective plan id.
-        const planSelectionChange = (!activeSelection || activeSelection.tariff_plan_id !== effectivePlan.id)
+        const planSelectionChange = (!activeSelection || activeSelection.tariff_plan_id !== submittedEffectivePlan.id)
           ? {
             userId: user.id,
             providerId,
-            tariffPlanId: effectivePlan.id,
+            tariffPlanId: submittedEffectivePlan.id,
             validFrom: planSelectionDate,
             priceSnapshot: snapshot,
           } satisfies SetActivePlanSelectionInput
           : undefined;
         const input = {
           ...planInput,
-          tariff_plan_id: effectivePlan.id,
-          plan_selection_id: activeSelection?.tariff_plan_id === effectivePlan.id ? activeSelection.id : undefined,
+          tariff_plan_id: submittedEffectivePlan.id,
+          plan_selection_id: activeSelection?.tariff_plan_id === submittedEffectivePlan.id ? activeSelection.id : undefined,
           price_snapshot: snapshot,
         };
         const session = existingSession
-          ? prepareSessionEdit(existingSession, input, effectivePlan, provider)
-          : prepareSession(input, effectivePlan, provider);
+          ? prepareSessionEdit(existingSession, input, submittedEffectivePlan, provider)
+          : prepareSession(input, submittedEffectivePlan, provider);
         await onSubmit({
           session,
           planSelectionChange,
@@ -801,6 +975,12 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
     }
   };
 
+  const submitForm = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const submittedAuthGeneration = authGenerationRef.current;
+    void handleSubmit((values) => handleFormSubmit(values, submittedAuthGeneration))(event);
+  };
+
   return (
     <Slab>
       <div className="flex items-center justify-between mb-8">
@@ -821,7 +1001,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         </button>
       </div>
 
-      <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-8" noValidate>
+      <form onSubmit={submitForm} className="space-y-8" noValidate>
         {errors.root?.submit?.message && (
           <p role="alert" className="text-sm text-red-500 font-medium">
             {errors.root.submit.message}
@@ -884,6 +1064,12 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                 <label htmlFor="provider_id" className="text-[13px] font-medium text-secondary uppercase tracking-wider mb-1">
                   Provider <span className="text-primary" aria-hidden="true">*</span>
                 </label>
+                {isPlanEligibilityLoading && (
+                  <p role="status" className="mb-1 text-sm text-secondary">Loading providers and tariffs…</p>
+                )}
+                {noEligibleProvider && (
+                  <p role="status" className="mb-1 text-sm text-secondary">No providers have a tariff for this date.</p>
+                )}
                 <Controller
                   name="provider_id"
                   control={control}
@@ -891,6 +1077,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                     <select
                       id="provider_id"
                       {...field}
+                      disabled={isPlanEligibilityLoading}
                       onChange={(event) => {
                         hasUserChangedProviderRef.current = true;
                         field.onChange(event);
@@ -904,12 +1091,18 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                       }`}
                     >
                       <option value="">Select Provider</option>
+                      {isPlanEligibilityLoading
+                        && selectedProviderId
+                        && !eligibleProviders.some((provider) => provider.id === selectedProviderId)
+                        && !hasHistoricalProviderFallback && (
+                        <option value={selectedProviderId}>Loading selected provider…</option>
+                      )}
                       {hasHistoricalProviderFallback && existingSession && (
                           <option value={existingSession.provider_id ?? undefined}>
                           {existingSession.provider_name_snapshot}
                         </option>
                       )}
-                      {providers.map(p => (
+                      {eligibleProviders.map(p => (
                         <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
                     </select>
@@ -932,6 +1125,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                     <select
                       id="logical_tariff_key"
                       {...field}
+                      disabled={isPlanEligibilityLoading || shouldDisablePlanSelect}
                       onChange={(event) => {
                         hasUserChangedLogicalSelectionRef.current = true;
                         field.onChange(event);
@@ -940,7 +1134,6 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                       aria-required={isChargingPlanPricing ? 'true' : 'false'}
                       aria-invalid={errors.logical_tariff_key ? 'true' : 'false'}
                       aria-describedby={planDescribedBy}
-                      disabled={shouldDisablePlanSelect}
                       className={`w-full px-0 py-2 border-b border-secondary/20 focus:border-accent outline-none bg-transparent text-xl font-medium min-h-[44px] transition-colors disabled:text-secondary/55 disabled:cursor-not-allowed ${
                         selectedLogicalTariffKey ? 'text-primary' : 'text-primary/70'
                       }`}
@@ -951,6 +1144,12 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
                       >
                         Select Plan
                       </option>
+                      {isPlanEligibilityLoading
+                        && selectedLogicalTariffKey
+                        && !logicalTariffsForProvider.some((logicalTariff) => logicalTariff.key === selectedLogicalTariffKey)
+                        && !hasHistoricalPlanFallback && (
+                        <option value={selectedLogicalTariffKey}>Loading selected plan…</option>
+                      )}
                       {hasHistoricalPlanFallback && historicalLogicalTariffKey && (
                         <option value={historicalLogicalTariffKey}>
                           {existingSession?.charging_plan_name_snapshot
@@ -1135,7 +1334,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
         <div className="pt-6 flex flex-col sm:flex-row gap-4">
           <button
             type="submit"
-            disabled={isSubmitting}
+            disabled={isSubmitting || isAuthLoading || (isChargingPlanPricing && isPlanEligibilityLoading)}
             className="flex-1 flex items-center justify-center py-4 px-6 bg-accent text-white font-bold rounded-xl hover:opacity-90 transition-all disabled:opacity-50 min-h-[56px] shadow-lg shadow-accent/20"
           >
             {isSubmitting ? (
