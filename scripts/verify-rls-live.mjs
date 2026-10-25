@@ -174,9 +174,9 @@ async function readOne(client, table, id, token, message) {
   return response.json[0]
 }
 
-async function assertOwnerFieldUnchanged(client, table, id, token, field, expectedValue) {
+async function assertOwnerRowUnchanged(client, table, id, token, expectedRow) {
   const row = await readOne(client, table, id, token, `Owner could not read ${table} after cross-user mutation attempt.`)
-  assert(isDeepStrictEqual(row[field], expectedValue), `Cross-user update changed the ${table} owner row.`)
+  assert(isDeepStrictEqual(row, expectedRow), `Cross-user update changed the ${table} owner row.`)
 }
 
 function ownerMutation(table, ownerRow) {
@@ -225,7 +225,8 @@ async function verifyTableMatrix(client, table, owner, other, payload, ownerRow,
   assert(Array.isArray(ownerUpdate.json) && ownerUpdate.json.length === 1
     && isDeepStrictEqual(ownerUpdate.json[0][mutation.field], mutation.ownerValue),
   `Owner update of ${table} did not persist its probe value.`)
-  await assertOwnerFieldUnchanged(client, table, id, owner.accessToken, mutation.field, mutation.ownerValue)
+  const expectedRow = ownerUpdate.json[0]
+  await assertOwnerRowUnchanged(client, table, id, owner.accessToken, expectedRow)
 
   const spoofed = { ...payload, user_id: other.userId }
   if (table === 'provider_plan_selections') spoofed.id = allocateId()
@@ -233,10 +234,12 @@ async function verifyTableMatrix(client, table, owner, other, payload, ownerRow,
     method: 'POST', token: owner.accessToken, headers: { Prefer: 'return=representation' }, body: [spoofed],
   })
   assertPostgresFailure(spoofInsert, { status: 403, code: '42501' }, `Spoofed ownership insert into ${table} was not denied by RLS.`)
+  await assertOwnerRowUnchanged(client, table, id, owner.accessToken, expectedRow)
 
   const otherRead = await client.rest(`${table}?select=id&id=eq.${id}`, { token: other.accessToken })
   assert(otherRead.ok, safeFailure(`Cross-user read request for ${table}`, otherRead))
   assert(Array.isArray(otherRead.json) && otherRead.json.length === 0, `Cross-user read exposed ${table} row.`)
+  await assertOwnerRowUnchanged(client, table, id, owner.accessToken, expectedRow)
 
   const otherUpdate = await client.rest(`${table}?id=eq.${id}`, {
     method: 'PATCH', token: other.accessToken, headers: { Prefer: 'return=representation' },
@@ -244,14 +247,14 @@ async function verifyTableMatrix(client, table, owner, other, payload, ownerRow,
   })
   assert(otherUpdate.ok, safeFailure(`Cross-user update request for ${table}`, otherUpdate))
   assert(Array.isArray(otherUpdate.json) && otherUpdate.json.length === 0, `Cross-user update of ${table} returned a row.`)
-  await assertOwnerFieldUnchanged(client, table, id, owner.accessToken, mutation.field, mutation.ownerValue)
+  await assertOwnerRowUnchanged(client, table, id, owner.accessToken, expectedRow)
 
   const otherDelete = await client.rest(`${table}?id=eq.${id}`, {
     method: 'DELETE', token: other.accessToken, headers: { Prefer: 'return=representation' },
   })
   assert(otherDelete.ok, safeFailure(`Cross-user delete request for ${table}`, otherDelete))
   assert(Array.isArray(otherDelete.json) && otherDelete.json.length === 0, `Cross-user delete of ${table} returned a row.`)
-  await assertOwnerFieldUnchanged(client, table, id, owner.accessToken, mutation.field, mutation.ownerValue)
+  await assertOwnerRowUnchanged(client, table, id, owner.accessToken, expectedRow)
   log(`[ok] ${table}: anonymous denial, owner CRUD, and cross-user denial verified`)
 }
 
