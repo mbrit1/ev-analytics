@@ -11,7 +11,7 @@ const ids = {
 }
 
 function jsonResponse(status, json) {
-  return { ok: status >= 200 && status < 300, status, json: async () => json }
+  return { ok: status >= 200 && status < 300, status, json: async () => structuredClone(json) }
 }
 
 function makeIdFactory(values = []) {
@@ -412,6 +412,41 @@ describe('verify-rls-live', () => {
         `${table}.${valueField} should be checked after a cross-user update`,
       )
       values.push('50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002')
+    }
+  })
+
+  it('detects cross-user changes to another owner field after every authorization probe', async () => {
+    // Arrange: Preserve the requested name mutation while corrupting a different field in later reads.
+    for (const stage of ['read', 'spoof', 'update', 'delete']) {
+      const mock = createFetchMock()
+      let corrupted = false
+      const fetchImpl = async (input, init = {}) => {
+        const url = new URL(input)
+        const body = init.body ? JSON.parse(init.body) : undefined
+        const other = init.headers?.Authorization === `Bearer ${user2.token}`
+        if (url.pathname === '/rest/v1/providers' && (
+          (stage === 'read' && other && init.method === 'GET')
+          || (stage === 'spoof' && init.method === 'POST' && body[0].user_id === user2.id
+            && init.headers?.Authorization === `Bearer ${user1.token}`)
+          || (stage === 'update' && other && init.method === 'PATCH')
+          || (stage === 'delete' && other && init.method === 'DELETE')
+        )) corrupted = true
+        const response = await mock.fetch(input, init)
+        if (corrupted && url.pathname === '/rest/v1/providers' && init.method === 'GET'
+          && init.headers?.Authorization === `Bearer ${user1.token}`) {
+          const rows = await response.json()
+          return jsonResponse(response.status, rows.map((row) => ({ ...row, notes: 'cross-user corruption' })))
+        }
+        return response
+      }
+      const config = resolveConfig({}, {
+        SUPABASE_URL: 'https://example.test', SUPABASE_ANON_KEY: 'publishable-test-key',
+        RLS_USER1_EMAIL: 'owner@example.test', RLS_USER1_PASSWORD: 'owner-password',
+        RLS_USER2_EMAIL: 'other@example.test', RLS_USER2_PASSWORD: 'other-password',
+      })
+      // Act and assert: Checking just the requested mutation field must not hide changes elsewhere.
+      await assert.rejects(runVerification({ config, fetchImpl, idFactory: makeIdFactory(), log: () => {} }), /Cross-user update changed the providers owner row/, `The ${stage} probe was not detected.`)
+      assert.equal(corrupted, true, `The ${stage} probe was not exercised.`)
     }
   })
 
