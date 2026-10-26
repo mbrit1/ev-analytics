@@ -408,7 +408,7 @@ describe('verify-rls-live', () => {
       const mock = createFetchMock({ crossUserPatchTable: table })
       await assert.rejects(
         runVerification({ config, fetchImpl: mock.fetch, idFactory: makeIdFactory(values) }),
-        new RegExp(`Cross-user update changed the ${table} owner row\\.`),
+        new RegExp(`Owner row preservation failed for ${table} after cross-user update\\.`),
         `${table}.${valueField} should be checked after a cross-user update`,
       )
       values.push('50000000-0000-0000-0000-000000000001', '50000000-0000-0000-0000-000000000002')
@@ -417,7 +417,12 @@ describe('verify-rls-live', () => {
 
   it('detects cross-user changes to another owner field after every authorization probe', async () => {
     // Arrange: Preserve the requested name mutation while corrupting a different field in later reads.
-    for (const stage of ['read', 'spoof', 'update', 'delete']) {
+    for (const [stage, checkpoint] of [
+      ['read', 'cross-user read'],
+      ['spoof', 'spoofed ownership insert'],
+      ['update', 'cross-user update'],
+      ['delete', 'cross-user delete'],
+    ]) {
       const mock = createFetchMock()
       let corrupted = false
       const fetchImpl = async (input, init = {}) => {
@@ -445,7 +450,11 @@ describe('verify-rls-live', () => {
         RLS_USER2_EMAIL: 'other@example.test', RLS_USER2_PASSWORD: 'other-password',
       })
       // Act and assert: Checking just the requested mutation field must not hide changes elsewhere.
-      await assert.rejects(runVerification({ config, fetchImpl, idFactory: makeIdFactory(), log: () => {} }), /Cross-user update changed the providers owner row/, `The ${stage} probe was not detected.`)
+      await assert.rejects(
+        runVerification({ config, fetchImpl, idFactory: makeIdFactory(), log: () => {} }),
+        { message: `Owner row preservation failed for providers after ${checkpoint}.` },
+        `The ${stage} probe was not detected with its checkpoint diagnostic.`,
+      )
       assert.equal(corrupted, true, `The ${stage} probe was not exercised.`)
     }
   })
