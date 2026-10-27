@@ -36,63 +36,16 @@ These instructions apply to the entire repository. Human contributors should sta
 - Keep changes small and scoped. For structural refactors, move first without changing behavior, then make behavioral changes separately with targeted tests.
 - Follow the current design baseline in `docs/design/design-system-baseline.html` and the checklist in `docs/design/governance-checklist.md` for UI work.
 
-Trivial-task exemption: short read-only work answerable through one bounded
-inspection and bounded documentation-only changes across at most three files
-without executable content or architecture, product, security, or policy
-decisions stay with the primary supervisor and require neither routing
-calculation nor delegation.
+## Review and Behavioral Evidence
 
-Routine Git finalization exemption: explicitly authorized staging, committing,
-branch renaming, fast-forwarding, and deleting a verified merged local branch
-stay with the primary supervisor once the relevant paths, refs, and preservation
-checks are established. These tasks require neither routing calculation nor
-delegation. History rewrites, conflicts, force deletion, and uncertain
-preservation follow the routing gate. Existing authorization requirements remain
-unchanged.
-
-Batch known adjacent documentation edits into one slice and one validation pass
-instead of creating separate worker handoffs for each file or follow-up.
-Substantial, repetitive, or independently parallelizable read-only investigation
-is non-trivial and follows the routing gate. The routing gate below applies to
-all non-trivial work outside these explicit exemptions.
-
-## Agent Responsibilities
-
-- `implement_luna` handles localized implementation, refactoring, unit tests, mechanical changes, and conflict-free Git history maintenance with an exact approved plan.
-- `implement_mid` handles bounded score 3-6 work on Luna at high effort after unclear causes and supervisor decisions are resolved.
-- `implement_sol` handles bounded score 7+ implementation after the primary supervisor resolves any architecture, product, security, or routing decision.
-- `scan_luna` handles focused read-only codebase exploration and evidence gathering; it must not edit files.
-- `investigate_sol` handles bounded read-only investigation of unclear cross-module problems; it returns evidence and a testable root-cause hypothesis before any fix.
-- The top-level user-facing agent is the primary supervisor regardless of its active model. The primary supervisor is responsible for:
-  - Creating the implementation plan and making architecture decisions.
-  - Calculating and reporting the routing score defined below as one compact line containing only non-zero factors before non-trivial implementation.
-  - Using the calculated execution tier by default and reporting any permitted override reason.
-  - Ensuring workers have no overlapping file ownership.
-  - Reviewing every completed diff.
-  - Running integration-level validation.
-  - Presenting the final result and making merge decisions.
-- Outside the explicit exemptions above, the routing gate applies even when delegation is unavailable, prohibited, unnecessary, or overridden. Do not begin non-trivial implementation until the compact factor list, total, calculated route, actual route, and override reason are reported.
-- The primary supervisor is the sole routing authority. Workers report only changed files, each exact validation command and result, and any blocker or residual risk; do not restate route, task, or prior evidence unless asked.
-- Recalculate an independently discovered fix only when its likely route threshold or owned scope materially differs from the active slice. Clear corrections with unchanged scope stay with the current owner.
-- Score routing decisions consistently: add 2 for an unclear root cause, 2 for architecture or cross-subsystem impact, 2 for auth/RLS, migrations, concurrency, or transactions, 1 for more than five likely files, 1 for unfamiliar external API or framework behavior, 1 for weak coverage, 1 for costly-to-detect regressions, and 2 after Luna validation fails only when the root cause remains unclear, the scope expands, or the same correction fails again. Do not count weak coverage merely because live-browser validation is required, and do not double-count weak coverage and regression cost when they describe the same evidence.
-- Route scores 0-2 to `implement_luna`, 3-6 to `implement_mid`, and 7+ to `implement_sol`. These are task tiers, not distinct model families. Use `implement_mid` only after the root cause and required decisions are clear. For an unclear cross-module cause, gather evidence locally or through `investigate_sol`, then re-score the bounded implementation. Treat the calculated route as the target execution tier. When it matches the primary supervisor's active model and effort, execute locally; otherwise delegate to the matching implementation role unless the user prohibits delegation, the required agent or tooling is unavailable, the slice changes routing authority or worker permissions, the task meets an explicit exemption above, or the primary supervisor must first resolve an architecture, product, or security decision.
-- For score 7+ delegation, select the exact custom agent role `implement_sol`. A generic or default worker is not an equivalent substitute. If the custom role cannot be selected or loaded, stop and report the routing failure rather than silently inheriting the parent or default agent settings.
-- Use `scan_luna` for focused read-only exploration and `investigate_sol` for bounded read-only cross-module diagnosis when the root cause remains unclear. Neither is an implementation tier or may receive write work.
-- Every delegated prompt must include a terminal stop condition. Planning or diagnosis-only assignments stop before edits and return the result for parent acknowledgement; implementation assignments stop after their acceptance criteria and validation command complete.
-- Do not use `ultra` for project work unless the user explicitly requests it and the primary supervisor records why a lower effort level is insufficient. Prefer `high` or `xhigh` for demanding work and keep delegation bounded.
-- Outside the explicit exemptions, a small diff or higher raw token count alone is not a sufficient override. For any other override, report concrete evidence that local execution has the lower total expected cost after price-weighted model usage, worker context setup, handoff and review overhead, latency, duplicate validation, and error or rework risk are considered; absent that evidence, use the calculated execution tier. Prefer reusing an active compatible worker or batching adjacent work when that amortizes the handoff cost.
-- Give focused workers bounded prompts with `fork_turns: "none"` unless the task genuinely requires surrounding conversation context; include the necessary context explicitly in the assignment.
-- Delegation depth is exactly one: primary supervisor to leaf worker. Every created worker is a leaf and must not create agents, delegate, fork tasks, recalculate routing, or approve escalation. At most two workers may be active concurrently, only for independent slices with non-overlapping ownership.
-- A worker that cannot finish must stop and return an escalation request with evidence to the primary supervisor. Escalation for the same slice is monotonic from `implement_luna` to `implement_mid` to `implement_sol` and never moves downward.
-- A Sol worker that cannot finish returns the slice to the primary supervisor for a local decision or user input. Do not create another worker for unchanged scope.
-- Only one agent may own a slice at a time. Before replacing a worker, the primary supervisor inspects the shared worktree, revokes the previous ownership, and establishes the replacement's starting diff.
-- Delegate Git history rewrites only after the parent defines the source and target refs, exact rewrite plan, recovery ref, expected final tree, and validation commands. Luna workers may execute a conflict-free plan; conflicts, ambiguous commit ownership, unexpected tree differences, and recovery needs escalate to `implement_sol`. Routine Git finalization stays with the primary supervisor under the exemption above.
-- For explicitly authorized history maintenance, implementation workers may create rewritten commits but must not publish them. The primary supervisor reviews the final graph and tree and retains responsibility for push, pull-request, merge, and finalization decisions.
-- Test-driven delegated changes require a RED pause and parent acknowledgement for score 3+ work and for domain, security, sync, persistence, migration, transaction, or concurrency behavior. For score 0-2 work, Luna may report RED and GREEN together. TypeScript implementation slices must run `npm run typecheck` before GREEN.
-- Parent acknowledgement may rely on the subagent's exact RED command and failure evidence. Re-run RED only when that evidence is ambiguous or inconsistent, or when shared worktree state changed; final integration validation remains mandatory.
+- Review the complete diff and run integration-level validation before handoff.
+- When sharing work, establish non-overlapping file ownership and preserve others' changes. Resolve scope, architecture, product, and security decisions before implementation; return unresolved decisions to the responsible maintainer.
+- For delegated domain, security, sync, persistence, migration, transaction, or concurrency behavior, pause after RED evidence for acknowledgement by the coordinating reviewer before implementation. Other non-trivial delegated behavioral changes also require this checkpoint; small, localized, low-risk work may report RED and GREEN together.
+- RED evidence must include the exact command and expected failing behavior. The reviewer may rely on that evidence unless ambiguous, inconsistent, or invalidated by worktree changes. Final integration validation remains mandatory.
+- TypeScript implementation slices must run `npm run typecheck` before GREEN.
 - One-file presentational or mechanical changes use focused checks and live-browser validation where applicable; do not add brittle unit tests solely to prove CSS classes.
 - UI integration validation includes live-browser visual review; component tests alone do not complete handoff.
-- Workers do not merge or finalize work independently.
+- Delegated contributors must stop at their assigned scope and report changed files, exact validation commands and results, blockers, and residual risks. They must not publish or finalize independently.
 
 ## Implementation Conventions
 
@@ -105,10 +58,10 @@ all non-trivial work outside these explicit exemptions.
 
 ## Browser Validation
 
-- Use the built-in Codex Browser by default for local preview, visual and responsive checks, screenshots, console inspection, DOM/style inspection, network inspection, and keyboard/focus checks.
-- Use Browser Developer mode/CDP when deeper inspection is needed.
+- Use available browser tooling for local preview, visual and responsive checks, screenshots, console inspection, DOM/style inspection, network inspection, and keyboard/focus checks.
+- Use developer tools/CDP when deeper inspection is needed.
 - Do not install or download Playwright, Puppeteer, Chromium, Chrome, browser drivers, or browser-automation dependencies for ad-hoc validation.
-- Adding or modifying browser-testing dependencies, or using or installing an alternative when Browser is blocked, requires explicit human approval.
+- Adding or modifying browser-testing dependencies, or using or installing an alternative when the available browser tooling is blocked, requires explicit human approval.
 - An E2E suite is allowed only when it is explicitly approved, repository-owned, uses a pinned project dev dependency, and is documented and reproducible in CI; never install it globally.
 
 ## Verification
@@ -127,6 +80,6 @@ all non-trivial work outside these explicit exemptions.
 
 ## Handoff
 
-Summarize changed files, verification performed, remaining risks, and a suggested Conventional Commit message. Include one compact routing table row per implementation slice rather than repeating the score for every correction inside that slice. Note UI design deviations as either `local exception` or `promote to master`.
+Summarize changed files, verification performed, remaining risks, and a suggested Conventional Commit message. Note UI design deviations as either `local exception` or `promote to master`.
 
 See `CONTRIBUTING.md` for the full human workflow, `docs/architecture.md` for implemented behavior, and `docs/adr/` for the decisions behind these constraints.

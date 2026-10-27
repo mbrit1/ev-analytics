@@ -2,6 +2,13 @@
 
 Thank you for improving EV Analytics. This guide is the canonical engineering workflow for human contributors. Start with `README.md` for the product overview, use `docs/architecture.md` for implemented technical behavior, and use `docs/infrastructure-runbook.md` for environment provisioning and deployment.
 
+## Coding Tools
+
+Repository instructions in `AGENTS.md` define shared engineering and authorization
+requirements for coding tools. Contributors choose their own tools and personal
+model, agent, routing, and delegation settings; these are not a repository baseline.
+Personal settings must respect the repository's engineering and review requirements.
+
 ## Development Setup
 
 Use the repository-pinned Node.js version 22.22.2 from `.nvmrc`. Supported versions are 22.x ≥22.22.2, 24.x ≥24.15.0, and 26+.
@@ -87,7 +94,7 @@ Data-entry workflows must remain practical one-handed and in poor connectivity. 
 3. Use Conventional Commits, for example `feat(sync): implement offline outbox queue`.
 4. Include a commit body that explains the motivation and meaningful trade-offs rather than repeating the diff.
 
-Do not commit directly to `main`. Automated coding agents must not push, open pull requests, or merge without explicit human authorization.
+Do not commit directly to `main`. Automated coding agents must not commit, push, open pull requests, or merge without explicit human authorization.
 
 Dependabot is an existing exception for non-draft development-dependency updates classified as semver-patch: configured automation may approve and auto-merge these updates, subject to the repository's configured GitHub merge requirements. This exception does not authorize agents to publish or merge their own changes.
 

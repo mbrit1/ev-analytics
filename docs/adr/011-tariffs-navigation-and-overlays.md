@@ -313,8 +313,8 @@ the evidence needed to promote those visual values from candidate to shared
 baseline; the Tariffs ADR alone does not promote them.
 
 The follow-up Sessions change requires its own audit/specification, task plan,
-routing, tests, Browser evidence, and explicit authorization. It should reuse
-the proven shared components rather than copy Tariffs classes, while retaining
+implementation review, tests, Browser evidence, and explicit authorization. It
+should reuse the proven shared components rather than copy Tariffs classes, while retaining
 Sessions-specific grouping, totals, card content, create/edit behavior,
 offline semantics, and focus restoration. Any contract change discovered by
 Sessions is reviewed as a shared API evolution, not patched into Tariffs through
