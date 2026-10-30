@@ -92,6 +92,12 @@ export async function saveProvider(provider: Provider): Promise<void> {
 
   await db.transaction('rw', db.providers, db.sync_outbox, async () => {
     const existing = await db.providers.get(provider.id);
+    if (existing && existing.user_id !== provider.user_id) {
+      throw new ProviderReferenceUnavailableError();
+    }
+    if (existing?.deleted_at != null && provider.deleted_at == null) {
+      throw new ProviderReferenceUnavailableError();
+    }
     const now = new Date();
     const normalizedProviderName = providerName.toLowerCase();
 
