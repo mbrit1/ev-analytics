@@ -1,8 +1,10 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { db, type Provider } from '../../../infra/db';
+import Dexie from 'dexie';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createSyncOutboxEntry, db, type Provider } from '../../../infra/db';
 import {
   DuplicateProviderNameError,
   getProviders,
+  ProviderReferenceUnavailableError,
   saveProvider
 } from './providerService';
 import 'fake-indexeddb/auto';
@@ -18,6 +20,10 @@ describe('providerService', () => {
     // Arrange: Keep provider and outbox state isolated for each test.
     await db.providers.clear();
     await db.sync_outbox.clear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it('should save a provider and create an outbox entry with retry metadata', async () => {
@@ -48,6 +54,103 @@ describe('providerService', () => {
       next_attempt_at: undefined,
       last_error: undefined
     });
+  });
+
+  it('should reject overwriting a provider owned by another user inside the transaction', async () => {
+    // Arrange: Keep an unrelated provider and queued write so rollback preserves full local state.
+    const existing: Provider = {
+      id: 'provider-foreign-owner',
+      user_id: 'user-2',
+      name: 'Fastned',
+      created_at: new Date('2026-01-01T00:00:00.000Z'),
+      updated_at: new Date('2026-02-01T00:00:00.000Z')
+    };
+    const unrelated: Provider = {
+      id: 'provider-unrelated',
+      user_id: 'user-1',
+      name: 'Ionity',
+      created_at: new Date('2026-01-02T00:00:00.000Z'),
+      updated_at: new Date('2026-02-02T00:00:00.000Z')
+    };
+    await db.providers.bulkAdd([existing, unrelated]);
+    const queued = createSyncOutboxEntry('providers', 'UPDATE', unrelated, unrelated.updated_at);
+    queued.last_error = 'keep existing queued work';
+    queued.retry_count = 2;
+    await db.sync_outbox.add(queued);
+    const before = {
+      providers: await db.providers.toArray(),
+      outbox: await db.sync_outbox.toArray()
+    };
+    let observedActiveTransaction = false;
+    const attempted: Provider = {
+      ...existing,
+      name: 'Renamed by foreign user'
+    };
+    Object.defineProperty(attempted, 'user_id', {
+      get() {
+        observedActiveTransaction ||= Dexie.currentTransaction != null;
+        return 'user-1';
+      }
+    });
+
+    // Act: Reuse the stored identity under a different owner.
+    const result = saveProvider(attempted);
+
+    // Assert: The refusal happens while the write transaction is active and rolls back all rows.
+    await expect(result).rejects.toBeInstanceOf(ProviderReferenceUnavailableError);
+    expect(observedActiveTransaction).toBe(true);
+    expect(await db.providers.toArray()).toEqual(before.providers);
+    expect(await db.sync_outbox.toArray()).toEqual(before.outbox);
+  });
+
+  it.each([
+    ['omitted', 'omitted'],
+    ['undefined', 'undefined'],
+    ['null', 'null']
+  ] as const)('should reject clearing a provider tombstone when deleted_at is %s', async (_label, marker) => {
+    // Arrange: Seed a tombstone, another provider, and a nonempty unrelated outbox queue.
+    const tombstone: Provider = {
+      id: 'provider-tombstone',
+      user_id: 'user-1',
+      name: 'Removed provider',
+      created_at: new Date('2026-01-01T00:00:00.000Z'),
+      updated_at: new Date('2026-03-01T00:00:00.000Z'),
+      deleted_at: new Date('2026-03-01T00:00:00.000Z')
+    };
+    const unrelated: Provider = {
+      id: 'provider-unrelated',
+      user_id: 'user-2',
+      name: 'Other provider',
+      created_at: new Date('2026-01-02T00:00:00.000Z'),
+      updated_at: new Date('2026-02-02T00:00:00.000Z')
+    };
+    await db.providers.bulkAdd([tombstone, unrelated]);
+    const queued = createSyncOutboxEntry('providers', 'UPDATE', unrelated, unrelated.updated_at);
+    queued.last_error = 'keep existing queued work';
+    queued.retry_count = 2;
+    await db.sync_outbox.add(queued);
+    const before = {
+      providers: await db.providers.toArray(),
+      outbox: await db.sync_outbox.toArray()
+    };
+    const originalGet = db.providers.get.bind(db.providers);
+    const observedTransaction = vi.spyOn(db.providers, 'get').mockImplementation((...args) => {
+      expect(Dexie.currentTransaction != null).toBe(true);
+      return originalGet(...args);
+    });
+    const attempted = marker === 'omitted'
+      ? Object.fromEntries(Object.entries(tombstone).filter(([key]) => key !== 'deleted_at'))
+      : { ...tombstone, deleted_at: marker === 'null' ? null : undefined };
+
+    // Act: Attempt to restore the removed provider without its tombstone.
+    const result = saveProvider(attempted as Provider);
+
+    // Assert: Every form of missing deletion marker is refused without changing either store.
+    await expect(result).rejects.toBeInstanceOf(ProviderReferenceUnavailableError);
+    expect(observedTransaction).toHaveBeenCalled();
+    expect(await db.providers.toArray()).toEqual(before.providers);
+    expect(await db.sync_outbox.toArray()).toEqual(before.outbox);
+    observedTransaction.mockRestore();
   });
 
   it('should return only non-deleted providers for requested user', async () => {
@@ -216,8 +319,8 @@ describe('providerService', () => {
       id: 'provider-edit',
       user_id: 'user-1',
       name: 'Ionity',
-      created_at: new Date(),
-      updated_at: new Date()
+      created_at: new Date('2020-01-01T00:00:00.000Z'),
+      updated_at: new Date('2020-02-01T00:00:00.000Z')
     };
     await db.providers.add(provider);
 
@@ -229,6 +332,63 @@ describe('providerService', () => {
 
     // Assert: Update succeeds and trims persisted name.
     const updated = await db.providers.get('provider-edit');
-    expect(updated?.name).toBe('ionity');
+    expect(updated).toMatchObject({
+      name: 'ionity',
+      created_at: provider.created_at,
+      updated_at: expect.any(Date)
+    });
+    expect(updated?.updated_at.getTime()).toBeGreaterThan(provider.updated_at.getTime());
+    const [entry] = await db.sync_outbox.toArray();
+    expect(entry.action).toBe('UPDATE');
+    expect(entry.payload).toMatchObject({ name: 'ionity', created_at: provider.created_at });
+    expect(entry.timestamp).toEqual(updated?.updated_at);
+  });
+
+  it('should allow renaming an existing provider', async () => {
+    // Arrange: Seed an existing provider with stable creation metadata.
+    const provider: Provider = {
+      id: 'provider-rename',
+      user_id: 'user-1',
+      name: 'Old name',
+      created_at: new Date('2020-01-01T00:00:00.000Z'),
+      updated_at: new Date('2020-02-01T00:00:00.000Z')
+    };
+    await db.providers.add(provider);
+
+    // Act: Rename the provider through the legacy persistence path.
+    await saveProvider({ ...provider, name: ' New name ' });
+
+    // Assert: The trimmed rename is persisted as an update and keeps creation time.
+    const updated = await db.providers.get(provider.id);
+    expect(updated).toMatchObject({ name: 'New name', created_at: provider.created_at });
+    expect(updated?.updated_at.getTime()).toBeGreaterThan(provider.updated_at.getTime());
+    const [entry] = await db.sync_outbox.toArray();
+    expect(entry.action).toBe('UPDATE');
+    expect(entry.payload).toMatchObject({ name: 'New name', created_at: provider.created_at });
+  });
+
+  it('should allow an active provider to be marked deleted', async () => {
+    // Arrange: Seed an active provider with an established creation timestamp.
+    const provider: Provider = {
+      id: 'provider-active-to-deleted',
+      user_id: 'user-1',
+      name: 'Old provider',
+      created_at: new Date('2020-01-01T00:00:00.000Z'),
+      updated_at: new Date('2020-02-01T00:00:00.000Z')
+    };
+    await db.providers.add(provider);
+    const deletedAt = new Date('2026-03-01T00:00:00.000Z');
+
+    // Act: Persist an explicit deletion marker.
+    await saveProvider({ ...provider, deleted_at: deletedAt });
+
+    // Assert: The legacy update succeeds and retains its timestamp and tombstone.
+    expect(await db.providers.get(provider.id)).toMatchObject({
+      created_at: provider.created_at,
+      deleted_at: deletedAt
+    });
+    const [entry] = await db.sync_outbox.toArray();
+    expect(entry.action).toBe('UPDATE');
+    expect((entry.payload as Provider).deleted_at).toEqual(deletedAt);
   });
 });
