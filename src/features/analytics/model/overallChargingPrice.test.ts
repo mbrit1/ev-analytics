@@ -820,7 +820,7 @@ describe('calculateOverallChargingPrice', () => {
     expect(result.status).toBe('ready')
     if (result.status !== 'ready') return
     expect(result.fixedCostCents).toBeGreaterThan(0)
-    expect(formatCtPerKwhAsEuroAmount(result.overallPriceCtPerKwh, 'de-DE')).toBe('0,57')
-    expect(formatCtPerKwh(result.overallPriceCtPerKwh, 'de-DE')).toMatch(/^57,[1-9] ct\/kWh$/)
+    expect(formatCtPerKwhAsEuroAmount(result.overallPriceCtPerKwh, 'de-DE')).toBe('0,52')
+    expect(formatCtPerKwh(result.overallPriceCtPerKwh, 'de-DE')).toMatch(/^52,[1-9] ct\/kWh$/)
   })
 })

@@ -44,6 +44,22 @@ const emptyProviderBreakdown = calculateBillingProviderBreakdown([], createAnaly
   { kind: 'month', month: { year: 2026, month: 6 } },
   new Date(2026, 6, 15, 12),
 ))
+const emptyComparison = {
+  status: 'no-comparison-data' as const,
+  spending: { status: 'unavailable' as const },
+  energy: { status: 'unavailable' as const },
+  priceDifferenceEurPerKwh: null,
+}
+
+const emptyMonthlyQuery = {
+  result: monthlyResult,
+  previousResult: monthlyResult,
+  comparison: emptyComparison,
+  providerBreakdown: emptyProviderBreakdown,
+  trend: emptyTrend,
+  isLoading: false,
+  error: null,
+}
 
 const readyOverallPrice: OverallChargingPriceQueryState = {
   status: 'success',
@@ -66,7 +82,7 @@ const readyOverallPrice: OverallChargingPriceQueryState = {
  */
 describe('AnalyticsPage', () => {
   beforeEach(() => {
-    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, providerBreakdown: emptyProviderBreakdown, trend: emptyTrend, isLoading: false, error: null })
+    vi.mocked(useMonthlySessionSpend).mockReturnValue(emptyMonthlyQuery)
     vi.mocked(useOverallChargingPrice).mockReturnValue(readyOverallPrice)
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('sidebar')
   })
@@ -126,6 +142,8 @@ describe('AnalyticsPage', () => {
       },
       isLoading: false,
       error: null,
+      previousResult: monthlyResult,
+      comparison: emptyComparison,
     })
 
     // Act
@@ -213,6 +231,8 @@ describe('AnalyticsPage', () => {
         result: calculateMonthlySessionSpend(sessions, period),
         providerBreakdown: calculateBillingProviderBreakdown(sessions, period),
         trend: calculateSessionSpendingTrend(sessions, period),
+        previousResult: monthlyResult,
+        comparison: emptyComparison,
         isLoading: false,
         error: null,
       }
@@ -299,6 +319,8 @@ describe('AnalyticsPage', () => {
         result: calculateMonthlySessionSpend(sessions, period),
         providerBreakdown: calculateBillingProviderBreakdown(sessions, period),
         trend: calculateSessionSpendingTrend(sessions, period),
+        previousResult: monthlyResult,
+        comparison: emptyComparison,
         isLoading: false,
         error: null,
       }
@@ -431,6 +453,8 @@ describe('AnalyticsPage', () => {
         trend: calculateSessionSpendingTrend([], period),
         isLoading: false,
         error: null,
+        previousResult: monthlyResult,
+        comparison: emptyComparison,
       }
     })
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
@@ -480,6 +504,8 @@ describe('AnalyticsPage', () => {
       trend: calculateSessionSpendingTrend([], period),
       isLoading: false,
       error: null,
+      previousResult: monthlyResult,
+      comparison: emptyComparison,
     }))
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<AnalyticsPage onAddSession={vi.fn()} />)
@@ -539,6 +565,8 @@ describe('AnalyticsPage', () => {
       trend: calculateSessionSpendingTrend([], period),
       isLoading: false,
       error: null,
+      previousResult: monthlyResult,
+      comparison: emptyComparison,
     }))
     const onAddSession = vi.fn()
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
@@ -664,14 +692,82 @@ describe('AnalyticsPage', () => {
     })
     expect(vi.mocked(useOverallChargingPrice).mock.calls.at(-1)).toEqual(['2026-08-01'])
   })
+
+  it('queries the selected period and its immediately preceding comparison period', () => {
+    // Arrange: Select the current month with a fixed day of month.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 6, 15, 12))
+
+    // Act: Render the month-to-date Analytics page.
+    render(<AnalyticsPage onAddSession={vi.fn()} />)
+
+    // Assert: The query receives both exact local-calendar windows and the comparison slab is present.
+    const [currentPeriod, previousPeriod] = vi.mocked(useMonthlySessionSpend).mock.calls.at(-1) ?? []
+    expect(currentPeriod).toMatchObject({
+      selection: { kind: 'month', month: { year: 2026, month: 6 } },
+      startUtc: new Date(2026, 6, 1),
+      endUtc: new Date(2026, 6, 16),
+    })
+    expect(previousPeriod).toMatchObject({
+      startUtc: new Date(2026, 5, 1),
+      endUtc: new Date(2026, 5, 16),
+      isDayCountEqual: true,
+    })
+    const summary = screen.getByRole('heading', { name: /July 2026 summary/ })
+    const comparisonHeading = screen.getByRole('heading', { name: 'Previous period comparison' })
+    const chart = screen.getByRole('heading', { name: /Monthly spending/ })
+    const providers = screen.getByRole('heading', { name: 'Billing providers' })
+    expect(summary.compareDocumentPosition(comparisonHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(comparisonHeading.compareDocumentPosition(chart)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(chart.compareDocumentPosition(providers)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+
+  it('updates comparison ranges and displayed values when the selected calendar month changes', async () => {
+    // Arrange: Return distinct aggregates for July and June so stale data is detectable.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date(2026, 6, 15, 12))
+    vi.mocked(useMonthlySessionSpend).mockImplementation((selectedPeriod) => {
+      const selectedJuly = selectedPeriod.selection.kind === 'month' && selectedPeriod.selection.month.month === 6
+      const current = { ...monthlyResult, isEmpty: false, sessionCount: 1, totalSessionSpendCents: selectedJuly ? 12_000 : 20_000, billedEnergyKwh: 100, validBilledEnergySessionCount: 1 }
+      const prior = { ...monthlyResult, isEmpty: false, sessionCount: 1, totalSessionSpendCents: selectedJuly ? 9_000 : 11_000, billedEnergyKwh: 90, validBilledEnergySessionCount: 1 }
+      return {
+        result: current,
+        previousResult: prior,
+        providerBreakdown: emptyProviderBreakdown,
+        comparison: { status: 'compared', spending: { status: 'percentage', percentage: 25 }, energy: { status: 'percentage', percentage: 10 }, priceDifferenceEurPerKwh: 0.03 },
+        trend: emptyTrend,
+        isLoading: false,
+        error: null,
+      }
+    })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AnalyticsPage onAddSession={vi.fn()} />)
+
+    // Assert initial July comparison before selecting June.
+    expect(screen.getByText('July 2026: 1 Jul – 15 Jul 2026 · In progress')).toBeInTheDocument()
+    expect(screen.getByText('120,00 € now · 90,00 € before')).toBeInTheDocument()
+
+    // Act: Navigate to the previous calendar month.
+    await user.click(screen.getByRole('button', { name: 'Previous month' }))
+
+    // Assert: Both labels and values follow the newly selected month.
+    expect(screen.getByText('June 2026: 1 Jun – 30 Jun 2026')).toBeInTheDocument()
+    expect(screen.getByText('May 2026: 1 May – 31 May 2026')).toBeInTheDocument()
+    expect(screen.getByText('200,00 € now · 110,00 € before')).toBeInTheDocument()
+    expect(screen.queryByText('120,00 € now · 90,00 € before')).not.toBeInTheDocument()
+  })
+
   it('keeps lifetime available during a monthly query failure and recovers', () => {
     // Arrange
-    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, providerBreakdown: emptyProviderBreakdown, trend: emptyTrend, isLoading: false, error: new Error('read failed') })
+    vi.mocked(useMonthlySessionSpend).mockReturnValue({
+      ...emptyMonthlyQuery,
+      error: new Error('read failed'),
+    })
     const { rerender } = render(<AnalyticsPage onAddSession={vi.fn()} />)
     // Act / Assert
     expect(screen.getByText('Unable to load the summary. Please try again.')).toHaveAttribute('role', 'alert')
     expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
-    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, providerBreakdown: emptyProviderBreakdown, trend: emptyTrend, isLoading: false, error: null })
+    vi.mocked(useMonthlySessionSpend).mockReturnValue(emptyMonthlyQuery)
     rerender(<AnalyticsPage onAddSession={vi.fn()} />)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.getByText('0 charging sessions')).toBeInTheDocument()
