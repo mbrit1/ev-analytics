@@ -30,6 +30,17 @@ export interface AnalyticsPeriod extends AnalyticsPeriodBounds {
   isInProgress: boolean
 }
 
+/** Bounds and display metadata for the period immediately before a selection. */
+export interface PreviousAnalyticsPeriod {
+  startUtc: Date
+  endUtc: Date
+  dayCount: number
+  isDayCountEqual: boolean
+  isInProgress: boolean
+  /** Prior calendar month for calendar-month comparisons. */
+  monthLabel?: CalendarMonth
+}
+
 /** Returns the local calendar month containing the supplied instant. */
 export function getCalendarMonth(date: Date): CalendarMonth {
   return { year: date.getFullYear(), month: date.getMonth() }
@@ -104,5 +115,55 @@ export function createAnalyticsPeriod(
     isCurrentMonth: false,
     isCompleteMonth: false,
     isInProgress: true,
+  }
+}
+
+function countCalendarDays(start: Date, end: Date): number {
+  const startDay = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())
+  const endDay = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate())
+  return Math.round((endDay - startDay) / 86_400_000)
+}
+
+/**
+ * Derives the comparison window immediately preceding a selected period.
+ * Presets use an equal count of local calendar days. Completed months compare
+ * with the full prior month; current month-to-date compares matching day
+ * numbers, capped at the prior month's final day.
+ */
+export function createPreviousAnalyticsPeriod(
+  selection: AnalyticsPeriodSelection,
+  now = new Date(),
+): PreviousAnalyticsPeriod {
+  const selected = createAnalyticsPeriod(selection, now)
+  let startUtc: Date
+  let endUtc: Date
+  let monthLabel: CalendarMonth | undefined
+
+  if (selection.kind === 'preset') {
+    const dayCount = countCalendarDays(selected.startUtc, selected.endUtc)
+    endUtc = new Date(selected.startUtc)
+    startUtc = new Date(endUtc)
+    startUtc.setDate(startUtc.getDate() - dayCount)
+  } else if (selected.isCurrentMonth) {
+    monthLabel = shiftCalendarMonth(selection.month, -1)
+    startUtc = new Date(monthLabel.year, monthLabel.month, 1)
+    const priorMonthLastDay = new Date(monthLabel.year, monthLabel.month + 1, 0).getDate()
+    const currentDayCount = countCalendarDays(selected.startUtc, selected.endUtc)
+    endUtc = new Date(monthLabel.year, monthLabel.month, Math.min(currentDayCount + 1, priorMonthLastDay + 1))
+  } else {
+    monthLabel = shiftCalendarMonth(selection.month, -1)
+    startUtc = new Date(monthLabel.year, monthLabel.month, 1)
+    endUtc = new Date(monthLabel.year, monthLabel.month + 1, 1)
+  }
+
+  const dayCount = countCalendarDays(startUtc, endUtc)
+  const selectedDayCount = countCalendarDays(selected.startUtc, selected.endUtc)
+  return {
+    startUtc,
+    endUtc,
+    dayCount,
+    isDayCountEqual: dayCount === selectedDayCount,
+    isInProgress: selected.isInProgress,
+    ...(monthLabel ? { monthLabel } : {}),
   }
 }
