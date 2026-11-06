@@ -104,15 +104,17 @@ export function AnalyticsPage({
           error={monthlyError}
           onAddSession={onAddSession}
         />
-        <PreviousPeriodComparisonSlab
-          period={period}
-          previousPeriod={previousPeriod}
-          result={monthlyResult}
-          previousResult={previousResult}
-          comparison={comparison}
-          isLoading={isMonthlyLoading}
-          error={monthlyError}
-        />
+        {!(selection.kind === 'preset' && selection.preset === '7-days') && (
+          <PreviousPeriodComparisonSlab
+            period={period}
+            previousPeriod={previousPeriod}
+            result={monthlyResult}
+            previousResult={previousResult}
+            comparison={comparison}
+            isLoading={isMonthlyLoading}
+            error={monthlyError}
+          />
+        )}
       </section>
       {showSpendingChart && (
         <SessionSpendingTrendSlab

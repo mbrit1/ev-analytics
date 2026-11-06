@@ -194,6 +194,11 @@ describe('AnalyticsPage', () => {
       await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
       await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name }))
       expect(screen.getByText(name)).toBeInTheDocument()
+      if (preset === '7-days') {
+        expect(screen.queryByRole('heading', { name: 'Previous period comparison' })).not.toBeInTheDocument()
+      } else {
+        expect(screen.getByRole('heading', { name: 'Previous period comparison' })).toBeInTheDocument()
+      }
       expect(screen.queryByRole('button', { name: 'Previous month' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Next month' })).not.toBeInTheDocument()
       expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0].selection)
@@ -205,10 +210,11 @@ describe('AnalyticsPage', () => {
     // Assert: The prior month remains selected after changing modes.
     expect(screen.getByText('June 2026')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /June 2026 summary/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Previous period comparison' })).toBeInTheDocument()
     expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
   })
 
-  it('updates provider totals for 7 and 30 Days and keeps the slab before lifetime', async () => {
+  it('keeps provider totals and lifetime visible for 7 and 30 Days and shows comparison only for 30 Days', async () => {
     // Arrange: June falls outside 7 Days but inside 30 Days; July remains in both periods.
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(new Date(2026, 6, 15, 12))
@@ -250,10 +256,20 @@ describe('AnalyticsPage', () => {
     expect(initialProviderHeading.compareDocumentPosition(lifetime)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     expect(lifetime).toHaveTextContent('0,60')
 
-    // Act / Assert: Both short presets update the provider totals and remain visible before lifetime.
-    for (const [label, expectedSpend] of [['7 Days', '12,00 €'], ['30 Days', '17,00 €']] as const) {
+    // Act / Assert: Both short presets hide the chart and keep provider totals before lifetime.
+    for (const [label, expectedSpend, showsComparison] of [
+      ['7 Days', '12,00 €', false],
+      ['30 Days', '17,00 €', true],
+    ] as const) {
       await user.click(screen.getByRole('button', { name: /^Other ranges/ }))
       await user.click(within(screen.getByRole('dialog', { name: 'Other ranges' })).getByRole('button', { name: label }))
+      expect(screen.queryByRole('heading', { name: /Monthly spending/ })).not.toBeInTheDocument()
+      const comparisonHeading = screen.queryByRole('heading', { name: 'Previous period comparison' })
+      if (showsComparison) {
+        expect(comparisonHeading).toBeInTheDocument()
+      } else {
+        expect(comparisonHeading).not.toBeInTheDocument()
+      }
       const providerHeading = screen.getByRole('heading', { name: 'Billing providers' })
       const providerSlab = providerHeading.parentElement?.parentElement
       expect(providerSlab).not.toBeNull()
