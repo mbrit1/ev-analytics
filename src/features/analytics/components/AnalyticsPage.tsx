@@ -33,6 +33,8 @@ export function AnalyticsPage({
   const [selectedMonth, setSelectedMonth] = useState(currentMonth)
   const [selection, setSelection] = useState<AnalyticsPeriodSelection>(() => ({ kind: 'month', month: currentMonth }))
   const period = useMemo(() => createAnalyticsPeriod(selection, now), [selection, now])
+  const showSpendingChart = selection.kind !== 'preset'
+    || (selection.preset !== '7-days' && selection.preset !== '30-days')
   const layoutMode = useAnalyticsLayoutMode()
   const { result: monthlyResult, trend, isLoading: isMonthlyLoading, error: monthlyError } = useMonthlySessionSpend(period)
   const overallPriceQuery = useOverallChargingPrice(formatLocalDateKey(now))
@@ -91,12 +93,14 @@ export function AnalyticsPage({
           onAddSession={onAddSession}
         />
       </section>
-      <SessionSpendingTrendSlab
-        period={period}
-        trend={trend}
-        isLoading={isMonthlyLoading}
-        error={monthlyError}
-      />
+      {showSpendingChart && (
+        <SessionSpendingTrendSlab
+          period={period}
+          trend={trend}
+          isLoading={isMonthlyLoading}
+          error={monthlyError}
+        />
+      )}
       <section aria-label="Lifetime Overall Price" className="space-y-3">
         <p className="text-xs font-bold uppercase tracking-wider text-secondary">Lifetime · All recorded sessions</p>
         {overallContent}

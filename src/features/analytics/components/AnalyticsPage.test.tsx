@@ -210,18 +210,17 @@ describe('AnalyticsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
     await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: '7 Days' }))
 
-    // Assert: The short preset keeps a three-month chart context beside its selected summary.
-    expect(screen.getByRole('slider', { name: 'Monthly spending by month' })).toBeInTheDocument()
-    expect(screen.getByText('1 May – 31 Jul 2026 · 3 Months context')).toBeInTheDocument()
+    // Assert: The short preset shows its selected summary without the monthly chart.
+    expect(screen.queryByRole('slider', { name: 'Monthly spending by month' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Selected-period analytics' })).toBeInTheDocument()
 
     // Act: Cross both local day and month boundaries while Analytics stays mounted.
     await act(() => vi.advanceTimersByTimeAsync(1_000))
 
     // Assert: The period refreshes in place and the preset remains selected.
     expect(screen.getByText('7 Days')).toBeInTheDocument()
-    expect(screen.getByRole('slider', { name: 'Monthly spending by month' })).toBeInTheDocument()
+    expect(screen.queryByRole('slider', { name: 'Monthly spending by month' })).not.toBeInTheDocument()
     expect(screen.getByText('26 Jul – 1 Aug 2026 · In progress')).toBeInTheDocument()
-    expect(screen.getByText('2 May – 1 Aug 2026 · 3 Months context')).toBeInTheDocument()
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0].selection)
       .toEqual({ kind: 'preset', preset: '7-days' })
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0]).toMatchObject({
@@ -229,7 +228,7 @@ describe('AnalyticsPage', () => {
       endUtc: new Date(2026, 7, 2),
     })
     expect(screen.getByRole('heading', { name: /7 Days summary/ })).toBeInTheDocument()
-    expect(screen.getByRole('slider', { name: 'Monthly spending by month' })).toBeInTheDocument()
+    expect(screen.queryByRole('slider', { name: 'Monthly spending by month' })).not.toBeInTheDocument()
 
     // Act: Return to calendar mode after the day and month rollover.
     await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
@@ -272,9 +271,8 @@ describe('AnalyticsPage', () => {
       expect(screen.queryByRole('button', { name: 'Previous month' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Next month' })).not.toBeInTheDocument()
       if (preset === '7-days' || preset === '30-days') {
-        expect(screen.getByRole('heading', { name: 'Session spending, 16 Apr – 15 Jul 2026' })).toBeInTheDocument()
-        expect(screen.getByRole('slider', { name: 'Monthly spending by month' })).toBeInTheDocument()
-        expect(screen.getByText('16 Apr – 15 Jul 2026 · 3 Months context')).toBeInTheDocument()
+        expect(screen.queryByRole('heading', { name: /Session spending/ })).not.toBeInTheDocument()
+        expect(screen.queryByRole('slider', { name: 'Monthly spending by month' })).not.toBeInTheDocument()
       } else {
         expect(screen.getByRole('heading', { name: `Session spending, ${range}` })).toBeInTheDocument()
         expect(screen.getByRole('slider', { name: 'Monthly spending by month' })).toBeInTheDocument()
@@ -301,7 +299,7 @@ describe('AnalyticsPage', () => {
   it.each([
     ['7 Days', '7-days'],
     ['30 Days', '30-days'],
-  ] as const)('keeps summary and lifetime actions with %s chart context', async (label, preset) => {
+  ] as const)('keeps summary and lifetime actions with %s and hides the chart', async (label, preset) => {
     // Arrange
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(new Date(2026, 6, 15, 12))
@@ -322,9 +320,8 @@ describe('AnalyticsPage', () => {
     // Assert
     expect(screen.getByRole('heading', { name: new RegExp(`${label} summary`) })).toBeInTheDocument()
     expect(screen.getByText(/No charging sessions recorded for this period yet/)).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Session spending, 16 Apr – 15 Jul 2026' })).toBeInTheDocument()
-    expect(screen.getByRole('slider', { name: 'Monthly spending by month' })).toBeInTheDocument()
-    expect(screen.getByText('16 Apr – 15 Jul 2026 · 3 Months context')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /Session spending/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('slider', { name: 'Monthly spending by month' })).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Overall price' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
     await user.click(screen.getByRole('button', { name: 'Add Session' }))
