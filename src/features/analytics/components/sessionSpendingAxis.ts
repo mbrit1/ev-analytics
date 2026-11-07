@@ -34,3 +34,22 @@ export function createEnergyAxisTicks(values: readonly (number | null)[]): numbe
 
   return Array.from({ length: count + 1 }, (_, index) => Number((index * step).toPrecision(12)))
 }
+
+/** Creates a zero-based fractional EUR/kWh scale with suitable rounded ticks. */
+export function createPriceAxisTicks(values: readonly (number | null)[]): number[] {
+  const availableValues = values.filter((value): value is number => value !== null)
+  if (availableValues.length === 0) return []
+
+  const maximum = Math.max(0, ...availableValues)
+  if (maximum === 0) return [0, 0.1, 0.2, 0.3]
+
+  const rawStep = maximum / 3
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep))
+  const normalized = rawStep / magnitude
+  const niceFactor = normalized <= 1.5 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10
+  const step = Math.max(0.01, niceFactor * magnitude)
+  const upperBound = Math.ceil(maximum / step) * step
+  const count = Math.round(upperBound / step)
+
+  return Array.from({ length: count + 1 }, (_, index) => Number((index * step).toPrecision(12)))
+}
