@@ -5,8 +5,8 @@ import { createAnalyticsPeriod } from '../model/analyticsPeriods'
 import { calculateSessionSpendingTrend, type SessionSpendingTrend } from '../model/sessionSpendingTrend'
 import { SessionSpendingTrendSlab } from './SessionSpendingTrendSlab'
 
-const bucketDates = [new Date(2026, 3, 16), new Date(2026, 4, 1), new Date(2026, 5, 1), new Date(2026, 6, 1), new Date(2026, 6, 16)]
-const bucketValues = [0, 500, null, 0] as const
+const bucketDates = [new Date(2026, 1, 1), new Date(2026, 2, 1), new Date(2026, 3, 1), new Date(2026, 4, 1), new Date(2026, 5, 1), new Date(2026, 6, 1), new Date(2026, 6, 16)]
+const bucketValues = [0, 500, 0, 0, null, 0] as const
 const trend: SessionSpendingTrend = {
   startUtc: bucketDates[0]!,
   endUtc: new Date(2026, 6, 16),
@@ -16,8 +16,8 @@ const trend: SessionSpendingTrend = {
   buckets: bucketValues.map((totalSessionSpendCents, index) => ({
     startUtc: bucketDates[index]!, endUtc: bucketDates[index + 1]!, totalSessionSpendCents,
     sessionCount: 1,
-    unit: 'month' as const, month: { year: 2026, month: index + 3 },
-    isCurrentMonth: index === 3, isPartialMonth: index === 0 || index === 3,
+    unit: 'month' as const, month: { year: 2026, month: index + 1 },
+    isCurrentMonth: index === 5, isPartialMonth: index === 5,
   })),
 }
 
@@ -29,12 +29,12 @@ describe('SessionSpendingTrendSlab', () => {
     // Arrange
     const user = userEvent.setup()
     render(<SessionSpendingTrendSlab period={period} trend={trend} isLoading={false} />)
-    expect(screen.getByRole('heading', { name: 'Session spending, 16 Apr – 15 Jul 2026' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Session spending, 1 Feb – 15 Jul 2026' })).toBeInTheDocument()
     expect(document.querySelector('summary[aria-label="Info"]')).toBeInTheDocument()
-    expect(screen.getByText('16 Apr – 15 Jul 2026 · 3 Months context')).toBeInTheDocument()
-    expect(document.querySelector('caption')).toHaveTextContent('Monthly session spending values for 16 Apr 2026 – 15 Jul 2026')
+    expect(screen.getByText('1 Feb – 15 Jul 2026 · 6 Months context')).toBeInTheDocument()
+    expect(document.querySelector('caption')).toHaveTextContent('Monthly session spending values for 1 Feb 2026 – 15 Jul 2026')
     expect(screen.queryByText(/Chart range/)).not.toBeInTheDocument()
-    expect(screen.getByText('* Partial month · MTD: month to date.')).toBeInTheDocument()
+    expect(screen.getByText('MTD: month to date.')).toBeInTheDocument()
     expect(screen.queryByText('* Partial month')).not.toBeInTheDocument()
     expect(screen.getAllByText('Jul · MTD').length).toBeGreaterThan(0)
     expect(screen.queryByText('Jul*')).not.toBeInTheDocument()
@@ -44,33 +44,33 @@ describe('SessionSpendingTrendSlab', () => {
     await user.tab()
     await user.tab()
     expect(plot).toHaveFocus()
-    expect(plot).toHaveAttribute('aria-valuenow', '3')
+    expect(plot).toHaveAttribute('aria-valuenow', '5')
     expect(plot).toHaveAttribute('aria-valuetext', expect.stringContaining('Month to date'))
     await user.keyboard('{Home}')
     await user.keyboard('{ArrowRight}')
 
     // Assert
     expect(plot).toHaveAttribute('aria-valuenow', '1')
-    expect(plot).toHaveAttribute('aria-valuetext', expect.stringContaining('1 May 2026 – 31 May 2026'))
+    expect(plot).toHaveAttribute('aria-valuetext', expect.stringContaining('1 Mar 2026 – 31 Mar 2026'))
     expect(plot.querySelector('[data-selected-month-anchor="true"]')).toBeInTheDocument()
     const tooltip = plot.querySelector('[data-spending-tooltip="true"]')!
     expect(tooltip.children).toHaveLength(2)
-    expect(tooltip.children[0]).toHaveTextContent('May 2026 · 5,00 €')
-    expect(tooltip.children[1]).toHaveTextContent('1–31 May')
+    expect(tooltip.children[0]).toHaveTextContent('Mar 2026 · 5,00 €')
+    expect(tooltip.children[1]).toHaveTextContent('1–31 Mar')
     expect(tooltip.children[1]).not.toHaveTextContent('Complete month')
     await user.keyboard('{End}')
-    expect(plot).toHaveAttribute('aria-valuenow', '3')
+    expect(plot).toHaveAttribute('aria-valuenow', '5')
     expect(plot.querySelector('[data-spending-tooltip="true"]')!.children[0]).toHaveTextContent('Jul 2026 · 0,00 €')
     expect(plot.querySelector('[data-spending-tooltip="true"]')!.children[1]).toHaveTextContent('1–15 Jul · Month to date')
     expect(plot.querySelector('[data-spending-tooltip="true"]')!.children[1]).not.toHaveTextContent('Partial month')
     expect(plot).toHaveAttribute('aria-valuetext', expect.stringMatching(/1 Jul 2026.*15 Jul 2026.*Month to date/))
     expect(plot.querySelector('[data-selected-month-anchor="true"]')).toBeInTheDocument()
     await user.keyboard('{ArrowRight}{ArrowRight}')
-    expect(plot).toHaveAttribute('aria-valuenow', '3')
+    expect(plot).toHaveAttribute('aria-valuenow', '5')
     await user.keyboard('{Home}')
     expect(plot).toHaveAttribute('aria-valuenow', '0')
-    expect(plot.querySelector('[data-spending-tooltip="true"]')!.children[0]).toHaveTextContent('Apr 2026 · 0,00 €')
-    expect(plot.querySelector('[data-spending-tooltip="true"]')!.children[1]).toHaveTextContent('16–30 Apr · Partial month')
+    expect(plot.querySelector('[data-spending-tooltip="true"]')!.children[0]).toHaveTextContent('Feb 2026 · 0,00 €')
+    expect(plot.querySelector('[data-spending-tooltip="true"]')!.children[1]).toHaveTextContent('1–28 Feb')
     await user.keyboard('{ArrowLeft}')
     expect(plot).toHaveAttribute('aria-valuenow', '0')
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
@@ -90,6 +90,20 @@ describe('SessionSpendingTrendSlab', () => {
     expect(screen.getByRole('heading', { name: 'Session spending, 11 Dec 2025 – 10 Mar 2026' })).toBeInTheDocument()
     expect(screen.getByText('11 Dec 2025 – 10 Mar 2026 · 3 Months context')).toBeInTheDocument()
     expect(screen.queryByText('4 Mar – 10 Mar 2026')).not.toBeInTheDocument()
+  })
+
+  it('labels a calendar-month chart from its six actual context months', () => {
+    // Arrange: June is selected, so the chart begins on January 1 while the summary starts in June.
+    const monthPeriod = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, new Date(2026, 6, 1))
+    const sixMonthTrend = calculateSessionSpendingTrend([], monthPeriod)
+
+    // Act
+    render(<SessionSpendingTrendSlab period={monthPeriod} trend={sixMonthTrend} isLoading={false} />)
+
+    // Assert: Exact accessible dates and the visible context description match actual chart bounds.
+    expect(screen.getByRole('heading', { name: 'Session spending, 1 Jan – 30 Jun 2026' })).toBeInTheDocument()
+    expect(screen.getByText('1 Jan – 30 Jun 2026 · 6 Months context')).toBeInTheDocument()
+    expect(screen.getByRole('slider', { name: 'Monthly spending by month' })).toHaveAttribute('aria-valuetext', expect.stringContaining('1 Jun 2026 – 30 Jun 2026'))
   })
 
   it('preserves the inspected bucket when 7-day and 30-day summaries share chart bounds', () => {
@@ -149,7 +163,7 @@ describe('SessionSpendingTrendSlab', () => {
 
     // Assert
     expect(plot.querySelector('[data-spending-tooltip="true"]')).not.toBeInTheDocument()
-    expect(plot).toHaveAttribute('aria-valuenow', '3')
+    expect(plot).toHaveAttribute('aria-valuenow', '5')
     fireEvent.focus(plot)
     expect(plot.querySelector('[data-spending-tooltip="true"]')).toBeInTheDocument()
     fireEvent.blur(plot)
@@ -193,41 +207,41 @@ describe('SessionSpendingTrendSlab', () => {
 
     // Act: A pointer outside the plotted SVG, such as in the label gutter, is not a chart hit.
     fireEvent.pointerDown(plot, { clientX: -1, clientY: 80, pointerId: 1 })
-    expect(plot).toHaveAttribute('aria-valuenow', '3')
+    expect(plot).toHaveAttribute('aria-valuenow', '5')
     expect(plot.querySelector('[data-spending-tooltip="true"]')).not.toBeInTheDocument()
 
     // Act: Select the unavailable and zero-spend buckets by pointer.
-    fireEvent.pointerDown(plot, { clientX: 310, clientY: 80, pointerId: 1, pointerType: 'touch' })
+    fireEvent.pointerDown(plot, { clientX: 400, clientY: 80, pointerId: 1, pointerType: 'touch' })
 
     // Assert: The null bucket stays unavailable and opens no invented point.
-    expect(plot).toHaveAttribute('aria-valuenow', '2')
+    expect(plot).toHaveAttribute('aria-valuenow', '4')
     expect(plot).toHaveAttribute('aria-valuetext', expect.stringContaining('Unavailable'))
     expect(plot.querySelector('[data-spending-tooltip="true"]')!.children[0]).toHaveTextContent('Jun 2026 · Unavailable')
     expect(plot.querySelector('[data-spending-tooltip="true"]')!.children[1]).toHaveTextContent('1–30 Jun')
     expect(plot).toHaveFocus()
     fireEvent.pointerMove(plot, { clientX: 490, clientY: 80, pointerId: 1, pointerType: 'touch', buttons: 1 })
-    expect(plot).toHaveAttribute('aria-valuenow', '3')
-    fireEvent.pointerDown(plot, { clientX: 310, clientY: 80, pointerId: 1, pointerType: 'touch' })
+    expect(plot).toHaveAttribute('aria-valuenow', '5')
+    fireEvent.pointerDown(plot, { clientX: 400, clientY: 80, pointerId: 1, pointerType: 'touch' })
     fireEvent.pointerDown(plot, { clientX: 490, clientY: 80, pointerId: 1, button: 2 })
-    expect(plot).toHaveAttribute('aria-valuenow', '2')
+    expect(plot).toHaveAttribute('aria-valuenow', '4')
     fireEvent.pointerDown(plot, { clientX: 0, clientY: 80, pointerId: 1 })
     expect(plot).toHaveAttribute('aria-valuenow', '0')
-    expect(plot.querySelector('[data-spending-tooltip="true"]')!.children[0]).toHaveTextContent('Apr 2026 · 0,00 €')
-    expect(plot.querySelector('[data-spending-tooltip="true"]')!.children[1]).toHaveTextContent('16–30 Apr · Partial month')
+    expect(plot.querySelector('[data-spending-tooltip="true"]')!.children[0]).toHaveTextContent('Feb 2026 · 0,00 €')
+    expect(plot.querySelector('[data-spending-tooltip="true"]')!.children[1]).toHaveTextContent('1–28 Feb')
 
     // Act: Select the far-right point using the plot's large hit area.
     fireEvent.pointerDown(plot, { clientX: 490, clientY: 80, pointerId: 1 })
 
     // Assert: Selection remains inspectable without plotting unavailable values.
-    expect(plot).toHaveAttribute('aria-valuenow', '3')
+    expect(plot).toHaveAttribute('aria-valuenow', '5')
     expect(plot.querySelector('[data-spending-tooltip="true"]')!.children[0]).toHaveTextContent('Jul 2026 · 0,00 €')
     expect(plot.querySelector('[data-spending-tooltip="true"]')!.children[1]).toHaveTextContent('1–15 Jul · Month to date')
     const bars = [...plot.querySelectorAll('[data-month-bar="true"]')]
-    expect(bars).toHaveLength(4)
+    expect(bars).toHaveLength(6)
     expect(bars[0]).toHaveAttribute('data-spend-cents', '0')
     expect(bars[0]).toHaveAttribute('data-bar-height', '0')
-    expect(bars[2]).toHaveAttribute('data-spend-cents', 'unavailable')
-    expect(bars[2]).toHaveAttribute('data-bar-height', '0')
+    expect(bars[4]).toHaveAttribute('data-spend-cents', 'unavailable')
+    expect(bars[4]).toHaveAttribute('data-bar-height', '0')
     expect(plot.querySelector('[data-selected-month-anchor="true"]')).toBeInTheDocument()
   })
 
@@ -275,12 +289,12 @@ describe('SessionSpendingTrendSlab', () => {
     rerender(<SessionSpendingTrendSlab period={period} trend={emptyTrend} isLoading={false} />)
     expect(screen.getByText('No charging sessions recorded for this period.')).toBeInTheDocument()
     expect(screen.getByRole('slider', { name: 'Monthly spending by month' })).toBeInTheDocument()
-    expect(screen.getByText('16 Apr – 15 Jul 2026 · 3 Months context')).toBeInTheDocument()
+    expect(screen.getByText('1 Feb – 15 Jul 2026 · 6 Months context')).toBeInTheDocument()
     rerender(<SessionSpendingTrendSlab period={period} trend={{ ...trend, buckets: [trend.buckets[0]!], isEmpty: false }} isLoading={false} />)
 
     // Assert
     expect(screen.getByText('Recorded sessions in this period were free (0,00 €).')).toBeInTheDocument()
-    rerender(<SessionSpendingTrendSlab period={period} trend={{ ...trend, buckets: [trend.buckets[2]!], isEmpty: false }} isLoading={false} />)
+    rerender(<SessionSpendingTrendSlab period={period} trend={{ ...trend, buckets: [trend.buckets[4]!], isEmpty: false }} isLoading={false} />)
     expect(screen.queryByText('* Partial month')).not.toBeInTheDocument()
     expect(screen.queryByText('MTD: month to date.')).not.toBeInTheDocument()
     expect(screen.getAllByText(/Unavailable: at least one session has an invalid recorded cost/).length).toBeGreaterThan(0)
@@ -308,7 +322,7 @@ describe('SessionSpendingTrendSlab', () => {
     rerender(<SessionSpendingTrendSlab period={nextPeriod} trend={nextTrend} isLoading={false} />)
 
     // Assert
-    expect(plot).toHaveAttribute('aria-valuenow', '2')
+    expect(plot).toHaveAttribute('aria-valuenow', '5')
     expect(plot).toHaveAttribute('aria-valuetext', expect.stringContaining('1 Jun 2026'))
   })
 
@@ -326,7 +340,7 @@ describe('SessionSpendingTrendSlab', () => {
     rerender(<SessionSpendingTrendSlab period={period} trend={updatedTrend} isLoading={false} />)
 
     // Assert: The inspected month returns to July and the summary month stays marked independently.
-    expect(plot).toHaveAttribute('aria-valuenow', '3')
+    expect(plot).toHaveAttribute('aria-valuenow', '5')
     expect(plot).toHaveAttribute('aria-valuetext', expect.stringMatching(/1 Jul 2026.*15 Jul 2026.*Month to date/))
     expect(plot.querySelector('[data-selected-month-anchor="true"]')).toBeInTheDocument()
   })
@@ -342,11 +356,11 @@ describe('SessionSpendingTrendSlab', () => {
 
     // Act: Enter B, then return to A.
     rerender(<SessionSpendingTrendSlab period={rangeB} trend={trendB} isLoading={false} />)
-    expect(plot).toHaveAttribute('aria-valuenow', '2')
+    expect(plot).toHaveAttribute('aria-valuenow', '5')
     rerender(<SessionSpendingTrendSlab period={period} trend={trend} isLoading={false} />)
 
     // Assert: Returning to A initializes its selected-month anchor again.
-    expect(plot).toHaveAttribute('aria-valuenow', '3')
+    expect(plot).toHaveAttribute('aria-valuenow', '5')
     expect(plot).toHaveAttribute('aria-valuetext', expect.stringMatching(/1 Jul 2026.*15 Jul 2026.*Month to date/))
   })
 
@@ -374,6 +388,8 @@ describe('SessionSpendingTrendSlab', () => {
 
     // Act: Inspect the invalid-cost month.
     fireEvent.keyDown(plot, { key: 'Home' })
+    fireEvent.keyDown(plot, { key: 'ArrowRight' })
+    fireEvent.keyDown(plot, { key: 'ArrowRight' })
     fireEvent.keyDown(plot, { key: 'ArrowRight' })
     fireEvent.keyDown(plot, { key: 'ArrowRight' })
 

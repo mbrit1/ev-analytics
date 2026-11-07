@@ -12,7 +12,7 @@ export function formatAnalyticsPeriodRange(period: Pick<AnalyticsPeriod, 'startU
   return `${start} – ${formatDate.format(lastIncluded)}`
 }
 
-/** Describes a wider three-month chart context using its exact inclusive dates. */
-export function formatTrendContext(start: Date, end: Date): string {
-  return `${formatAnalyticsPeriodRange({ startUtc: start, endUtc: end })} · 3 Months context`
+/** Describes a wider chart context using its exact inclusive dates. */
+export function formatTrendContext(start: Date, end: Date, months: 3 | 6 = 3): string {
+  return `${formatAnalyticsPeriodRange({ startUtc: start, endUtc: end })} · ${months} Months context`
 }

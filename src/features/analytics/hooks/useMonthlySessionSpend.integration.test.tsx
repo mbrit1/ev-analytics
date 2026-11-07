@@ -159,6 +159,30 @@ describe('selected-period summary local reactivity', () => {
     expect(await db.sync_outbox.count()).toBe(2)
   })
 
+  it('reacts to an offline edit in a newly included context month without widening the monthly summary', async () => {
+    // Arrange: January is newly included by the six-month chart; June remains the selected summary.
+    const selected = createSession('six-month-selected', 'analytics-owner', new Date(2026, 5, 10, 10), 1200)
+    const context = createSession('six-month-context', 'analytics-owner', new Date(2026, 0, 15, 10), 700)
+    await db.sessions.bulkPut([selected, context])
+    const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, new Date(2026, 6, 1))
+    const { result } = renderHook(() => useMonthlySessionSpend(period))
+    await waitFor(() => expect(result.current.result.totalSessionSpendCents).toBe(1200))
+    await waitFor(() => expect(result.current.trend!.buckets).toHaveLength(6))
+    expect(result.current.trend!.buckets[0]).toMatchObject({ month: { year: 2026, month: 0 }, totalSessionSpendCents: 700 })
+
+    // Act: Change only the context row through the local database path.
+    await act(async () => {
+      await db.transaction('rw', db.sessions, db.sync_outbox, async () => {
+        await db.sessions.update(context.id, { total_cost: 1900 })
+        await db.sync_outbox.add({ table_name: 'sessions', action: 'UPDATE', payload: { ...context, total_cost: 1900 }, timestamp: new Date(2026, 5, 10) })
+      })
+    })
+
+    // Assert: The newly visible context bucket updates while selected-period results stay fixed.
+    await waitFor(() => expect(result.current.trend!.buckets[0]).toMatchObject({ totalSessionSpendCents: 1900, sessionCount: 1 }))
+    expect(result.current.result).toMatchObject({ totalSessionSpendCents: 1200, sessionCount: 1, billedEnergyKwh: 10 })
+  })
+
   it('keeps the selected summary fixed while chart context is created, moved and deleted offline', async () => {
     // Arrange: June is selected; the chart initially has no earlier context.
     const selectedTimestamp = new Date(2026, 5, 12, 12)
@@ -213,16 +237,16 @@ describe('selected-period summary local reactivity', () => {
     await waitFor(() => expect(result.current.trend!.buckets.find((bucket) => bucket.month.month === 3)?.totalSessionSpendCents).toBe(300))
     expect(result.current.result).toEqual(selectedSummary)
 
-    // Act: Move the formerly excluded row onto the inclusive chart start, then before it again.
-    await act(async () => { await db.sessions.update(beforeChart.id, { session_timestamp: new Date(2026, 3, 1) }) })
-    await waitFor(() => expect(result.current.trend!.buckets[0]).toMatchObject({ totalSessionSpendCents: 1200, sessionCount: 2 }))
+    // Act: Move the formerly excluded row onto the inclusive January chart start, then before it again.
+    await act(async () => { await db.sessions.update(beforeChart.id, { session_timestamp: new Date(2026, 0, 1) }) })
+    await waitFor(() => expect(result.current.trend!.buckets[0]).toMatchObject({ totalSessionSpendCents: 900, sessionCount: 1 }))
     expect(result.current.result).toEqual(selectedSummary)
-    await act(async () => { await db.sessions.update(beforeChart.id, { session_timestamp: new Date(2026, 2, 31, 23, 59) }) })
-    await waitFor(() => expect(result.current.trend!.buckets[0]).toMatchObject({ totalSessionSpendCents: 300, sessionCount: 1 }))
+    await act(async () => { await db.sessions.update(beforeChart.id, { session_timestamp: new Date(2025, 11, 31, 23, 59) }) })
+    await waitFor(() => expect(result.current.trend!.buckets[0]).toMatchObject({ totalSessionSpendCents: 0, sessionCount: 0 }))
     expect(result.current.result).toEqual(selectedSummary)
 
     // Act: Move the preceding row to the inclusive chart start, then to the selected month's exclusive end.
-    const chartStart = new Date(2026, 3, 1)
+    const chartStart = new Date(2026, 0, 1)
     await act(async () => { await db.sessions.update(preceding.id, { session_timestamp: chartStart }) })
     await waitFor(() => expect(result.current.trend!.buckets[0]).toMatchObject({ totalSessionSpendCents: 300, sessionCount: 1 }))
     await act(async () => { await db.sessions.update(preceding.id, { session_timestamp: new Date(2026, 6, 1) }) })

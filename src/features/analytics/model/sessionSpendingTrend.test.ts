@@ -56,32 +56,32 @@ describe('calculateSessionSpendingTrend', () => {
     // Assert: The chart uses three rolling months while the summary period remains unchanged.
     expect(trend).toMatchObject({
       startUtc: expectedChartPeriod.startUtc,
-      endUtc: expectedChartPeriod.endUtc,
+      endUtc: period.endUtc,
       selectedMonth: null,
     })
     expect(trend.buckets).toHaveLength(4)
     expect(period).toEqual(createAnalyticsPeriod({ kind: 'preset', preset }, now))
   })
 
-  it('uses three complete context months ending with a historical selected month', () => {
+  it('uses six complete context months ending with a historical selected month', () => {
     // Arrange: June 2024 is selected while the real current month is much later.
     const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2024, month: 5 } }, new Date(2026, 9, 9, 12))
-    const expectedChartPeriod = createAnalyticsPeriod(
-      { kind: 'preset', preset: '3-months' },
-      new Date(period.endUtc.getTime() - 1),
-    )
+    const expectedStart = new Date(2024, 0, 1)
 
     // Act: Build the chart around the historical summary end.
     const trend = expectChart(calculateSessionSpendingTrend([], period))
 
-    // Assert: April through June are full historical buckets and the summary period is untouched.
+    // Assert: January through June are full historical buckets and the summary period is untouched.
     expect(trend).toMatchObject({
-      startUtc: expectedChartPeriod.startUtc,
-      endUtc: expectedChartPeriod.endUtc,
+      startUtc: expectedStart,
+      endUtc: period.endUtc,
       selectedMonth: { year: 2024, month: 5 },
     })
-    expect(trend.buckets).toHaveLength(3)
+    expect(trend.buckets).toHaveLength(6)
     expect(trend.buckets).toMatchObject([
+      { month: { year: 2024, month: 0 }, isPartialMonth: false, isCurrentMonth: false },
+      { month: { year: 2024, month: 1 }, isPartialMonth: false, isCurrentMonth: false },
+      { month: { year: 2024, month: 2 }, isPartialMonth: false, isCurrentMonth: false },
       { month: { year: 2024, month: 3 }, isPartialMonth: false, isCurrentMonth: false },
       { month: { year: 2024, month: 4 }, isPartialMonth: false, isCurrentMonth: false },
       { month: { year: 2024, month: 5 }, isPartialMonth: false, isCurrentMonth: false },
@@ -89,22 +89,65 @@ describe('calculateSessionSpendingTrend', () => {
     expect(period).toEqual(createAnalyticsPeriod({ kind: 'month', month: { year: 2024, month: 5 } }, new Date(2026, 9, 9, 12)))
   })
 
-  it('uses three rolling months ending at the current selected month while keeping its anchor', () => {
+  it('uses six complete calendar months and reconciles the selected bucket across a year edge', () => {
+    // Arrange: January 2026 is selected; six-month context begins in August 2025.
+    const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 0 } }, new Date(2026, 2, 9, 12))
+    const sessions = [
+      buildSession(new Date(2025, 7, 1), 100, 'first-context-month'),
+      buildSession(new Date(2025, 11, 31, 23, 59, 59, 999), 200, 'last-context-month'),
+      buildSession(new Date(2026, 0, 1), 300, 'selected-month'),
+      buildSession(new Date(2026, 1, 1), 400, 'after-selection'),
+    ]
+
+    // Act: Build the trend and the independently scoped selected-month summary.
+    const trend = expectChart(calculateSessionSpendingTrend(sessions, period))
+    const summary = calculateMonthlySessionSpend(sessions, period)
+
+    // Assert: The chart covers August through January, but the summary still covers January alone.
+    expect(trend).toMatchObject({ startUtc: new Date(2025, 7, 1), endUtc: period.endUtc, selectedMonth: { year: 2026, month: 0 } })
+    expect(trend.buckets).toHaveLength(6)
+    expect(trend.buckets.map(({ month }) => [month.year, month.month])).toEqual([
+      [2025, 7], [2025, 8], [2025, 9], [2025, 10], [2025, 11], [2026, 0],
+    ])
+    expect(trend.buckets.at(-1)?.totalSessionSpendCents).toBe(summary.totalSessionSpendCents)
+    expect(trend.buckets.reduce((sum, bucket) => sum + (bucket.totalSessionSpendCents ?? 0), 0)).toBe(600)
+    expect(summary.totalSessionSpendCents).toBe(300)
+    expect(period.startUtc).toEqual(new Date(2026, 0, 1))
+  })
+
+  it('clips current-month context at tomorrow local midnight and includes today only', () => {
+    // Arrange: June 2026 is current and the six-month context begins in January.
+    const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, new Date(2026, 5, 10, 12))
+    const sessions = [
+      buildSession(new Date(2025, 11, 31, 23, 59, 59, 999), 100, 'before-context'),
+      buildSession(new Date(2026, 0, 1), 200, 'context-start'),
+      buildSession(new Date(period.endUtc.getTime() - 1), 300, 'today'),
+      buildSession(new Date(2026, 5, 11), 400, 'tomorrow'),
+    ]
+
+    // Act
+    const trend = expectChart(calculateSessionSpendingTrend(sessions, period))
+
+    // Assert
+    expect(trend).toMatchObject({ startUtc: new Date(2026, 0, 1), endUtc: new Date(2026, 5, 11) })
+    expect(trend.buckets).toHaveLength(6)
+    expect(trend.buckets[0]).toMatchObject({ totalSessionSpendCents: 200, sessionCount: 1 })
+    expect(trend.buckets.at(-1)).toMatchObject({ totalSessionSpendCents: 300, sessionCount: 1, isCurrentMonth: true, isPartialMonth: true })
+  })
+
+  it('uses six calendar months ending at the current selected month while keeping its anchor', () => {
     // Arrange: The selected current month is still in progress.
     const now = new Date(2026, 2, 10, 12)
     const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 2 } }, now)
-    const expectedChartPeriod = createAnalyticsPeriod(
-      { kind: 'preset', preset: '3-months' },
-      new Date(period.endUtc.getTime() - 1),
-    )
+    const expectedStart = new Date(2025, 9, 1)
 
     // Act
     const trend = expectChart(calculateSessionSpendingTrend([], period))
 
     // Assert: The context ends with the selected period and preserves its current-month anchor.
     expect(trend).toMatchObject({
-      startUtc: expectedChartPeriod.startUtc,
-      endUtc: expectedChartPeriod.endUtc,
+      startUtc: expectedStart,
+      endUtc: period.endUtc,
       selectedMonth: { year: 2026, month: 2 },
     })
     expect(trend.buckets.at(-1)).toMatchObject({
@@ -308,27 +351,24 @@ describe('calculateSessionSpendingTrend', () => {
   })
 
   it.each([
-    ['current three-month context over a year boundary', new Date(2026, 0, 15, 12), [2025, 9], [2026, 0], 4, true],
-    ['historical three-month context over leap day', new Date(2024, 3, 1, 12), [2024, 0], [2024, 2], 3, false],
-  ] as const)('builds three-month calendar context for %s', (_label, anchor, first, last, bucketCount, hasPartialFirstMonth) => {
+    ['current six-month context over a year boundary', new Date(2026, 0, 15, 12), [2025, 7], [2026, 0], 6, false],
+    ['historical six-month context over leap day', new Date(2024, 3, 1, 12), [2023, 9], [2024, 2], 6, false],
+  ] as const)('builds six-month calendar context for %s', (_label, anchor, first, last, bucketCount, hasPartialFirstMonth) => {
     // Arrange
     const period = createAnalyticsPeriod({ kind: 'month', month: { year: last[0], month: last[1] } }, anchor)
 
     // Act
-    const expectedChartPeriod = createAnalyticsPeriod(
-      { kind: 'preset', preset: '3-months' },
-      new Date(period.endUtc.getTime() - 1),
-    )
+    const expectedChartStart = new Date(first[0], first[1], 1)
     const trend = expectChart(calculateSessionSpendingTrend([], period))
 
     // Assert
     expect(trend.buckets).toHaveLength(bucketCount)
     expect(trend).toMatchObject({
-      unit: 'month', startUtc: expectedChartPeriod.startUtc, endUtc: period.endUtc,
+      unit: 'month', startUtc: expectedChartStart, endUtc: period.endUtc,
       selectedMonth: { year: last[0], month: last[1] },
     })
     expect(trend.buckets[0]).toMatchObject({
-      month: { year: first[0], month: first[1] }, startUtc: expectedChartPeriod.startUtc,
+      month: { year: first[0], month: first[1] }, startUtc: expectedChartStart,
       endUtc: new Date(first[0], first[1] + 1, 1), isPartialMonth: hasPartialFirstMonth, isCurrentMonth: false,
     })
     expect(trend.buckets.map(({ startUtc }) => [startUtc.getFullYear(), startUtc.getMonth()]))
@@ -385,8 +425,8 @@ describe('calculateSessionSpendingTrend', () => {
     const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, new Date(2026, 5, 10, 12))
     const originalPeriodBounds = { startUtc: new Date(period.startUtc), endUtc: new Date(period.endUtc) }
     const sessions = [
-      buildSession(new Date(2026, 1, 28, 12), 100, 'before-chart'),
-      buildSession(new Date(2026, 2, 11, 0), 200, 'chart-start'),
+      buildSession(new Date(2025, 11, 31, 12), 100, 'before-chart'),
+      buildSession(new Date(2026, 0, 1, 0), 200, 'chart-start'),
       buildSession(new Date(period.endUtc.getTime() - 1), 300, 'today'),
       buildSession(new Date(2026, 5, 11, 0), 400, 'tomorrow'),
       buildSession(new Date(2026, 6, 1, 0), 500, 'later'),
@@ -396,7 +436,7 @@ describe('calculateSessionSpendingTrend', () => {
     const trend = expectChart(calculateSessionSpendingTrend(sessions, period))
 
     // Assert
-    expect(trend.buckets).toHaveLength(4)
+    expect(trend.buckets).toHaveLength(6)
     expect(trend).toMatchObject({ endUtc: new Date(2026, 5, 11), selectedMonth: { year: 2026, month: 5 } })
     expect(trend.buckets.at(-1)).toMatchObject({ totalSessionSpendCents: 300, sessionCount: 1, isPartialMonth: true, isCurrentMonth: true })
     expect(trend.buckets[0]).toMatchObject({ totalSessionSpendCents: 200, sessionCount: 1 })
@@ -443,9 +483,9 @@ describe('calculateSessionSpendingTrend', () => {
     const summary = calculateMonthlySessionSpend(sessions, period)
 
     // Assert
-    expect(trend.buckets).toHaveLength(3)
-    expect(trend.buckets[0]).toMatchObject({ month: { year: 2026, month: 3 }, totalSessionSpendCents: null })
-    expect(trend.buckets[2]).toMatchObject({ month: { year: 2026, month: 5 }, totalSessionSpendCents: 1200 })
+    expect(trend.buckets).toHaveLength(6)
+    expect(trend.buckets[3]).toMatchObject({ month: { year: 2026, month: 3 }, totalSessionSpendCents: null })
+    expect(trend.buckets[5]).toMatchObject({ month: { year: 2026, month: 5 }, totalSessionSpendCents: 1200 })
     expect(summary.totalSessionSpendCents).toBe(1200)
     expect(trend).toMatchObject({ selectedMonth: { year: 2026, month: 5 } })
   })
@@ -470,7 +510,7 @@ describe('calculateSessionSpendingTrend', () => {
     // Assert
     expect(changedMetadataTrend.buckets.map(({ totalSessionSpendCents }) => totalSessionSpendCents))
       .toEqual(originalTrend.buckets.map(({ totalSessionSpendCents }) => totalSessionSpendCents))
-    expect(changedMetadataTrend.buckets).toHaveLength(3)
+    expect(changedMetadataTrend.buckets).toHaveLength(6)
     expect(changedMetadataTrend.buckets.at(-1)?.totalSessionSpendCents).toBe(1234)
   })
 
