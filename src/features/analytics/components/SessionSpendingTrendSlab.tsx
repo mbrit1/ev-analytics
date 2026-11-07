@@ -144,7 +144,9 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
   const plotBottom = 176
   const plotTop = 58
   const plotInnerWidth = plotWidth - 12
-  const plotX = (index: number) => ((index + 0.5) / Math.max(1, trend.buckets.length)) * plotInnerWidth
+  const bucketCount = Math.max(1, trend.buckets.length)
+  const slotWidth = plotInnerWidth / bucketCount
+  const plotX = (index: number) => ((index + 0.5) / bucketCount) * plotInnerWidth
   const axisY = (value: number) => plotBottom - (axisMaximum > 0 ? (value / axisMaximum) * (plotBottom - plotTop) : 0)
   const selectIndex = (index: number) => setSelection({ rangeIdentity, index })
 
@@ -288,14 +290,7 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
                 {trend.buckets.map((bucket, index) => {
                   const isSelected = index === selectedIndex
                   const isAnchor = trend.selectedMonth?.year === bucket.month.year && trend.selectedMonth.month === bucket.month.month
-                  if (metric === 'energy' || metric === 'price') {
-                    return <g key={bucket.startUtc.toISOString()}>
-                      {isAnchor && <rect data-selected-month-anchor="true" x={plotX(index) - (plotInnerWidth / Math.max(1, trend.buckets.length)) / 2 + 1} y={plotTop} width={(plotInnerWidth / Math.max(1, trend.buckets.length)) - 2} height={plotBottom - plotTop} fill="none" stroke="currentColor" strokeWidth="2" className="text-primary" />}
-                      {isSelected && <line x1={plotX(index)} x2={plotX(index)} y1={plotTop} y2={plotBottom} stroke="var(--color-accent)" strokeWidth="1.5" strokeDasharray="3 3" />}
-                    </g>
-                  }
                   const cents = bucket.totalSessionSpendCents
-                  const slotWidth = plotInnerWidth / Math.max(1, trend.buckets.length)
                   const barWidth = Math.min(36, Math.max(4, slotWidth - 10))
                   const x = plotX(index) - barWidth / 2
                   const y = cents === null || cents === 0 ? plotBottom : axisY(cents)
@@ -303,16 +298,16 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
                   return <g key={bucket.startUtc.toISOString()}>
                     {isAnchor && <rect data-selected-month-anchor="true" x={plotX(index) - slotWidth / 2 + 1} y={plotTop} width={slotWidth - 2} height={plotBottom - plotTop} fill="none" stroke="currentColor" strokeWidth="2" className="text-primary" />}
                     {isSelected && <line x1={plotX(index)} x2={plotX(index)} y1={plotTop} y2={plotBottom} stroke="var(--color-accent)" strokeWidth="1.5" strokeDasharray="3 3" />}
-                    <rect data-month-bar="true" data-spend-cents={cents === null ? 'unavailable' : cents} data-bar-height={height} x={x} y={y} width={barWidth} height={height} fill="var(--color-accent)" fillOpacity={isSelected ? 1 : 0.72} stroke={isSelected ? 'var(--color-accent)' : 'none'} strokeWidth="2" />
-                    {cents === 0 && <line x1={x} x2={x + barWidth} y1={plotBottom - 1} y2={plotBottom - 1} stroke="var(--color-accent)" strokeWidth="2" />}
+                    {metric === 'spending' && <>
+                      <rect data-month-bar="true" data-spend-cents={cents === null ? 'unavailable' : cents} data-bar-height={height} x={x} y={y} width={barWidth} height={height} fill="var(--color-accent)" fillOpacity={isSelected ? 1 : 0.72} stroke={isSelected ? 'var(--color-accent)' : 'none'} strokeWidth="2" />
+                      {cents === 0 && <line x1={x} x2={x + barWidth} y1={plotBottom - 1} y2={plotBottom - 1} stroke="var(--color-accent)" strokeWidth="2" />}
+                    </>}
                   </g>
                 })}
                 </svg>
                 {(metric === 'energy' || metric === 'price') && <div aria-hidden="true" className="pointer-events-none absolute inset-0">
                   {trend.buckets.map((bucket, index) => {
-                    const value = metric === 'price'
-                      ? bucket.averageSessionPriceCtPerKwh === null ? null : bucket.averageSessionPriceCtPerKwh / 100
-                      : bucket.billedEnergyKwh
+                    const value = values[index]
                     if (value === null) return null
                     const isSelected = index === selectedIndex
                     return <span
