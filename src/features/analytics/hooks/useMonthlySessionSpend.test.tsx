@@ -135,7 +135,7 @@ describe('useMonthlySessionSpend', () => {
     expect(result.current).toHaveProperty('error', error)
     expect(result.current.result.isEmpty).toBe(true)
     expect(result.current.trend).not.toBeNull()
-    expect(result.current.trend!.buckets).toHaveLength(3)
+    expect(result.current.trend!.buckets).toHaveLength(6)
   })
 
 })

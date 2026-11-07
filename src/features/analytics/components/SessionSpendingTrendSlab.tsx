@@ -86,6 +86,11 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
   const monthNotes = [hasPartialMonth ? '* Partial month' : null, hasCurrentMonth ? 'MTD: month to date.' : null]
     .filter((value): value is string => value !== null)
   const selectedTooltip = selected ? formatCompactBucket(selected) : null
+  const trendContext = formatTrendContext(
+    trend.startUtc,
+    trend.endUtc,
+    period.selection.kind === 'month' ? 6 : 3,
+  )
   const longestAxisLabel = axisTicks.length === 0
     ? 'Unavailable'
     : axisTicks.map(formatCurrency).reduce((longest, label) => label.length > longest.length ? label : longest, '')
@@ -142,7 +147,7 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
         <div>
           <h2 aria-label={`Session spending, ${formatAnalyticsPeriodRange({ startUtc: trend.startUtc, endUtc: trend.endUtc })}`} className="text-sm font-semibold text-primary">Session spending</h2>
           {(trend.startUtc.getTime() !== period.startUtc.getTime() || trend.endUtc.getTime() !== period.endUtc.getTime()) && error === null && !isLoading && (
-            <p className="text-xs text-secondary">{formatTrendContext(trend.startUtc, trend.endUtc)}</p>
+            <p className="text-xs text-secondary">{trendContext}</p>
           )}
         </div>
         <details className="relative shrink-0">

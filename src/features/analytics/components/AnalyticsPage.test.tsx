@@ -33,18 +33,18 @@ const monthlyResult = {
   isEmpty: true,
 }
 const emptyTrend = {
-  startUtc: new Date(2026, 3, 16),
+  startUtc: new Date(2026, 1, 1),
   endUtc: new Date(2026, 6, 16),
   selectedMonth: { year: 2026, month: 6 },
-  buckets: Array.from({ length: 4 }, (_, index) => ({
-    startUtc: index === 0 ? new Date(2026, 3, 16) : new Date(2026, index + 3, 1),
-    endUtc: index === 3 ? new Date(2026, 6, 16) : new Date(2026, index + 4, 1),
+  buckets: Array.from({ length: 6 }, (_, index) => ({
+    startUtc: new Date(2026, index + 1, 1),
+    endUtc: index === 5 ? new Date(2026, 6, 16) : new Date(2026, index + 2, 1),
     totalSessionSpendCents: 0,
     sessionCount: 0,
     unit: 'month' as const,
-    month: { year: 2026, month: index + 3 },
-    isCurrentMonth: index === 3,
-    isPartialMonth: index === 0 || index === 3,
+    month: { year: 2026, month: index + 1 },
+    isCurrentMonth: index === 5,
+    isPartialMonth: index === 5,
   })),
   unit: 'month' as const,
   isEmpty: true,
@@ -97,8 +97,8 @@ describe('AnalyticsPage', () => {
     expect(screen.queryByRole('tablist', { name: 'Analytics view' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Previous month' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /Session spending, 16 Apr – 15 Jul 2026/ })).toBeInTheDocument()
-    expect(screen.getByText('16 Apr – 15 Jul 2026 · 3 Months context')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Session spending, 1 Feb – 15 Jul 2026/ })).toBeInTheDocument()
+    expect(screen.getByText('1 Feb – 15 Jul 2026 · 6 Months context')).toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: 'Selected-period analytics' })).queryByRole('heading', { name: /Session spending/ })).not.toBeInTheDocument()
     expect(vi.mocked(useOverallChargingPrice)).toHaveBeenCalledWith('2026-07-15')
   })
@@ -111,17 +111,17 @@ describe('AnalyticsPage', () => {
       result: monthlyResult,
       trend: {
         ...emptyTrend,
-        startUtc: new Date(2026, 3, 16),
+        startUtc: new Date(2026, 1, 1),
         endUtc: new Date(2026, 6, 16),
-        buckets: Array.from({ length: 4 }, (_, index) => ({
-          startUtc: index === 0 ? new Date(2026, 3, 16) : new Date(2026, index + 3, 1),
-          endUtc: index === 3 ? new Date(2026, 6, 16) : new Date(2026, index + 4, 1),
+        buckets: Array.from({ length: 6 }, (_, index) => ({
+          startUtc: new Date(2026, index + 1, 1),
+          endUtc: index === 5 ? new Date(2026, 6, 16) : new Date(2026, index + 2, 1),
           totalSessionSpendCents: 0,
           sessionCount: index === 0 ? 1 : 0,
           unit: 'month' as const,
-          month: { year: 2026, month: index + 3 },
-          isCurrentMonth: index === 3,
-          isPartialMonth: index === 0 || index === 3,
+          month: { year: 2026, month: index + 1 },
+          isCurrentMonth: index === 5,
+          isPartialMonth: index === 5,
         })),
         isEmpty: false,
       },
@@ -135,8 +135,8 @@ describe('AnalyticsPage', () => {
     // Assert: The summary stays selected-month scoped and the chart shows its wider context.
     expect(screen.getByRole('heading', { name: /July 2026 summary, 1 Jul – 15 Jul 2026/ })).toBeInTheDocument()
     expect(screen.getByText(/No charging sessions recorded for this month yet/)).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /Session spending, 16 Apr – 15 Jul 2026/ })).toBeInTheDocument()
-    expect(screen.getByText('16 Apr – 15 Jul 2026 · 3 Months context')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Session spending, 1 Feb – 15 Jul 2026/ })).toBeInTheDocument()
+    expect(screen.getByText('1 Feb – 15 Jul 2026 · 6 Months context')).toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: 'Selected-period analytics' })).queryByRole('heading', { name: /Session spending/ })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toBeInTheDocument()
   })

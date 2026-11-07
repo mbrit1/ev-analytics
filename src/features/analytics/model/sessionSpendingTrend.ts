@@ -33,9 +33,9 @@ export interface SessionSpendingTrend {
 }
 
 function usesThreeMonthContext(period: AnalyticsPeriod): boolean {
-  return period.selection.kind === 'month'
-    || period.selection.preset === '7-days'
+  return period.selection.kind === 'preset' && (period.selection.preset === '7-days'
     || period.selection.preset === '30-days'
+  )
 }
 
 /** Aggregates local-calendar buckets through the same validity rules as the summary. */
@@ -51,7 +51,12 @@ export function calculateSessionSpendingTrend(
         ),
         isInProgress: period.isInProgress,
       }
-    : period
+    : period.selection.kind === 'month'
+      ? {
+        ...period,
+        startUtc: new Date(period.startUtc.getFullYear(), period.startUtc.getMonth() - 5, 1),
+      }
+      : period
 
   const selectedMonth = period.selection.kind === 'month' ? period.selection.month : null
   const startUtc = new Date(chartPeriod.startUtc)
