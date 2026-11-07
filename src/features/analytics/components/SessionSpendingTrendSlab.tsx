@@ -1,12 +1,12 @@
 import { useId, useState } from 'react'
 import { Slab } from '../../../shared/ui'
-import { formatCurrency, formatKwh } from '../../../shared/lib'
+import { formatCurrency, formatCtPerKwhAsEuroAmount, formatKwh } from '../../../shared/lib'
 import type { AnalyticsPeriod } from '../model/analyticsPeriods'
 import type { SessionSpendingBucket, SessionSpendingTrend as SessionSpendingTrendResult } from '../model/sessionSpendingTrend'
-import { createEnergyAxisTicks, createSpendingAxisTicks } from './sessionSpendingAxis'
+import { createEnergyAxisTicks, createPriceAxisTicks, createSpendingAxisTicks } from './sessionSpendingAxis'
 import { formatAnalyticsPeriodRange, formatTrendContext } from './analyticsPeriodLabels'
 
-export type SessionSpendingChartMetric = 'spending' | 'energy'
+export type SessionSpendingChartMetric = 'spending' | 'energy' | 'price'
 
 /** Props for the selected-period session-spending trend. */
 export interface SessionSpendingTrendSlabProps {
@@ -22,6 +22,10 @@ function formatDate(value: Date): string {
   return new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).format(value)
 }
 
+function formatPricePerKwh(centsPerKwh: number): string {
+  return `${formatCtPerKwhAsEuroAmount(centsPerKwh, 'de-DE')} €/kWh`
+}
+
 function formatBucketRange(bucket: SessionSpendingBucket): string {
   return new Intl.DateTimeFormat('en-GB', { month: 'short', year: 'numeric' }).format(bucket.startUtc)
 }
@@ -34,6 +38,11 @@ function formatBucketMetricValue(bucket: SessionSpendingBucket, metric: SessionS
       ? `, Partial coverage: ${bucket.validBilledEnergySessionCount} of ${bucket.sessionCount} sessions`
       : ''
     return `${formatKwh(bucket.billedEnergyKwh)} kWh${coverage}`
+  }
+  if (metric === 'price') {
+    if (bucket.sessionCount === 0) return 'No charging sessions'
+    if (bucket.averageSessionPriceCtPerKwh === null) return 'Unavailable: complete valid cost and billed energy coverage required'
+    return formatPricePerKwh(bucket.averageSessionPriceCtPerKwh)
   }
   return bucket.totalSessionSpendCents === null
     ? 'Unavailable: at least one session has an invalid recorded cost'
@@ -56,9 +65,9 @@ function formatCompactBucket(bucket: SessionSpendingBucket, metric: SessionSpend
     ? `${bucket.startUtc.getDate()}–${lastIncluded.getDate()} ${new Intl.DateTimeFormat('en-GB', { month: 'short' }).format(bucket.startUtc)}`
     : `${new Intl.DateTimeFormat('en-GB', dateOptions).format(bucket.startUtc)} – ${new Intl.DateTimeFormat('en-GB', dateOptions).format(lastIncluded)}`
   const status = bucket.isCurrentMonth ? 'Month to date' : bucket.isPartialMonth ? 'Partial month' : null
-  const amount = metric === 'energy'
-    ? formatBucketMetricValue(bucket, metric)
-    : bucket.totalSessionSpendCents === null ? 'Unavailable' : formatCurrency(bucket.totalSessionSpendCents)
+  const amount = metric === 'spending' && bucket.totalSessionSpendCents !== null
+    ? formatCurrency(bucket.totalSessionSpendCents)
+    : metric === 'spending' ? 'Unavailable' : formatBucketMetricValue(bucket, metric)
   return {
     primary: `${formatBucketRange(bucket)} · ${amount}`,
     secondary: `${dayRange}${status ? ` · ${status}` : ''}`,
@@ -90,10 +99,13 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
     ? Math.min(selection.index, Math.max(0, trend.buckets.length - 1))
     : anchorIndex
   const selected = trend.buckets[selectedIndex]
-  const values = trend.buckets.map((bucket) => metric === 'energy' ? bucket.billedEnergyKwh : bucket.totalSessionSpendCents)
+  const values = trend.buckets.map((bucket) => metric === 'energy'
+    ? bucket.billedEnergyKwh
+    : metric === 'price' ? bucket.averageSessionPriceCtPerKwh === null ? null : bucket.averageSessionPriceCtPerKwh / 100
+      : bucket.totalSessionSpendCents)
   const axisTicks = metric === 'energy'
     ? createEnergyAxisTicks(values)
-    : createSpendingAxisTicks(values)
+    : metric === 'price' ? createPriceAxisTicks(values) : createSpendingAxisTicks(values)
   const axisMaximum = axisTicks.at(-1) ?? 0
   const hasInvalidBucket = trend.buckets.some(({ totalSessionSpendCents }) => totalSessionSpendCents === null)
   const maxCents = Math.max(0, ...trend.buckets.map(({ totalSessionSpendCents }) => totalSessionSpendCents ?? 0))
@@ -109,6 +121,9 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
       sessionCount > 0 && billedEnergyKwh !== null && validBilledEnergySessionCount < sessionCount
     ))
     : []
+  const incompletePriceBuckets = metric === 'price'
+    ? trend.buckets.filter(({ sessionCount, averageSessionPriceCtPerKwh }) => sessionCount > 0 && averageSessionPriceCtPerKwh === null)
+    : []
   const monthNotes = [hasPartialMonth ? '* Partial month' : null, hasCurrentMonth ? 'MTD: month to date.' : null]
     .filter((value): value is string => value !== null)
   const selectedTooltip = selected ? formatCompactBucket(selected, metric) : null
@@ -117,7 +132,7 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
     trend.endUtc,
     period.selection.kind === 'month' ? 6 : 3,
   )
-  const formatAxisTick = (tick: number) => metric === 'energy' ? formatKwh(tick) : formatCurrency(tick)
+  const formatAxisTick = (tick: number) => metric === 'energy' ? formatKwh(tick) : metric === 'price' ? formatPricePerKwh(tick * 100) : formatCurrency(tick)
   const longestAxisLabel = axisTicks.length === 0
     ? 'Unavailable'
     : axisTicks.map(formatAxisTick).reduce((longest, label) => label.length > longest.length ? label : longest, '')
@@ -168,8 +183,8 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
     }
   }
 
-  const metricTitle = metric === 'energy' ? 'Monthly energy (kWh)' : 'Monthly spending (EUR)'
-  const metricAccessibleTitle = metric === 'energy' ? 'Monthly energy' : 'Monthly spending'
+  const metricTitle = metric === 'energy' ? 'Monthly energy (kWh)' : metric === 'price' ? 'Monthly average price (EUR/kWh)' : 'Monthly spending (EUR)'
+  const metricAccessibleTitle = metric === 'energy' ? 'Monthly energy' : metric === 'price' ? 'Monthly average price' : 'Monthly spending'
 
   return (
     <Slab padding="none" className="w-full space-y-4 px-[min(1.25rem,20px)] py-5 md:p-8" aria-busy={isLoading && error === null}>
@@ -184,8 +199,8 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
           <fieldset className="min-w-0">
             <legend className="sr-only">Chart metric</legend>
             <div role="radiogroup" aria-label="Chart metric" className="flex flex-wrap gap-1">
-              {(['spending', 'energy'] as const).map((option) => {
-                const label = option === 'spending' ? 'Spending' : 'Energy'
+              {(['spending', 'energy', 'price'] as const).map((option) => {
+                const label = option === 'spending' ? 'Spending' : option === 'energy' ? 'Energy' : 'Price/kWh'
                 return <label key={option} className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-2 rounded-lg border border-slab-border px-3 text-sm text-primary focus-within:outline-none focus-within:ring-2 focus-within:ring-accent">
                   <input type="radio" name={`analytics-chart-metric-${instructionsId}`} value={option} checked={metric === option} onChange={() => onMetricChange(option)} className="h-4 w-4 accent-accent" />
                   <span>{label}</span>
@@ -210,7 +225,7 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
                 <path d="M10 9v5m0-8h.01" strokeLinecap="round" />
               </svg>
             </summary>
-            <p className="absolute right-0 top-full z-20 mt-1 w-64 max-w-[calc(100vw-4rem)] rounded-lg border border-slab-border bg-surface p-3 text-xs leading-5 text-primary shadow-slab">{metric === 'energy' ? 'Provider-billed session energy; incomplete coverage is shown by session count.' : 'Recorded session charges; excludes subscription fees'}</p>
+            <p className="absolute right-0 top-full z-20 mt-1 w-64 max-w-[calc(100vw-4rem)] rounded-lg border border-slab-border bg-surface p-3 text-xs leading-5 text-primary shadow-slab">{metric === 'energy' ? 'Provider-billed session energy; incomplete coverage is shown by session count.' : metric === 'price' ? 'Weighted session charges per billed kWh; shown only when cost and energy coverage is complete.' : 'Recorded session charges; excludes subscription fees'}</p>
           </details>
         </div>
       </div>
@@ -227,6 +242,11 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
           {partialEnergyBuckets.length > 0 && <ul aria-label="Partial billed energy coverage" className="space-y-1 text-xs text-secondary">
             {partialEnergyBuckets.map((bucket) => <li key={bucket.startUtc.toISOString()}>
               Partial billed energy · {formatBucketRange(bucket)}: {bucket.validBilledEnergySessionCount} of {bucket.sessionCount} sessions measured.
+            </li>)}
+          </ul>}
+          {incompletePriceBuckets.length > 0 && <ul aria-label="Incomplete price coverage" className="space-y-1 text-xs text-secondary">
+            {incompletePriceBuckets.map((bucket) => <li key={bucket.startUtc.toISOString()}>
+              Price unavailable · {formatBucketRange(bucket)}: complete valid cost and billed energy coverage is required for all {bucket.sessionCount} {bucket.sessionCount === 1 ? 'session' : 'sessions'}.
             </li>)}
           </ul>}
           <div
@@ -252,23 +272,23 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
               <span className="block text-xs text-secondary">{selectedTooltip?.secondary}</span>
             </div>}
             <div className="flex min-w-0">
-              <div role="group" aria-label={metric === 'energy' ? 'Energy scale in kWh' : 'Spending scale in euros'} className="relative h-52 w-fit min-w-14 shrink-0 pr-2 text-right text-xs tabular-nums text-primary">
+              <div role="group" aria-label={metric === 'energy' ? 'Energy scale in kWh' : metric === 'price' ? 'Average price scale in euros per kWh' : 'Spending scale in euros'} className="relative h-52 w-fit min-w-14 shrink-0 pr-2 text-right text-xs tabular-nums text-primary">
                 <span aria-hidden="true" className="invisible whitespace-nowrap">{longestAxisLabel}</span>
                 {axisTicks.length === 0
                   ? <span className="absolute right-2 top-1/2 -translate-y-1/2">Unavailable</span>
-                  : axisTicks.map((tick) => <span key={tick} {...(metric === 'energy' ? { 'data-axis-label-kwh': tick } : { 'data-axis-label-cents': tick })} className="absolute right-2 -translate-y-1/2 whitespace-nowrap" style={{ top: `${(axisY(tick) / plotHeight) * 100}%` }}>{formatAxisTick(tick)}</span>)}
+                  : axisTicks.map((tick) => <span key={tick} {...(metric === 'energy' ? { 'data-axis-label-kwh': tick } : metric === 'price' ? { 'data-axis-label-eur-per-kwh': tick } : { 'data-axis-label-cents': tick })} className="absolute right-2 -translate-y-1/2 whitespace-nowrap" style={{ top: `${(axisY(tick) / plotHeight) * 100}%` }}>{formatAxisTick(tick)}</span>)}
               </div>
               <div className="relative min-w-0 flex-1">
                 <div className="relative min-w-0">
                 <svg aria-hidden="true" viewBox={`0 0 ${plotWidth} ${plotHeight}`} className="block h-52 w-full" preserveAspectRatio="none">
                 {axisTicks.map((tick) => {
                   const y = axisY(tick)
-                  return <line key={tick} {...(metric === 'energy' ? { 'data-axis-tick-kwh': tick } : { 'data-axis-tick-cents': tick })} x1="0" y1={y} x2={plotWidth} y2={y} stroke="currentColor" className="text-slab-border" />
+                  return <line key={tick} {...(metric === 'energy' ? { 'data-axis-tick-kwh': tick } : metric === 'price' ? { 'data-axis-tick-eur-per-kwh': tick } : { 'data-axis-tick-cents': tick })} x1="0" y1={y} x2={plotWidth} y2={y} stroke="currentColor" className="text-slab-border" />
                 })}
                 {trend.buckets.map((bucket, index) => {
                   const isSelected = index === selectedIndex
                   const isAnchor = trend.selectedMonth?.year === bucket.month.year && trend.selectedMonth.month === bucket.month.month
-                  if (metric === 'energy') {
+                  if (metric === 'energy' || metric === 'price') {
                     return <g key={bucket.startUtc.toISOString()}>
                       {isAnchor && <rect data-selected-month-anchor="true" x={plotX(index) - (plotInnerWidth / Math.max(1, trend.buckets.length)) / 2 + 1} y={plotTop} width={(plotInnerWidth / Math.max(1, trend.buckets.length)) - 2} height={plotBottom - plotTop} fill="none" stroke="currentColor" strokeWidth="2" className="text-primary" />}
                       {isSelected && <line x1={plotX(index)} x2={plotX(index)} y1={plotTop} y2={plotBottom} stroke="var(--color-accent)" strokeWidth="1.5" strokeDasharray="3 3" />}
@@ -288,19 +308,23 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
                   </g>
                 })}
                 </svg>
-                {metric === 'energy' && <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+                {(metric === 'energy' || metric === 'price') && <div aria-hidden="true" className="pointer-events-none absolute inset-0">
                   {trend.buckets.map((bucket, index) => {
-                    const value = bucket.billedEnergyKwh
+                    const value = metric === 'price'
+                      ? bucket.averageSessionPriceCtPerKwh === null ? null : bucket.averageSessionPriceCtPerKwh / 100
+                      : bucket.billedEnergyKwh
                     if (value === null) return null
                     const isSelected = index === selectedIndex
                     return <span
                       key={bucket.startUtc.toISOString()}
-                      data-energy-mark="true"
-                      data-energy-kwh={value}
+                      {...(metric === 'price' ? { 'data-price-mark': 'true', 'data-price-eur-per-kwh': value } : { 'data-energy-mark': 'true', 'data-energy-kwh': value })}
                       className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-surface bg-accent ${isSelected ? 'h-3 w-3' : 'h-2.5 w-2.5'}`}
                       style={{ left: `${(plotX(index) / plotWidth) * 100}%`, top: `${(axisY(value) / plotHeight) * 100}%` }}
                     />
                   })}
+                  {metric === 'price' && trend.buckets.map((bucket, index) => bucket.sessionCount > 0 && bucket.averageSessionPriceCtPerKwh === null && (
+                    <span key={bucket.startUtc.toISOString()} data-price-gap="true" data-gap-session-count={bucket.sessionCount} className="absolute -translate-x-1/2 -translate-y-1/2 text-xs font-semibold text-secondary" style={{ left: `${(plotX(index) / plotWidth) * 100}%`, top: `${((plotBottom - 5) / plotHeight) * 100}%` }}>?</span>
+                  ))}
                 </div>}
               {metric === 'spending' && trend.buckets.map((bucket, index) => bucket.totalSessionSpendCents === null && (
                 <span key={bucket.startUtc.toISOString()} aria-hidden="true" className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 text-xs font-semibold text-secondary" style={{ left: `${(plotX(index) / plotWidth) * 100}%`, top: `${((plotBottom - 5) / plotHeight) * 100}%` }}>?</span>
@@ -334,8 +358,8 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
             <summary className="flex min-h-11 cursor-pointer items-center py-2 text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">View monthly values</summary>
             <div role="region" aria-label="Monthly values table" tabIndex={0} className="overflow-x-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface">
               <table className="min-w-[20rem] w-full table-fixed text-left text-xs sm:text-sm">
-                <caption className="sr-only">{metric === 'energy' ? 'Monthly energy values' : 'Monthly session spending values'} for {formatAxisRange(trend.startUtc, trend.endUtc)}</caption>
-                <thead><tr className="border-b border-slab-border text-secondary"><th scope="col" className="py-2 pr-3">Month and dates</th><th scope="col" className="py-2 pr-3">Sessions</th><th scope="col" className="py-2 text-right">{metric === 'energy' ? 'Energy' : 'Spend'}</th></tr></thead>
+                <caption className="sr-only">{metric === 'energy' ? 'Monthly energy values' : metric === 'price' ? 'Monthly average price values in EUR per kWh' : 'Monthly session spending values'} for {formatAxisRange(trend.startUtc, trend.endUtc)}</caption>
+                <thead><tr className="border-b border-slab-border text-secondary"><th scope="col" className="py-2 pr-3">Month and dates</th><th scope="col" className="py-2 pr-3">Sessions</th><th scope="col" className="py-2 text-right">{metric === 'energy' ? 'Energy' : metric === 'price' ? 'Average price' : 'Spend'}</th></tr></thead>
                 <tbody>{trend.buckets.map((bucket) => (
                   <tr key={bucket.startUtc.toISOString()} className="border-b border-slab-border/60">
                     <th scope="row" className="break-words py-2 pr-2 font-medium">{formatBucketRange(bucket)} · {formatDate(bucket.startUtc)} – {formatDate(new Date(bucket.endUtc.getTime() - 1))}{bucket.isPartialMonth ? ' · Partial month' : ''}{bucket.isCurrentMonth ? ' · Month to date' : ''}</th>

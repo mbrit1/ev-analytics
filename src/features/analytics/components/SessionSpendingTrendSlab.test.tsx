@@ -12,11 +12,11 @@ function StatefulTrendHarness({
   isLoading = false,
   error = null,
 }: {
-  initialMetric?: 'spending' | 'energy'
+  initialMetric?: 'spending' | 'energy' | 'price'
   isLoading?: boolean
   error?: Error | null
 }) {
-  const [metric, setMetric] = useState<'spending' | 'energy'>(initialMetric)
+  const [metric, setMetric] = useState<'spending' | 'energy' | 'price'>(initialMetric)
   return <SessionSpendingTrendSlab period={trendPeriod} trend={energyTrend} isLoading={isLoading} error={error} metric={metric} onMetricChange={setMetric} />
 }
 
@@ -54,13 +54,44 @@ const energyTrend: SessionSpendingTrend = {
     billedEnergyKwh: [0.126, 0.2, null, 0, null, 0.02][index] ?? null,
     validBilledEnergySessionCount: [1, 2, 0, 1, 0, 1][index] ?? 0,
     sessionCount: [2, 2, 0, 1, 1, 1][index] ?? 0,
+    averageSessionPriceCtPerKwh: [0, 12.345, null, 0, null, 0][index] ?? null,
   })),
   isEmpty: false,
+}
+const priceTrend: SessionSpendingTrend = {
+  ...energyTrend,
+  buckets: energyTrend.buckets.map((bucket, index) => index === 4 ? { ...bucket, isPartialMonth: true } : bucket),
 }
 
 /** Verifies monthly bar selection and its equivalent accessible values. */
 describe('SessionSpendingTrendSlab', () => {
   const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 6 } }, new Date(2026, 6, 15))
+
+  it('shows weighted price as discrete EUR/kWh marks and explains incomplete coverage', () => {
+    // Arrange
+    render(<SessionSpendingTrendSlab period={period} trend={priceTrend} isLoading={false} metric="price" onMetricChange={() => {}} />)
+
+    // Assert
+    expect(screen.getByRole('heading', { name: /Monthly average price \(EUR\/kWh\)/ })).toBeInTheDocument()
+    const plot = screen.getByRole('slider', { name: 'Monthly average price by month' })
+    expect(plot).toHaveAttribute('aria-valuetext', expect.stringMatching(/0,00.*€.*\/kWh/))
+    expect(plot.querySelectorAll('[data-price-mark]')).toHaveLength(4)
+    expect(plot.querySelectorAll('[data-price-gap]')).toHaveLength(1)
+    expect(plot.querySelector('[data-price-gap]')).toHaveAttribute('data-gap-session-count', '1')
+    const preciseMark = plot.querySelector('[data-price-eur-per-kwh="0.12345"]') as HTMLElement
+    expect(preciseMark).toBeInTheDocument()
+    const priceTicks = [...screen.getByRole('group', { name: 'Average price scale in euros per kWh' }).querySelectorAll('[data-axis-label-eur-per-kwh]')]
+    const axisMaximum = Number(priceTicks.at(-1)?.getAttribute('data-axis-label-eur-per-kwh'))
+    expect((Number.parseFloat(preciseMark.style.top) / 100) * 220)
+      .toBeCloseTo(176 - (0.12345 / axisMaximum) * (176 - 58))
+    fireEvent.keyDown(plot, { key: 'Home' })
+    fireEvent.keyDown(plot, { key: 'ArrowRight' })
+    expect(plot).toHaveAttribute('aria-valuetext', expect.stringContaining('0,12 €/kWh'))
+    expect(screen.getByText(/Price unavailable · Jun 2026: complete valid cost and billed energy coverage is required for all 1 session/)).toBeVisible()
+    expect(screen.getByRole('group', { name: 'Average price scale in euros per kWh' })).toBeInTheDocument()
+    expect(screen.getByRole('table')).toHaveTextContent('0,12 €/kWh')
+    expect(plot.querySelector('polyline, path')).not.toBeInTheDocument()
+  })
 
   it('shows discrete monthly energy with truthful partial and unavailable coverage', () => {
     // Arrange
@@ -139,6 +170,11 @@ describe('SessionSpendingTrendSlab', () => {
     fireEvent.keyDown(energyPlot, { key: 'Home' })
     expect(energyPlot).toHaveAttribute('aria-valuetext', expect.stringContaining('Partial coverage: 1 of 2 sessions'))
     expect(energyPlot.querySelector('[data-spending-tooltip="true"]')).toHaveTextContent('Partial coverage: 1 of 2 sessions')
+    await user.click(screen.getByRole('radio', { name: 'Price/kWh' }))
+    const pricePlot = screen.getByRole('slider', { name: 'Monthly average price by month' })
+    expect(pricePlot).toHaveAttribute('aria-valuenow', '0')
+    expect(pricePlot.querySelector('[data-selected-month-anchor="true"]')).toBeInTheDocument()
+    expect(pricePlot.querySelectorAll('[data-price-mark]')).toHaveLength(4)
   })
 
   it('hides stale energy values during loading and errors while keeping the date range accessible', () => {
