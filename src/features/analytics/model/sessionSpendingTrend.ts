@@ -9,6 +9,9 @@ export interface SessionSpendingBucket {
   /** Exclusive UTC instant ending the bucket. */
   endUtc: Date
   totalSessionSpendCents: number | null
+  billedEnergyKwh: number | null
+  validBilledEnergySessionCount: number
+  averageSessionPriceCtPerKwh: number | null
   sessionCount: number
   unit: 'month'
   /** Local calendar identity used to align the chart and selected summary. */
@@ -84,6 +87,9 @@ export function calculateSessionSpendingTrend(
       startUtc: bucketStartUtc,
       endUtc: bucketEndUtc,
       totalSessionSpendCents: aggregate.totalSessionSpendCents,
+      billedEnergyKwh: aggregate.billedEnergyKwh,
+      validBilledEnergySessionCount: aggregate.validBilledEnergySessionCount,
+      averageSessionPriceCtPerKwh: aggregate.averageSessionPriceCtPerKwh,
       sessionCount: aggregate.sessionCount,
       unit: 'month',
       month,

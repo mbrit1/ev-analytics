@@ -1,35 +1,172 @@
+import { useState } from 'react'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
+import type { ChargingSession } from '../../charging-sessions'
 import { createAnalyticsPeriod } from '../model/analyticsPeriods'
 import { calculateSessionSpendingTrend, type SessionSpendingTrend } from '../model/sessionSpendingTrend'
 import { SessionSpendingTrendSlab } from './SessionSpendingTrendSlab'
 
-const bucketDates = [new Date(2026, 1, 1), new Date(2026, 2, 1), new Date(2026, 3, 1), new Date(2026, 4, 1), new Date(2026, 5, 1), new Date(2026, 6, 1), new Date(2026, 6, 16)]
-const bucketValues = [0, 500, 0, 0, null, 0] as const
-const trend: SessionSpendingTrend = {
-  startUtc: bucketDates[0]!,
-  endUtc: new Date(2026, 6, 16),
-  selectedMonth: { year: 2026, month: 6 },
-  unit: 'month',
-  isEmpty: false,
-  buckets: bucketValues.map((totalSessionSpendCents, index) => ({
-    startUtc: bucketDates[index]!, endUtc: bucketDates[index + 1]!, totalSessionSpendCents,
-    sessionCount: 1,
-    unit: 'month' as const, month: { year: 2026, month: index + 1 },
-    isCurrentMonth: index === 5, isPartialMonth: index === 5,
+function StatefulTrendHarness({
+  initialMetric = 'spending',
+  isLoading = false,
+  error = null,
+}: {
+  initialMetric?: 'spending' | 'energy'
+  isLoading?: boolean
+  error?: Error | null
+}) {
+  const [metric, setMetric] = useState<'spending' | 'energy'>(initialMetric)
+  return <SessionSpendingTrendSlab period={trendPeriod} trend={energyTrend} isLoading={isLoading} error={error} metric={metric} onMetricChange={setMetric} />
+}
+
+function buildSession(timestamp: Date, totalCost: number, id: string): Extract<ChargingSession, { session_mode: 'plan' }> {
+  return {
+    id,
+    user_id: 'user-1',
+    session_mode: 'plan',
+    provider_id: 'provider-1',
+    tariff_plan_id: 'plan-1',
+    provider_name_snapshot: 'Recorded provider',
+    charging_type: 'AC',
+    kwh_billed: 10,
+    total_cost: totalCost,
+    applied_session_fee: 0,
+    session_timestamp: timestamp,
+    created_at: timestamp,
+    updated_at: timestamp,
+  }
+}
+
+const trendPeriod = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 6 } }, new Date(2026, 6, 15))
+const trend: SessionSpendingTrend = calculateSessionSpendingTrend([
+  buildSession(new Date(2026, 1, 1), 0, 'february-zero'),
+  buildSession(new Date(2026, 2, 1), 500, 'march-spend'),
+  buildSession(new Date(2026, 3, 1), 0, 'april-zero'),
+  buildSession(new Date(2026, 4, 1), 0, 'may-zero'),
+  buildSession(new Date(2026, 5, 1), Number.NaN, 'june-invalid'),
+  buildSession(new Date(2026, 6, 1), 0, 'july-zero'),
+], trendPeriod)
+const energyTrend: SessionSpendingTrend = {
+  ...trend,
+  buckets: trend.buckets.map((bucket, index) => ({
+    ...bucket,
+    billedEnergyKwh: [0.126, 0.2, null, 0, null, 0.02][index] ?? null,
+    validBilledEnergySessionCount: [1, 2, 0, 1, 0, 1][index] ?? 0,
+    sessionCount: [2, 2, 0, 1, 1, 1][index] ?? 0,
   })),
+  isEmpty: false,
 }
 
 /** Verifies monthly bar selection and its equivalent accessible values. */
 describe('SessionSpendingTrendSlab', () => {
   const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 6 } }, new Date(2026, 6, 15))
 
+  it('shows discrete monthly energy with truthful partial and unavailable coverage', () => {
+    // Arrange
+    render(<SessionSpendingTrendSlab period={period} trend={energyTrend} isLoading={false} metric="energy" onMetricChange={() => {}} />)
+
+    // Assert: The energy view keeps the same date selection and reports coverage separately from missing data.
+    expect(screen.getByRole('heading', { name: /Monthly energy/ })).toBeInTheDocument()
+    expect(screen.getByRole('slider', { name: 'Monthly energy by month' })).toHaveAttribute('aria-valuetext', expect.stringContaining('0,02 kWh'))
+    expect(screen.getAllByText(/1 of 2 sessions/).length).toBeGreaterThan(1)
+    expect(screen.getByText(/Unavailable: no valid billed energy/)).toBeInTheDocument()
+    expect(screen.getByRole('slider', { name: 'Monthly energy by month' }).querySelector('[data-selected-month-anchor="true"]')).toBeInTheDocument()
+    const marks = screen.getByRole('slider', { name: 'Monthly energy by month' }).querySelectorAll('[data-energy-mark]')
+    expect([...marks].map((mark) => mark.getAttribute('data-energy-kwh'))).toEqual(['0.126', '0.2', '0', '0.02'])
+    const fractionalMark = [...marks].find((mark) => mark.getAttribute('data-energy-kwh') === '0.126')!
+    const energyTicks = [...screen.getByRole('group', { name: 'Energy scale in kWh' }).querySelectorAll('[data-axis-label-kwh]')]
+    const axisMaximum = Number(energyTicks.at(-1)?.getAttribute('data-axis-label-kwh'))
+    expect((Number.parseFloat((fractionalMark as HTMLElement).style.top) / 100) * 220)
+      .toBeCloseTo(176 - (0.126 / axisMaximum) * (176 - 58))
+    expect(fractionalMark).toHaveClass('h-2.5', 'w-2.5')
+    expect(screen.getByRole('slider', { name: 'Monthly energy by month' }).querySelector('polyline, path')).not.toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'Energy scale in kWh' })).toBeInTheDocument()
+  })
+
+  it('visibly qualifies partial energy for uninspected buckets when the values table is closed', () => {
+    // Arrange
+    render(<SessionSpendingTrendSlab period={period} trend={energyTrend} isLoading={false} metric="energy" onMetricChange={() => {}} />)
+
+    // Assert: Users can associate the subtotal with its measured share without opening the tooltip or table.
+    expect(screen.getByText('Partial billed energy · Feb 2026: 1 of 2 sessions measured.')).toBeVisible()
+    expect(screen.getByText('View monthly values').closest('details')).not.toHaveAttribute('open')
+    expect(screen.getByRole('slider', { name: 'Monthly energy by month' }).querySelector('[data-spending-tooltip="true"]')).not.toBeInTheDocument()
+  })
+
+  it('provides a keyboard-operable metric radio group with large focused targets', async () => {
+    // Arrange
+    const user = userEvent.setup()
+    render(<StatefulTrendHarness />)
+    const spending = screen.getByRole('radio', { name: 'Spending' })
+    const energy = screen.getByRole('radio', { name: 'Energy' })
+    expect(spending).toBeChecked()
+
+    // Act: Move through the native radio group using the keyboard.
+    await user.tab()
+    await user.keyboard('{ArrowRight}')
+
+    // Assert: Selection changes by keyboard and its visible option remains a 44px target.
+    expect(energy).toBeChecked()
+    expect(energy.closest('label')).toHaveClass('min-h-11')
+    expect(energy.closest('label')).toHaveClass('min-w-11')
+    expect(energy.closest('label')).toHaveClass('focus-within:ring-2')
+    expect(screen.getByRole('slider', { name: 'Monthly energy by month' })).toBeInTheDocument()
+  })
+
+  it('preserves the inspected bucket across metric changes and distinguishes empty from unavailable energy', async () => {
+    // Arrange
+    const user = userEvent.setup()
+    render(<StatefulTrendHarness />)
+    const plot = screen.getByRole('slider', { name: 'Monthly spending by month' })
+    fireEvent.focus(plot)
+    fireEvent.keyDown(plot, { key: 'ArrowLeft' })
+    expect(plot).toHaveAttribute('aria-valuenow', '4')
+
+    // Act: Switch the active metric without changing the chart range or inspection index.
+    await user.click(screen.getByRole('radio', { name: 'Energy' }))
+
+    // Assert: The same month stays selected and its unavailable coverage is explicit.
+    const energyPlot = screen.getByRole('slider', { name: 'Monthly energy by month' })
+    expect(energyPlot).toHaveAttribute('aria-valuenow', '4')
+    expect(energyPlot).toHaveAttribute('aria-valuetext', expect.stringContaining('0 of 1 sessions'))
+    const rows = screen.getByRole('table').querySelectorAll('tbody tr')
+    expect(rows[2]).toHaveTextContent('No charging sessions')
+    expect(rows[4]).toHaveTextContent('Unavailable: no valid billed energy')
+    expect(rows[0]).toHaveTextContent('Partial coverage: 1 of 2 sessions')
+    fireEvent.focus(energyPlot)
+    expect(energyPlot.querySelector('[data-spending-tooltip="true"]')).toHaveTextContent('0 of 1 sessions')
+    fireEvent.keyDown(energyPlot, { key: 'Home' })
+    expect(energyPlot).toHaveAttribute('aria-valuetext', expect.stringContaining('Partial coverage: 1 of 2 sessions'))
+    expect(energyPlot.querySelector('[data-spending-tooltip="true"]')).toHaveTextContent('Partial coverage: 1 of 2 sessions')
+  })
+
+  it('hides stale energy values during loading and errors while keeping the date range accessible', () => {
+    // Arrange
+    const { rerender } = render(<StatefulTrendHarness initialMetric="energy" />)
+    expect(screen.getByRole('table')).toHaveTextContent('kWh')
+
+    // Act: Loading and failed states replace all chart values.
+    rerender(<StatefulTrendHarness initialMetric="energy" isLoading />)
+
+    // Assert: The current metric's exact date range remains on the heading.
+    expect(screen.getByRole('status')).toHaveTextContent('Loading energy trend')
+    expect(screen.queryByRole('slider')).not.toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Monthly energy (kWh), 1 Feb – 15 Jul 2026' })).toBeInTheDocument()
+
+    // Act and assert: An error also hides the values and retains an accessible heading range.
+    rerender(<StatefulTrendHarness initialMetric="energy" error={new Error('offline')} />)
+    expect(screen.getByRole('alert')).toHaveTextContent('Unable to load energy trend')
+    expect(screen.queryByText('0,02 kWh')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Monthly energy (kWh), 1 Feb – 15 Jul 2026' })).toBeInTheDocument()
+  })
+
   it('labels the monthly chart and exposes one keyboard slider for month selection', async () => {
     // Arrange
     const user = userEvent.setup()
     render(<SessionSpendingTrendSlab period={period} trend={trend} isLoading={false} />)
-    expect(screen.getByRole('heading', { name: 'Session spending, 1 Feb – 15 Jul 2026' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Monthly spending (EUR), 1 Feb – 15 Jul 2026' })).toBeInTheDocument()
     expect(document.querySelector('summary[aria-label="Info"]')).toBeInTheDocument()
     expect(screen.getByText('1 Feb – 15 Jul 2026 · 6 Months context')).toBeInTheDocument()
     expect(document.querySelector('caption')).toHaveTextContent('Monthly session spending values for 1 Feb 2026 – 15 Jul 2026')
@@ -41,6 +178,7 @@ describe('SessionSpendingTrendSlab', () => {
     const plot = screen.getByRole('slider', { name: 'Monthly spending by month' })
 
     // Act
+    await user.tab()
     await user.tab()
     await user.tab()
     expect(plot).toHaveFocus()
@@ -87,7 +225,7 @@ describe('SessionSpendingTrendSlab', () => {
     render(<SessionSpendingTrendSlab period={period} trend={contextTrend} isLoading={false} />)
 
     // Assert: The chart heading and quiet label identify the exact three-month coverage.
-    expect(screen.getByRole('heading', { name: 'Session spending, 11 Dec 2025 – 10 Mar 2026' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Monthly spending (EUR), 11 Dec 2025 – 10 Mar 2026' })).toBeInTheDocument()
     expect(screen.getByText('11 Dec 2025 – 10 Mar 2026 · 3 Months context')).toBeInTheDocument()
     expect(screen.queryByText('4 Mar – 10 Mar 2026')).not.toBeInTheDocument()
   })
@@ -101,7 +239,7 @@ describe('SessionSpendingTrendSlab', () => {
     render(<SessionSpendingTrendSlab period={monthPeriod} trend={sixMonthTrend} isLoading={false} />)
 
     // Assert: Exact accessible dates and the visible context description match actual chart bounds.
-    expect(screen.getByRole('heading', { name: 'Session spending, 1 Jan – 30 Jun 2026' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Monthly spending (EUR), 1 Jan – 30 Jun 2026' })).toBeInTheDocument()
     expect(screen.getByText('1 Jan – 30 Jun 2026 · 6 Months context')).toBeInTheDocument()
     expect(screen.getByRole('slider', { name: 'Monthly spending by month' })).toHaveAttribute('aria-valuetext', expect.stringContaining('1 Jun 2026 – 30 Jun 2026'))
   })
@@ -158,6 +296,7 @@ describe('SessionSpendingTrendSlab', () => {
     // Act: Focus reveals the selected value, and Escape dismisses it without moving the selection.
     await user.tab()
     await user.tab()
+    await user.tab()
     expect(plot.querySelector('[data-spending-tooltip="true"]')).toHaveTextContent('Jul 2026 · 0,00 €')
     await user.keyboard('{Escape}')
 
@@ -188,6 +327,7 @@ describe('SessionSpendingTrendSlab', () => {
     // Act
     expect(info.closest('details')).not.toHaveAttribute('open')
     expect(info).toHaveClass('min-h-11')
+    await user.tab()
     await user.tab()
     expect(info).toHaveFocus()
     await user.keyboard('{Enter}')
@@ -258,6 +398,9 @@ describe('SessionSpendingTrendSlab', () => {
         startUtc: new Date(2023, 11, 11),
         endUtc: new Date(2024, 0, 1),
         totalSessionSpendCents: 1234,
+        billedEnergyKwh: 12.5,
+        validBilledEnergySessionCount: 2,
+        averageSessionPriceCtPerKwh: 98.72,
         sessionCount: 2,
         unit: 'month',
         month: { year: 2023, month: 11 },
@@ -287,7 +430,7 @@ describe('SessionSpendingTrendSlab', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Unable to load spending trend')
     const emptyTrend = { ...trend, buckets: trend.buckets.map((bucket) => ({ ...bucket, totalSessionSpendCents: 0, sessionCount: 0 })), isEmpty: true }
     rerender(<SessionSpendingTrendSlab period={period} trend={emptyTrend} isLoading={false} />)
-    expect(screen.getByText('No charging sessions recorded for this period.')).toBeInTheDocument()
+    expect(screen.getByText('No charging sessions recorded for this chart range.')).toBeInTheDocument()
     expect(screen.getByRole('slider', { name: 'Monthly spending by month' })).toBeInTheDocument()
     expect(screen.getByText('1 Feb – 15 Jul 2026 · 6 Months context')).toBeInTheDocument()
     rerender(<SessionSpendingTrendSlab period={period} trend={{ ...trend, buckets: [trend.buckets[0]!], isEmpty: false }} isLoading={false} />)
@@ -411,7 +554,7 @@ describe('SessionSpendingTrendSlab', () => {
     const plot = screen.getByRole('slider', { name: 'Monthly spending by month' })
     expect(plot).toHaveAttribute('aria-valuemax', '12')
     expect(screen.queryByText(/context/)).not.toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Session spending, 16 Jul 2025 – 15 Jul 2026' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Monthly spending (EUR), 16 Jul 2025 – 15 Jul 2026' })).toBeInTheDocument()
     expect(screen.getAllByText('Jul*').length).toBeGreaterThan(0)
     expect(screen.getByText('Jan')).toBeInTheDocument()
     expect(screen.getByText('Jul · MTD')).toBeInTheDocument()

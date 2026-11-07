@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAnalyticsLayoutMode } from '../hooks/useAnalyticsLayoutMode'
 import { useMonthlySessionSpend } from '../hooks/useMonthlySessionSpend'
+import { createAnalyticsPeriod } from '../model/analyticsPeriods'
 import { calculateSessionSpendingTrend } from '../model/sessionSpendingTrend'
 import {
   useOverallChargingPrice,
@@ -32,23 +33,10 @@ const monthlyResult = {
   isCompleteMonth: false,
   isEmpty: true,
 }
-const emptyTrend = {
-  startUtc: new Date(2026, 1, 1),
-  endUtc: new Date(2026, 6, 16),
-  selectedMonth: { year: 2026, month: 6 },
-  buckets: Array.from({ length: 6 }, (_, index) => ({
-    startUtc: new Date(2026, index + 1, 1),
-    endUtc: index === 5 ? new Date(2026, 6, 16) : new Date(2026, index + 2, 1),
-    totalSessionSpendCents: 0,
-    sessionCount: 0,
-    unit: 'month' as const,
-    month: { year: 2026, month: index + 1 },
-    isCurrentMonth: index === 5,
-    isPartialMonth: index === 5,
-  })),
-  unit: 'month' as const,
-  isEmpty: true,
-}
+const emptyTrend = calculateSessionSpendingTrend([], createAnalyticsPeriod(
+  { kind: 'month', month: { year: 2026, month: 6 } },
+  new Date(2026, 6, 15, 12),
+))
 
 const readyOverallPrice: OverallChargingPriceQueryState = {
   status: 'success',
@@ -97,9 +85,9 @@ describe('AnalyticsPage', () => {
     expect(screen.queryByRole('tablist', { name: 'Analytics view' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Previous month' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /Session spending, 1 Feb – 15 Jul 2026/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Monthly spending \(EUR\), 1 Feb – 15 Jul 2026/ })).toBeInTheDocument()
     expect(screen.getByText('1 Feb – 15 Jul 2026 · 6 Months context')).toBeInTheDocument()
-    expect(within(screen.getByRole('region', { name: 'Selected-period analytics' })).queryByRole('heading', { name: /Session spending/ })).not.toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Selected-period analytics' })).queryByRole('heading', { name: /Monthly spending/ })).not.toBeInTheDocument()
     expect(vi.mocked(useOverallChargingPrice)).toHaveBeenCalledWith('2026-07-15')
   })
 
@@ -117,6 +105,9 @@ describe('AnalyticsPage', () => {
           startUtc: new Date(2026, index + 1, 1),
           endUtc: index === 5 ? new Date(2026, 6, 16) : new Date(2026, index + 2, 1),
           totalSessionSpendCents: 0,
+          billedEnergyKwh: index === 0 ? 10 : null,
+          validBilledEnergySessionCount: index === 0 ? 1 : 0,
+          averageSessionPriceCtPerKwh: index === 0 ? 0 : null,
           sessionCount: index === 0 ? 1 : 0,
           unit: 'month' as const,
           month: { year: 2026, month: index + 1 },
@@ -135,9 +126,9 @@ describe('AnalyticsPage', () => {
     // Assert: The summary stays selected-month scoped and the chart shows its wider context.
     expect(screen.getByRole('heading', { name: /July 2026 summary, 1 Jul – 15 Jul 2026/ })).toBeInTheDocument()
     expect(screen.getByText(/No charging sessions recorded for this month yet/)).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /Session spending, 1 Feb – 15 Jul 2026/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /Monthly spending \(EUR\), 1 Feb – 15 Jul 2026/ })).toBeInTheDocument()
     expect(screen.getByText('1 Feb – 15 Jul 2026 · 6 Months context')).toBeInTheDocument()
-    expect(within(screen.getByRole('region', { name: 'Selected-period analytics' })).queryByRole('heading', { name: /Session spending/ })).not.toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Selected-period analytics' })).queryByRole('heading', { name: /Monthly spending/ })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toBeInTheDocument()
   })
 
@@ -189,6 +180,30 @@ describe('AnalyticsPage', () => {
     expect(screen.getByText('June 2026')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /June 2026 summary/ })).toBeInTheDocument()
     expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
+  })
+
+  it('preserves the chosen chart metric while a short preset temporarily hides the chart', async () => {
+    // Arrange
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date(2026, 6, 15, 12))
+    vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AnalyticsPage onAddSession={vi.fn()} />)
+    expect(screen.getByRole('radio', { name: 'Spending' })).toBeChecked()
+
+    // Act: Select Energy, then visit a summary-only preset and return to Calendar Month.
+    await user.click(screen.getByRole('radio', { name: 'Energy' }))
+    expect(screen.getByRole('slider', { name: 'Monthly energy by month' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
+    await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: '7 Days' }))
+    expect(screen.queryByRole('radio', { name: 'Energy' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
+    await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: 'Calendar Month' }))
+
+    // Assert: Returning to the chart restores Energy without changing the independent period controls.
+    expect(screen.getByRole('radio', { name: 'Energy' })).toBeChecked()
+    expect(screen.getByRole('slider', { name: 'Monthly energy by month' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Previous month' })).toBeInTheDocument()
   })
 
   it('refreshes a selected preset at local midnight without changing its mode', async () => {
@@ -271,10 +286,10 @@ describe('AnalyticsPage', () => {
       expect(screen.queryByRole('button', { name: 'Previous month' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Next month' })).not.toBeInTheDocument()
       if (preset === '7-days' || preset === '30-days') {
-        expect(screen.queryByRole('heading', { name: /Session spending/ })).not.toBeInTheDocument()
+        expect(screen.queryByRole('heading', { name: /Monthly spending/ })).not.toBeInTheDocument()
         expect(screen.queryByRole('slider', { name: 'Monthly spending by month' })).not.toBeInTheDocument()
       } else {
-        expect(screen.getByRole('heading', { name: `Session spending, ${range}` })).toBeInTheDocument()
+        expect(screen.getByRole('heading', { name: `Monthly spending (EUR), ${range}` })).toBeInTheDocument()
         expect(screen.getByRole('slider', { name: 'Monthly spending by month' })).toBeInTheDocument()
         expect(screen.queryByText(/context/)).not.toBeInTheDocument()
       }
@@ -320,7 +335,7 @@ describe('AnalyticsPage', () => {
     // Assert
     expect(screen.getByRole('heading', { name: new RegExp(`${label} summary`) })).toBeInTheDocument()
     expect(screen.getByText(/No charging sessions recorded for this period yet/)).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: /Session spending/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /Monthly spending/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('slider', { name: 'Monthly spending by month' })).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Overall price' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
