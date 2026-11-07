@@ -365,4 +365,43 @@ describe('selected-period summary local reactivity', () => {
       expect(matchingBuckets.reduce((total, bucket) => total + (bucket.totalSessionSpendCents ?? 0), 0)).toBe(result.current.result.totalSessionSpendCents)
     }
   })
+
+  it('projects live local energy, cost, timestamp, and deletion edits without widening the selected summary', async () => {
+    // Arrange: The selected April summary and March context are backed by owner-scoped local rows.
+    const selectedTime = new Date(2026, 3, 10, 12)
+    const selected = createSession('live-selected', 'analytics-owner', selectedTime, 500, { kwh_billed: 5 })
+    const context = createSession('live-context', 'analytics-owner', new Date(2026, 2, 10, 12), 300, { kwh_billed: 10 })
+    const otherOwner = createSession('live-other-owner', 'someone-else', context.session_timestamp, 9000, { kwh_billed: 90 })
+    await db.sessions.bulkPut([selected, context, otherOwner])
+    const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 3 } }, new Date(2026, 4, 1))
+    const { result } = renderHook(() => useMonthlySessionSpend(period))
+    await waitFor(() => expect(result.current.result).toMatchObject({ totalSessionSpendCents: 500, billedEnergyKwh: 5, averageSessionPriceCtPerKwh: 100 }))
+    const selectedSummary = result.current.result
+    const contextBucket = () => result.current.trend!.buckets.find((bucket) => bucket.month.month === 2)!
+    await waitFor(() => expect(contextBucket()).toMatchObject({ totalSessionSpendCents: 300, billedEnergyKwh: 10, validBilledEnergySessionCount: 1, averageSessionPriceCtPerKwh: 30 }))
+
+    // Act: Edit context energy and cost in an offline transaction.
+    await act(async () => {
+      await db.transaction('rw', db.sessions, db.sync_outbox, async () => {
+        await db.sessions.update(context.id, { total_cost: 800, kwh_billed: 20 })
+        await db.sync_outbox.add({ table_name: 'sessions', action: 'UPDATE', payload: { ...context, total_cost: 800, kwh_billed: 20 }, timestamp: selectedTime })
+      })
+    })
+
+    // Assert: Context bucket updates while selected period summary remains fixed.
+    await waitFor(() => expect(contextBucket()).toMatchObject({ totalSessionSpendCents: 800, billedEnergyKwh: 20, averageSessionPriceCtPerKwh: 40 }))
+    expect(result.current.result).toEqual(selectedSummary)
+
+    // Act: Move the context row into the selected month across its local month boundary.
+    await act(async () => { await db.sessions.update(context.id, { session_timestamp: new Date(2026, 3, 1) }) })
+    await waitFor(() => expect(contextBucket()).toMatchObject({ totalSessionSpendCents: 0, billedEnergyKwh: null, validBilledEnergySessionCount: 0 }))
+    await waitFor(() => expect(result.current.trend!.buckets.at(-1)).toMatchObject({ totalSessionSpendCents: 1300, billedEnergyKwh: 25, validBilledEnergySessionCount: 2 }))
+    await waitFor(() => expect(result.current.result).toMatchObject({ totalSessionSpendCents: 1300, billedEnergyKwh: 25, averageSessionPriceCtPerKwh: 52, sessionCount: 2 }))
+
+    // Act: Soft-delete the moved row; the selected summary returns to its original value.
+    await act(async () => { await db.sessions.update(context.id, { deleted_at: selectedTime }) })
+    await waitFor(() => expect(result.current.trend!.buckets.at(-1)).toMatchObject({ totalSessionSpendCents: 500, billedEnergyKwh: 5, validBilledEnergySessionCount: 1, averageSessionPriceCtPerKwh: 100 }))
+    expect(result.current.result).toEqual(selectedSummary)
+  })
+
 })

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { createSpendingAxisTicks } from './sessionSpendingAxis'
+import { formatKwh } from '../../../shared/lib'
+import { createEnergyAxisTicks, createSpendingAxisTicks } from './sessionSpendingAxis'
 
 /** Keeps the spending axis zero-based, compact and truthful for missing values. */
 describe('createSpendingAxisTicks', () => {
@@ -64,5 +65,25 @@ describe('createSpendingAxisTicks', () => {
     expect(largeTicks[0]).toBe(0)
     expect(largeTicks.at(-1)).toBeGreaterThanOrEqual(largeValues[0]!)
     expect(new Set(largeTicks.slice(1).map((tick, index) => tick - largeTicks[index]!)).size).toBe(1)
+  })
+})
+
+/** Keeps fractional energy ticks readable while leaving plotted values precise. */
+describe('createEnergyAxisTicks', () => {
+  it('uses distinct localized fractional kWh labels for small measurements', () => {
+    // Arrange
+    const values = [0.02, 0.012, null]
+
+    // Act
+    const ticks = createEnergyAxisTicks(values)
+    const labels = ticks.map(formatKwh)
+
+    // Assert
+    expect(ticks[0]).toBe(0)
+    expect(ticks.at(-1)).toBeGreaterThanOrEqual(0.02)
+    expect(new Set(labels).size).toBe(labels.length)
+    expect(labels).toContain('0,01')
+    expect(createEnergyAxisTicks([0, 0])).toEqual([0, 0.1, 0.2, 0.3])
+    expect(createEnergyAxisTicks([null, null])).toEqual([])
   })
 })

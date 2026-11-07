@@ -5,7 +5,7 @@ import { useMonthlySessionSpend } from '../hooks/useMonthlySessionSpend'
 import { useOverallChargingPrice } from '../hooks/useOverallChargingPrice'
 import { AnalyticsMonthSelector } from './AnalyticsMonthSelector'
 import { MonthlySessionSpendSlab } from './MonthlySessionSpendSlab'
-import { SessionSpendingTrendSlab } from './SessionSpendingTrendSlab'
+import { SessionSpendingTrendSlab, type SessionSpendingChartMetric } from './SessionSpendingTrendSlab'
 import { OverallPriceSlab } from './OverallPriceSlab'
 
 /** Props for the responsive Analytics route composition. */
@@ -32,6 +32,7 @@ export function AnalyticsPage({
   const currentMonth = getCalendarMonth(now)
   const [selectedMonth, setSelectedMonth] = useState(currentMonth)
   const [selection, setSelection] = useState<AnalyticsPeriodSelection>(() => ({ kind: 'month', month: currentMonth }))
+  const [chartMetric, setChartMetric] = useState<SessionSpendingChartMetric>('spending')
   const period = useMemo(() => createAnalyticsPeriod(selection, now), [selection, now])
   const showSpendingChart = selection.kind !== 'preset'
     || (selection.preset !== '7-days' && selection.preset !== '30-days')
@@ -99,6 +100,8 @@ export function AnalyticsPage({
           trend={trend}
           isLoading={isMonthlyLoading}
           error={monthlyError}
+          metric={chartMetric}
+          onMetricChange={setChartMetric}
         />
       )}
       <section aria-label="Lifetime Overall Price" className="space-y-3">

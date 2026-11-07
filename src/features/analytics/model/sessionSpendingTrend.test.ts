@@ -165,7 +165,10 @@ describe('calculateSessionSpendingTrend', () => {
     const expected = createAnalyticsPeriod({ kind: 'preset', preset: '3-months' }, new Date(period.endUtc.getTime() - 1))
 
     // Act
-    const trend = expectChart(calculateSessionSpendingTrend([], period))
+    const trend = expectChart(calculateSessionSpendingTrend([
+      buildSession(new Date(period.endUtc.getTime() - 1), 100, 'dst-last-included'),
+      buildSession(period.endUtc, 200, 'dst-exclusive-end'),
+    ], period))
 
     // Assert: Normalized bounds share the original exclusive end and preserve local calendar edges.
     expect(trend.startUtc).toEqual(expected.startUtc)
@@ -173,6 +176,7 @@ describe('calculateSessionSpendingTrend', () => {
     expect(trend.buckets.at(-1)?.endUtc).toEqual(period.endUtc)
     expect([trend.startUtc.getHours(), trend.startUtc.getMinutes()]).toEqual([0, 0])
     expect([trend.endUtc.getHours(), trend.endUtc.getMinutes()]).toEqual([0, 0])
+    expect(trend.buckets.at(-1)).toMatchObject({ totalSessionSpendCents: 100, billedEnergyKwh: 10, validBilledEnergySessionCount: 1, averageSessionPriceCtPerKwh: 10 })
   })
 
   it('uses monthly buckets across leap year boundaries and clips a trailing partial month', () => {
@@ -234,12 +238,18 @@ describe('calculateSessionSpendingTrend', () => {
 
     // Act
     const trend = expectChart(calculateSessionSpendingTrend(sessions, period))
+    const summary = calculateMonthlySessionSpend(sessions, period)
 
     // Assert
     expect(trend.buckets).toEqual(expect.arrayContaining([
-      expect.objectContaining({ month: { year: 2026, month: 3 }, totalSessionSpendCents: 100, sessionCount: 1 }),
-      expect.objectContaining({ month: { year: 2026, month: 4 }, totalSessionSpendCents: 500, sessionCount: 2 }),
+      expect.objectContaining({ month: { year: 2026, month: 3 }, totalSessionSpendCents: 100, billedEnergyKwh: 10, validBilledEnergySessionCount: 1, averageSessionPriceCtPerKwh: 10, sessionCount: 1 }),
+      expect.objectContaining({ month: { year: 2026, month: 4 }, totalSessionSpendCents: 500, billedEnergyKwh: 20, validBilledEnergySessionCount: 2, averageSessionPriceCtPerKwh: 25, sessionCount: 2 }),
     ]))
+    expect(trend.buckets.at(-1)).toMatchObject({
+      billedEnergyKwh: summary.billedEnergyKwh,
+      validBilledEnergySessionCount: summary.validBilledEnergySessionCount,
+      averageSessionPriceCtPerKwh: summary.averageSessionPriceCtPerKwh,
+    })
     expect(trend.buckets.at(-1)?.endUtc).toEqual(period.endUtc)
   })
 
@@ -525,4 +535,57 @@ describe('calculateSessionSpendingTrend', () => {
     expect(yearTrend.buckets.map(({ startUtc }) => startUtc.getMonth()).slice(0, 3)).toEqual([0, 1, 2])
     expect(yearTrend.buckets[0]?.startUtc.getFullYear()).toBe(2025)
   })
+
+  it('projects empty, partial, invalid-cost, and complete-free monthly metrics from the summary aggregator', () => {
+    // Arrange: Each month represents a distinct energy and cost coverage state.
+    const period = createAnalyticsPeriod({ kind: 'preset', preset: '3-months' }, new Date(2026, 3, 10, 12))
+    const sessions = [
+      buildSession(new Date(2026, 1, 3, 12), 500, 'partial-valid'),
+      { ...buildSession(new Date(2026, 1, 4, 12), 700, 'partial-missing-energy'), kwh_billed: Number.NaN },
+      { ...buildSession(new Date(2026, 2, 3, 12), Number.NaN, 'invalid-cost-valid-energy'), kwh_billed: 8 },
+      { ...buildSession(new Date(2026, 3, 3, 12), 0, 'free-session'), kwh_billed: 4 },
+    ]
+
+    // Act
+    const trend = expectChart(calculateSessionSpendingTrend(sessions, period))
+
+    // Assert: Bucket metrics follow the same null, subtotal, coverage, and zero rules as summaries.
+    expect(trend.buckets[0]).toMatchObject({ totalSessionSpendCents: 0, billedEnergyKwh: null, validBilledEnergySessionCount: 0, averageSessionPriceCtPerKwh: null })
+    expect(trend.buckets[1]).toMatchObject({ totalSessionSpendCents: 1200, billedEnergyKwh: 10, validBilledEnergySessionCount: 1, averageSessionPriceCtPerKwh: null })
+    expect(trend.buckets[2]).toMatchObject({ totalSessionSpendCents: null, billedEnergyKwh: 8, validBilledEnergySessionCount: 1, averageSessionPriceCtPerKwh: null })
+    expect(trend.buckets[3]).toMatchObject({ totalSessionSpendCents: 0, billedEnergyKwh: 4, validBilledEnergySessionCount: 1, averageSessionPriceCtPerKwh: 0 })
+  })
+
+  it.each(['3-months', 'year'] as const)('reconstructs the selected summary from clipped %s buckets using full-precision weighted price', (preset) => {
+    // Arrange: Unequal monthly energy makes an average of monthly rates incorrect.
+    const period = createAnalyticsPeriod({ kind: 'preset', preset }, new Date(2026, 3, 10, 12))
+    const sessions = [
+      { ...buildSession(new Date(2026, 1, 1), 100, 'low-energy'), kwh_billed: 3 },
+      { ...buildSession(new Date(2026, 2, 1), 900, 'high-energy'), kwh_billed: 90 },
+      { ...buildSession(new Date(2026, 3, 1), 50, 'selected-month'), kwh_billed: 5 },
+      { ...buildSession(period.startUtc, 300, 'exact-clipped-start'), kwh_billed: 7 },
+      buildSession(period.endUtc, 800, 'exclusive-end'),
+    ]
+
+    // Act
+    const trend = expectChart(calculateSessionSpendingTrend(sessions, period))
+    const summary = calculateMonthlySessionSpend(sessions, period)
+    const includedBuckets = trend.buckets.filter(({ sessionCount }) => sessionCount > 0)
+    const bucketSpend = includedBuckets.reduce((total, bucket) => total + (bucket.totalSessionSpendCents ?? 0), 0)
+    const bucketEnergy = includedBuckets.reduce((total, bucket) => total + (bucket.billedEnergyKwh ?? 0), 0)
+
+    // Assert: The selected summary matches clipped buckets and uses total cents / total kWh.
+    expect(bucketSpend).toBe(summary.totalSessionSpendCents)
+    expect(bucketEnergy).toBe(summary.billedEnergyKwh)
+    expect(summary.averageSessionPriceCtPerKwh).toBe(1350 / 105)
+    expect(trend.buckets.find(({ month }) => month.year === 2026 && month.month === 1)?.averageSessionPriceCtPerKwh).toBe(100 / 3)
+    expect(includedBuckets.reduce((total, bucket) => total + bucket.totalSessionSpendCents!, 0)
+      / includedBuckets.reduce((total, bucket) => total + bucket.billedEnergyKwh!, 0))
+      .toBe(summary.averageSessionPriceCtPerKwh)
+    expect(trend.buckets.flatMap((bucket) => [bucket.billedEnergyKwh, bucket.validBilledEnergySessionCount, bucket.averageSessionPriceCtPerKwh]))
+      .not.toContain(undefined)
+    expect(trend.buckets.at(-1)?.totalSessionSpendCents).toBe(50)
+    expect(trend.buckets.at(-1)?.endUtc).toEqual(period.endUtc)
+  })
+
 })
