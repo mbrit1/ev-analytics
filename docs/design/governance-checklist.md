@@ -78,32 +78,31 @@ focus containment, Escape/backdrop/Cancel dismissal, safe-area padding and focus
 Verify that the complete final card can scroll above the fixed bottom dock. Use existing slab and typography tokens,
 keep metric weights consistent, and stack values when available width is insufficient.
 
-The Analytics Session spending chart is headed Session spending and uses a
-feature-local native Info disclosure for its explanation. It uses existing slab
-and color tokens, discrete monthly accent bars, restrained grid lines, readable
-month/year labels and a zero-based EUR axis with a few rounded, evenly spaced
-ticks. Calendar Month, 7 Days, and 30 Days use three-month chart context ending
-with the selection; label the chart's wider range and highlight the summary month
-independently of the inspected month. 3 Months/Year use clipped rolling monthly
-buckets, including up to thirteen months. Keep chart context separate from
-summary scope, including for the shorter 7 Days/30 Days summaries.
+The Analytics monthly chart uses a labelled native radio group for Spending,
+Energy and Price/kWh. Spending is the default; retain the chosen mode across a
+temporary 7 Days or 30 Days selection, where the chart is hidden. Calendar Month
+shows six months of context ending in the selected month, and 3 Months/Year use
+clipped rolling monthly buckets, including up to thirteen months. Label the wider
+calendar context and highlight the selected summary month independently of the
+inspected month. Keep the summary and lifetime scopes separate from chart context.
 
-The SVG plot is the touch selection area and supports dragging, visible keyboard
-focus, arrow keys and Home/End; the adjacent EUR label gutter is outside the hit
-area. Show the tooltip only during pointer, touch, focus or keyboard inspection,
-and close it on Escape or blur. Keep its month/year and spend first, with covered
-days and status secondary. At narrow widths, put sparse month labels in a
-full-width row below the shared axis and plot so enlarged text stays readable.
-Preserve inspectable empty/free/unavailable positions without inventing positive
-spending bars. Keep the exact chart date range and context quiet beneath the
-heading when chart bounds differ from the summary; its accessible heading and
-table retain the exact covered dates. Mark
-partial boundary months with an asterisk and the current month with MTD, avoiding duplicate markers
-on the current label; explain only applicable abbreviations beneath the plot.
-Keep month/year and spending primary in the two-level tooltip, with covered days
-and status secondary. Retain exact covered dates and partial/current status in
-accessible inspection text and the table; mark invalid recorded costs as
-unavailable. Preserve distinct loading, query failure, empty-range and recorded-free states.
+Use existing slab and color tokens, discrete spending bars and discrete energy and
+price marks, restrained grid lines and metric-specific zero-based scales. Do not
+connect monthly values. Disclose partial billed-energy coverage with measured and
+total session counts. Explain unavailable cost or energy and price gaps; preserve
+true free zero separately from empty or unavailable positions. Price requires
+complete valid cost and billed energy and represents the weighted session rate.
+
+The plot is the touch selection area and supports dragging, visible keyboard focus,
+arrow keys and Home/End; the scale gutter is outside the hit area. Show the tooltip
+only during pointer, touch, focus or keyboard inspection, and close it on Escape or
+blur. Keep month/year and the active metric first, with covered days and status
+secondary. At narrow widths, put sparse month labels in a full-width row below the
+axis and plot. Keep exact chart dates in the accessible heading and table, mark
+partial boundary months with an asterisk and the current month with MTD, and
+explain only applicable abbreviations. Retain dates, status, counts and coverage
+explanations in accessible inspection text and the table. Preserve distinct
+loading, query failure, empty and recorded-free states without stale values.
 
 Keep View monthly values collapsed by default and visually quiet, with visible
 focus and a minimum 44px target. Its complete textual monthly values must match

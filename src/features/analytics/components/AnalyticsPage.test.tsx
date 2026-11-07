@@ -193,14 +193,19 @@ describe('AnalyticsPage', () => {
     render(<AnalyticsPage onAddSession={vi.fn()} />)
     expect(screen.getByRole('radio', { name: 'Spending' })).toBeChecked()
 
-    // Act: Select Energy, then visit a summary-only preset and return to Calendar Month.
+    // Act: Select Energy, then visit both summary-only presets and return to Calendar Month.
     await user.click(screen.getByRole('radio', { name: 'Energy' }))
     expect(screen.getByRole('slider', { name: 'Monthly energy by month' })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
-    await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: '7 Days' }))
-    expect(screen.queryByRole('radio', { name: 'Energy' })).not.toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
-    await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: 'Calendar Month' }))
+    for (const label of ['7 Days', '30 Days']) {
+      await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
+      await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: label }))
+      expect(screen.queryByRole('radio', { name: 'Energy' })).not.toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: new RegExp(`${label} summary`) })).toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
+      await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: 'Calendar Month' }))
+      expect(screen.getByRole('radio', { name: 'Energy' })).toBeChecked()
+      expect(screen.getByRole('slider', { name: 'Monthly energy by month' })).toBeInTheDocument()
+    }
 
     // Assert: Returning to the chart restores Energy without changing the independent period controls.
     expect(screen.getByRole('radio', { name: 'Energy' })).toBeChecked()
@@ -274,23 +279,81 @@ describe('AnalyticsPage', () => {
     expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
     expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
 
+    // Act: Select Price/kWh while the same current calendar month stays selected.
+    await user.click(screen.getByRole('radio', { name: 'Price/kWh' }))
+
+    // Assert: The third metric uses July's monthly value without changing summary or lifetime scope.
+    expect(screen.getByRole('radio', { name: 'Price/kWh' })).toBeChecked()
+    const julyPriceChart = screen.getByRole('slider', { name: 'Monthly average price by month' })
+    expect(julyPriceChart).toHaveAttribute('aria-valuetext', expect.stringContaining('1,20'))
+    expect(screen.getByRole('heading', { name: /Monthly average price \(EUR\/kWh\), 1 Feb – 15 Jul 2026/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /July 2026 summary/ })).toHaveAttribute('aria-label', julySummaryName)
+    expect(within(selectedSummary).getByText('10')).toBeInTheDocument()
+    expect(within(selectedSummary).getByText('1,20')).toBeInTheDocument()
+    expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0]).toMatchObject({
+      selection: { kind: 'month', month: { year: 2026, month: 6 } },
+      startUtc: new Date(2026, 6, 1), endUtc: new Date(2026, 6, 16),
+    })
+
     await user.click(screen.getByRole('button', { name: /^Other ranges/ }))
     await user.click(within(screen.getByRole('dialog', { name: 'Other ranges' })).getByRole('button', { name: '3 Months' }))
 
-    // Assert: The selected period changes its summary data, while Energy remains the chosen chart mode.
+    // Assert: The selected period changes its summary data, while Price/kWh remains the chosen chart mode.
     expect(screen.getByRole('heading', { name: /3 Months summary/ })).toBeInTheDocument()
     expect(within(selectedSummary).getByText('15')).toBeInTheDocument()
     expect(within(selectedSummary).getByText('1,13')).toBeInTheDocument()
-    expect(screen.getByRole('radio', { name: 'Energy' })).toBeChecked()
-    const threeMonthChart = screen.getByRole('slider', { name: 'Monthly energy by month' })
+    expect(screen.getByRole('radio', { name: 'Price/kWh' })).toBeChecked()
+    const threeMonthChart = screen.getByRole('slider', { name: 'Monthly average price by month' })
     expect(threeMonthChart).toBeInTheDocument()
-    expect(threeMonthChart.parentElement?.querySelector('[data-energy-kwh="10"]')).toBeInTheDocument()
-    expect(threeMonthChart.parentElement?.querySelector('[data-energy-kwh="5"]')).toBeInTheDocument()
+    expect(threeMonthChart.parentElement?.querySelector('[data-price-eur-per-kwh="1.2"]')).toBeInTheDocument()
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0].selection)
       .toEqual({ kind: 'preset', preset: '3-months' })
     expect(julyPeriod).toMatchObject({ selection: { kind: 'month', month: { year: 2026, month: 6 } } })
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0]).toMatchObject({
       startUtc: new Date(2026, 3, 16), endUtc: new Date(2026, 6, 16),
+    })
+    expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
+    expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
+
+    // Act: Check the Energy marks remain available across the same 3 Months range.
+    await user.click(screen.getByRole('radio', { name: 'Energy' }))
+
+    // Assert: Both sessions' measured energy values remain represented in the chart.
+    const threeMonthEnergyChart = screen.getByRole('slider', { name: 'Monthly energy by month' })
+    expect(threeMonthEnergyChart.parentElement?.querySelector('[data-energy-kwh="10"]')).toBeInTheDocument()
+    expect(threeMonthEnergyChart.parentElement?.querySelector('[data-energy-kwh="5"]')).toBeInTheDocument()
+
+    // Act: Restore Price/kWh before continuing to Year.
+    await user.click(screen.getByRole('radio', { name: 'Price/kWh' }))
+
+    // Act: Switch to Year and verify the rolling range while retaining the selected metric.
+    await user.click(screen.getByRole('button', { name: /^Other ranges \(3 Months\)/ }))
+    await user.click(within(screen.getByRole('dialog', { name: 'Other ranges' })).getByRole('button', { name: 'Year' }))
+
+    // Assert: The chart follows Year bounds, the summary follows the selected range, and lifetime remains fixed.
+    expect(screen.getByRole('heading', { name: /Year summary, 16 Jul 2025 – 15 Jul 2026/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Monthly average price (EUR/kWh), 16 Jul 2025 – 15 Jul 2026' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Price/kWh' })).toBeChecked()
+    expect(screen.getByRole('slider', { name: 'Monthly average price by month' })).toBeInTheDocument()
+    expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0]).toMatchObject({
+      selection: { kind: 'preset', preset: 'year' },
+      startUtc: new Date(2025, 6, 16), endUtc: new Date(2026, 6, 16),
+    })
+    expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
+    expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
+
+    // Act: Return to Calendar Month and select historical June.
+    await user.click(screen.getByRole('button', { name: /^Other ranges \(Year\)/ }))
+    await user.click(within(screen.getByRole('dialog', { name: 'Other ranges' })).getByRole('button', { name: 'Calendar Month' }))
+    await user.click(screen.getByRole('button', { name: 'Previous month' }))
+
+    // Assert: June's summary remains month-scoped while its chart covers six historical calendar months.
+    expect(screen.getByRole('heading', { name: /June 2026 summary, 1 Jun – 30 Jun 2026/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Monthly average price (EUR/kWh), 1 Jan – 30 Jun 2026' })).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Price/kWh' })).toBeChecked()
+    expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0]).toMatchObject({
+      selection: { kind: 'month', month: { year: 2026, month: 5 } },
+      startUtc: new Date(2026, 5, 1), endUtc: new Date(2026, 6, 1),
     })
     expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
     expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
