@@ -3,8 +3,10 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAnalyticsLayoutMode } from '../hooks/useAnalyticsLayoutMode'
 import { useMonthlySessionSpend } from '../hooks/useMonthlySessionSpend'
+import { calculateMonthlySessionSpend } from '../model/monthlySessionSpend'
 import { createAnalyticsPeriod } from '../model/analyticsPeriods'
 import { calculateSessionSpendingTrend } from '../model/sessionSpendingTrend'
+import type { ChargingSession } from '../../charging-sessions'
 import {
   useOverallChargingPrice,
   type OverallChargingPriceQueryState,
@@ -204,6 +206,94 @@ describe('AnalyticsPage', () => {
     expect(screen.getByRole('radio', { name: 'Energy' })).toBeChecked()
     expect(screen.getByRole('slider', { name: 'Monthly energy by month' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Previous month' })).toBeInTheDocument()
+  })
+
+  it('keeps the selected period and summary when changing chart mode, and retains mode across chart periods', async () => {
+    // Arrange: Use real June and July sessions so the summary and trend share period-scoped inputs.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date(2026, 6, 15, 12))
+    const sessions: ChargingSession[] = [
+      {
+        id: 'june-session', user_id: 'analytics-owner', session_mode: 'ad_hoc', provider_id: null,
+        tariff_plan_id: null, plan_selection_id: null, pricing_context: 'ad_hoc',
+        ad_hoc_pricing: { pricePerKwh: 100 }, session_timestamp: new Date(2026, 5, 10, 12),
+        provider_name_snapshot: 'Test provider', charging_type: 'AC', kwh_billed: 5,
+        total_cost: 500, applied_session_fee: 0, created_at: new Date(2026, 5, 10, 12),
+        updated_at: new Date(2026, 5, 10, 12),
+      },
+      {
+        id: 'july-session', user_id: 'analytics-owner', session_mode: 'ad_hoc', provider_id: null,
+        tariff_plan_id: null, plan_selection_id: null, pricing_context: 'ad_hoc',
+        ad_hoc_pricing: { pricePerKwh: 100 }, session_timestamp: new Date(2026, 6, 10, 12),
+        provider_name_snapshot: 'Test provider', charging_type: 'AC', kwh_billed: 10,
+        total_cost: 1200, applied_session_fee: 0, created_at: new Date(2026, 6, 10, 12),
+        updated_at: new Date(2026, 6, 10, 12),
+      },
+    ]
+    vi.mocked(useMonthlySessionSpend).mockImplementation((period) => {
+      return {
+        result: calculateMonthlySessionSpend(sessions, period),
+        trend: calculateSessionSpendingTrend(sessions, period),
+        isLoading: false,
+        error: null,
+      }
+    })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AnalyticsPage onAddSession={vi.fn()} />)
+
+    // Assert: Capture July's selection, summary values, bounds and selected Spending value before the mode switch.
+    expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
+    expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
+    const julyHeading = screen.getByRole('heading', { name: /July 2026 summary/ })
+    const julySummaryName = julyHeading.getAttribute('aria-label')
+    const selectedSummary = screen.getByRole('region', { name: 'Selected-period analytics' })
+    expect(within(selectedSummary).getByText('10')).toBeInTheDocument()
+    expect(within(selectedSummary).getByText('1,20')).toBeInTheDocument()
+    const julySpendingChart = screen.getByRole('slider', { name: 'Monthly spending by month' })
+    expect(julySpendingChart).toHaveAttribute('aria-valuetext', expect.stringContaining('12,00 €'))
+    const julyPeriod = vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0]
+    expect(julyPeriod).toMatchObject({
+      selection: { kind: 'month', month: { year: 2026, month: 6 } },
+      startUtc: new Date(2026, 6, 1), endUtc: new Date(2026, 6, 16),
+    })
+
+    // Act: Change chart mode while July remains selected.
+    await user.click(screen.getByRole('radio', { name: 'Energy' }))
+
+    // Assert: The chart presentation changes while the month, summary metrics, and lifetime KPI stay put.
+    expect(screen.getByRole('button', { name: /^Choose calendar month/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /July 2026 summary/ })).toHaveAttribute('aria-label', julySummaryName)
+    expect(within(selectedSummary).getByText('10')).toBeInTheDocument()
+    expect(within(selectedSummary).getByText('1,20')).toBeInTheDocument()
+    const julyEnergyChart = screen.getByRole('slider', { name: 'Monthly energy by month' })
+    expect(julyEnergyChart).toHaveAttribute('aria-valuetext', expect.stringContaining('10 kWh'))
+    expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0]).toMatchObject({
+      selection: { kind: 'month', month: { year: 2026, month: 6 } },
+      startUtc: julyPeriod?.startUtc, endUtc: julyPeriod?.endUtc,
+    })
+    expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
+    expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
+
+    await user.click(screen.getByRole('button', { name: /^Other ranges/ }))
+    await user.click(within(screen.getByRole('dialog', { name: 'Other ranges' })).getByRole('button', { name: '3 Months' }))
+
+    // Assert: The selected period changes its summary data, while Energy remains the chosen chart mode.
+    expect(screen.getByRole('heading', { name: /3 Months summary/ })).toBeInTheDocument()
+    expect(within(selectedSummary).getByText('15')).toBeInTheDocument()
+    expect(within(selectedSummary).getByText('1,13')).toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: 'Energy' })).toBeChecked()
+    const threeMonthChart = screen.getByRole('slider', { name: 'Monthly energy by month' })
+    expect(threeMonthChart).toBeInTheDocument()
+    expect(threeMonthChart.parentElement?.querySelector('[data-energy-kwh="10"]')).toBeInTheDocument()
+    expect(threeMonthChart.parentElement?.querySelector('[data-energy-kwh="5"]')).toBeInTheDocument()
+    expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0].selection)
+      .toEqual({ kind: 'preset', preset: '3-months' })
+    expect(julyPeriod).toMatchObject({ selection: { kind: 'month', month: { year: 2026, month: 6 } } })
+    expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0]).toMatchObject({
+      startUtc: new Date(2026, 3, 16), endUtc: new Date(2026, 6, 16),
+    })
+    expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
+    expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
   })
 
   it('refreshes a selected preset at local midnight without changing its mode', async () => {
