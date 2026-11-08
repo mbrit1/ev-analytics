@@ -190,46 +190,43 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
 
   return (
     <Slab padding="none" className="w-full space-y-4 px-[min(1.25rem,20px)] py-5 md:p-8" aria-busy={isLoading && error === null}>
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 aria-label={`${metricTitle}, ${formatAnalyticsPeriodRange({ startUtc: trend.startUtc, endUtc: trend.endUtc })}`} className="text-sm font-semibold text-primary">{metricTitle}</h2>
-          {(trend.startUtc.getTime() !== period.startUtc.getTime() || trend.endUtc.getTime() !== period.endUtc.getTime()) && error === null && !isLoading && (
-            <p className="text-xs text-secondary">{trendContext}</p>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <fieldset className="min-w-0">
+      <div className="grid min-w-0 grid-cols-[1fr_auto] gap-y-2">
+          <h2 aria-label={`${metricTitle}, ${formatAnalyticsPeriodRange({ startUtc: trend.startUtc, endUtc: trend.endUtc })}`} className="col-start-1 row-start-1 self-center text-sm font-semibold text-primary">{metricTitle}</h2>
+        <fieldset className="col-span-2 min-w-0">
             <legend className="sr-only">Chart metric</legend>
-            <div role="radiogroup" aria-label="Chart metric" className="flex flex-wrap gap-1">
+            <div role="radiogroup" aria-label="Chart metric" className="grid w-full grid-cols-3 gap-1 rounded-2xl bg-environment p-1 md:max-w-[420px]">
               {(['spending', 'energy', 'price'] as const).map((option) => {
                 const label = option === 'spending' ? 'Spending' : option === 'energy' ? 'Energy' : 'Price/kWh'
-                return <label key={option} className="flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-2 rounded-lg border border-slab-border px-3 text-sm text-primary focus-within:outline-none focus-within:ring-2 focus-within:ring-accent">
-                  <input type="radio" name={`analytics-chart-metric-${instructionsId}`} value={option} checked={metric === option} onChange={() => onMetricChange(option)} className="h-4 w-4 accent-accent" />
-                  <span>{label}</span>
+                const selected = metric === option
+                return <label key={option} className={`relative flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-xl px-1 text-center text-xs leading-tight transition-colors sm:text-sm motion-reduce:transition-none focus-within:z-10 focus-within:outline-none focus-within:ring-2 focus-within:ring-inset focus-within:ring-accent ${selected ? 'bg-[#1D1D1F] text-white dark:bg-white dark:text-[#1D1D1F]' : 'text-primary dark:text-secondary'}`}>
+                  <input type="radio" name={`analytics-chart-metric-${instructionsId}`} value={option} checked={selected} onChange={() => onMetricChange(option)} className="peer sr-only" />
+                  <span className="pointer-events-none [overflow-wrap:anywhere] peer-focus-visible:underline">{label}</span>
                 </label>
               })}
             </div>
-          </fieldset>
-          <details className="relative shrink-0">
-            <summary
-              aria-label="Info"
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  const disclosure = event.currentTarget.parentElement
-                  if (disclosure instanceof HTMLDetailsElement) disclosure.open = !disclosure.open
-                }
-              }}
-              className="flex min-h-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-sm text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-            >
-              <svg aria-hidden="true" viewBox="0 0 20 20" className="h-5 w-5 fill-none stroke-current" strokeWidth="1.6">
-                <circle cx="10" cy="10" r="7.25" />
-                <path d="M10 9v5m0-8h.01" strokeLinecap="round" />
-              </svg>
-            </summary>
-            <p className="absolute right-0 top-full z-20 mt-1 w-64 max-w-[calc(100vw-4rem)] rounded-lg border border-slab-border bg-surface p-3 text-xs leading-5 text-primary shadow-slab">{metric === 'energy' ? 'Provider-billed session energy; incomplete coverage is shown by session count.' : metric === 'price' ? 'Weighted session charges per billed kWh; shown only when cost and energy coverage is complete.' : 'Recorded session charges; excludes subscription fees'}</p>
-          </details>
-        </div>
+        </fieldset>
+        <details className="relative col-start-2 row-start-1 shrink-0">
+          <summary
+            aria-label="Info"
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault()
+                const disclosure = event.currentTarget.parentElement
+                if (disclosure instanceof HTMLDetailsElement) disclosure.open = !disclosure.open
+              }
+            }}
+            className="flex min-h-11 min-w-11 cursor-pointer list-none items-center justify-center rounded-sm text-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          >
+            <svg aria-hidden="true" viewBox="0 0 20 20" className="h-5 w-5 fill-none stroke-current" strokeWidth="1.6">
+              <circle cx="10" cy="10" r="7.25" />
+              <path d="M10 9v5m0-8h.01" strokeLinecap="round" />
+            </svg>
+          </summary>
+          <p className="absolute right-0 top-full z-20 mt-1 w-64 max-w-[calc(100vw-4rem)] rounded-lg border border-slab-border bg-surface p-3 text-xs leading-5 text-primary shadow-slab">{metric === 'energy' ? 'Provider-billed session energy; incomplete coverage is shown by session count.' : metric === 'price' ? 'Weighted session charges per billed kWh; shown only when cost and energy coverage is complete.' : 'Recorded session charges; excludes subscription fees'}</p>
+        </details>
+        {(trend.startUtc.getTime() !== period.startUtc.getTime() || trend.endUtc.getTime() !== period.endUtc.getTime()) && error === null && !isLoading && (
+          <p className="col-span-2 text-xs text-secondary">{trendContext}</p>
+        )}
       </div>
       {error !== null ? (
         <p role="alert" className="text-sm text-primary">Unable to load {metric} trend. Please try again.</p>
@@ -240,7 +237,7 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
           {trend.isEmpty && <p className="text-sm text-secondary">No charging sessions recorded for this chart range.</p>}
           {hasRecordedFreeSessions && <p className="text-sm text-secondary">Recorded sessions in this period were free (0,00 €).</p>}
           {metric === 'spending' && hasInvalidBucket && <p className="text-sm text-secondary">Unavailable: at least one session has an invalid recorded cost. A ? marks each affected month.</p>}
-          {anchorMonthLabel && <p className="text-xs text-secondary">Outlined month matches the selected summary · {anchorMonthLabel}</p>}
+          {anchorMonthLabel && <p className="text-xs text-secondary">Highlighted month matches the selected summary · {anchorMonthLabel}</p>}
           {partialEnergyBuckets.length > 0 && <ul aria-label="Partial billed energy coverage" className="space-y-1 text-xs text-secondary">
             {partialEnergyBuckets.map((bucket) => <li key={bucket.startUtc.toISOString()}>
               Partial billed energy · {formatBucketRange(bucket)}: {bucket.validBilledEnergySessionCount} of {bucket.sessionCount} sessions measured.
@@ -270,7 +267,7 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
             <span id={instructionsId} className="sr-only">Use left and right arrow keys to select a month. Use Home and End for the first and last month. Pointer or touch anywhere in the chart selects the nearest month.</span>
             <span role="status" aria-live="polite" aria-atomic="true" className="sr-only">{selectedValue}</span>
             {isTooltipVisible && <div data-spending-tooltip="true" aria-hidden="true" className="mb-2 w-[min(14rem,100%)] break-words rounded-lg border border-slab-border bg-surface px-2 py-1 text-sm leading-5 text-primary shadow-slab">
-              <span className="block text-sm font-medium text-primary">{selectedTooltip?.primary}</span>
+              <span className={`block text-sm font-medium text-primary ${metric === 'energy' ? 'tabular-nums' : ''}`}>{selectedTooltip?.primary}</span>
               <span className="block text-xs text-secondary">{selectedTooltip?.secondary}</span>
             </div>}
             <div className="flex min-w-0">
@@ -283,36 +280,49 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
               <div className="relative min-w-0 flex-1">
                 <div className="relative min-w-0">
                 <svg aria-hidden="true" viewBox={`0 0 ${plotWidth} ${plotHeight}`} className="block h-52 w-full" preserveAspectRatio="none">
+                {trend.selectedMonth && (() => {
+                  const anchorIndex = trend.buckets.findIndex(({ month }) => month.year === trend.selectedMonth?.year && month.month === trend.selectedMonth?.month)
+                  if (anchorIndex < 0) return null
+                  return <rect data-selected-month-anchor="true" x={plotX(anchorIndex) - slotWidth / 2 + 1} y={plotTop} width={slotWidth - 2} height={plotBottom - plotTop} rx="8" fill="var(--color-accent)" fillOpacity="0.07" stroke="none" />
+                })()}
                 {axisTicks.map((tick) => {
                   const y = axisY(tick)
                   return <line key={tick} {...(metric === 'energy' ? { 'data-axis-tick-kwh': tick } : metric === 'price' ? { 'data-axis-tick-eur-per-kwh': tick } : { 'data-axis-tick-cents': tick })} x1="0" y1={y} x2={plotWidth} y2={y} stroke="currentColor" className="text-slab-border" />
                 })}
                 {trend.buckets.map((bucket, index) => {
                   const isSelected = index === selectedIndex
-                  const isAnchor = trend.selectedMonth?.year === bucket.month.year && trend.selectedMonth.month === bucket.month.month
                   const cents = bucket.totalSessionSpendCents
                   const barWidth = Math.min(36, Math.max(4, slotWidth - 10))
                   const x = plotX(index) - barWidth / 2
                   const y = cents === null || cents === 0 ? plotBottom : axisY(cents)
                   const height = cents === null || cents === 0 ? 0 : plotBottom - y
                   return <g key={bucket.startUtc.toISOString()}>
-                    {isAnchor && <rect data-selected-month-anchor="true" x={plotX(index) - slotWidth / 2 + 1} y={plotTop} width={slotWidth - 2} height={plotBottom - plotTop} fill="none" stroke="currentColor" strokeWidth="2" className="text-primary" />}
                     {isSelected && <line x1={plotX(index)} x2={plotX(index)} y1={plotTop} y2={plotBottom} stroke="var(--color-accent)" strokeWidth="1.5" strokeDasharray="3 3" />}
                     {metric === 'spending' && <>
                       <rect data-month-bar="true" data-spend-cents={cents === null ? 'unavailable' : cents} data-bar-height={height} x={x} y={y} width={barWidth} height={height} fill="var(--color-accent)" fillOpacity={isSelected ? 1 : 0.72} stroke={isSelected ? 'var(--color-accent)' : 'none'} strokeWidth="2" />
                       {cents === 0 && <line x1={x} x2={x + barWidth} y1={plotBottom - 1} y2={plotBottom - 1} stroke="var(--color-accent)" strokeWidth="2" />}
                     </>}
+                    {metric === 'energy' && bucket.billedEnergyKwh !== null && (() => {
+                      const energy = bucket.billedEnergyKwh
+                      const energyY = energy === 0 ? plotBottom : axisY(energy)
+                      const energyHeight = energy === 0 ? 0 : plotBottom - energyY
+                      return <>
+                        <rect data-energy-bar="true" data-energy-kwh={energy} data-bar-height={energyHeight} x={x} y={energyY} width={barWidth} height={energyHeight} fill="var(--color-accent)" fillOpacity={isSelected ? 1 : 0.72} stroke={isSelected ? 'var(--color-accent)' : 'none'} strokeWidth="2" />
+                        {energy === 0 && <line x1={x} x2={x + barWidth} y1={plotBottom - 1} y2={plotBottom - 1} stroke="var(--color-accent)" strokeWidth="2" />}
+                      </>
+                    })()}
                   </g>
                 })}
                 </svg>
-                {(metric === 'energy' || metric === 'price') && <div aria-hidden="true" className="pointer-events-none absolute inset-0">
+                {metric === 'price' && <div aria-hidden="true" className="pointer-events-none absolute inset-0">
                   {trend.buckets.map((bucket, index) => {
                     const value = values[index]
                     if (value === null) return null
                     const isSelected = index === selectedIndex
                     return <span
                       key={bucket.startUtc.toISOString()}
-                      {...(metric === 'price' ? { 'data-price-mark': 'true', 'data-price-eur-per-kwh': value } : { 'data-energy-mark': 'true', 'data-energy-kwh': value })}
+                      data-price-mark="true"
+                      data-price-eur-per-kwh={value}
                       className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-surface bg-accent ${isSelected ? 'h-3 w-3' : 'h-2.5 w-2.5'}`}
                       style={{ left: `${(plotX(index) / plotWidth) * 100}%`, top: `${(axisY(value) / plotHeight) * 100}%` }}
                     />
@@ -321,12 +331,15 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
                     <span key={bucket.startUtc.toISOString()} data-price-gap="true" data-gap-session-count={bucket.sessionCount} className="absolute -translate-x-1/2 -translate-y-1/2 text-xs font-semibold text-secondary" style={{ left: `${(plotX(index) / plotWidth) * 100}%`, top: `${((plotBottom - 5) / plotHeight) * 100}%` }}>?</span>
                   ))}
                 </div>}
+              {metric === 'energy' && trend.buckets.map((bucket, index) => bucket.sessionCount > 0 && bucket.billedEnergyKwh === null && (
+                <span key={bucket.startUtc.toISOString()} data-energy-gap="true" aria-hidden="true" className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 text-xs font-semibold text-secondary tabular-nums" style={{ left: `${(plotX(index) / plotWidth) * 100}%`, top: `${((plotBottom - 5) / plotHeight) * 100}%` }}>?</span>
+              ))}
               {metric === 'spending' && trend.buckets.map((bucket, index) => bucket.totalSessionSpendCents === null && (
                 <span key={bucket.startUtc.toISOString()} aria-hidden="true" className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 text-xs font-semibold text-secondary" style={{ left: `${(plotX(index) / plotWidth) * 100}%`, top: `${((plotBottom - 5) / plotHeight) * 100}%` }}>?</span>
               ))}
                 </div>
               {trend.buckets.length <= 8 ? (
-                <div aria-hidden="true" className="hidden min-w-0 text-xs text-secondary @sm/spending-chart:grid" style={{ gridTemplateColumns: `repeat(${Math.max(1, trend.buckets.length)}, minmax(0, 1fr))` }}>
+                <div data-month-label-row="all-buckets" aria-hidden="true" className={`min-w-0 text-xs text-secondary ${trend.buckets.length <= 4 ? 'grid' : 'hidden @sm/spending-chart:grid'}`} style={{ gridTemplateColumns: `repeat(${Math.max(1, trend.buckets.length)}, minmax(0, 1fr))` }}>
                   {trend.buckets.map((bucket) => {
                     const isAnchor = trend.selectedMonth?.year === bucket.month.year && trend.selectedMonth.month === bucket.month.month
                     return <div key={bucket.startUtc.toISOString()} className={`min-w-0 text-center ${isAnchor ? 'font-semibold text-primary' : ''}`} title={formatBucketRange(bucket)}>
@@ -336,15 +349,15 @@ export function SessionSpendingTrendSlab({ period, trend, isLoading, error = nul
                   })}
                 </div>
               ) : null}
+              <div data-month-label-row="sparse" aria-hidden="true" className={`grid min-w-0 grid-cols-3 text-xs text-secondary ${trend.buckets.length <= 4 ? 'hidden' : trend.buckets.length <= 8 ? '@sm/spending-chart:hidden' : ''}`}>
+                {[trend.buckets[0], trend.buckets[Math.floor((trend.buckets.length - 1) / 2)], trend.buckets.at(-1)].map((bucket, index) => bucket && (
+                  <div key={`${bucket.startUtc.toISOString()}-${index}`} className={`min-w-0 ${index === 1 ? 'text-center' : index === 2 ? 'text-right' : 'text-left'} ${trend.selectedMonth?.year === bucket.month.year && trend.selectedMonth.month === bucket.month.month ? 'font-semibold text-primary' : ''}`}>
+                    <span className="block break-words">{formatBucketMonthLabel(bucket)}</span>
+                    <span className="block break-words">{bucket.month.year}</span>
+                  </div>
+                ))}
               </div>
-            </div>
-            <div aria-hidden="true" className={`grid min-w-0 grid-cols-3 text-xs text-secondary ${trend.buckets.length <= 8 ? '@sm/spending-chart:hidden' : ''}`}>
-              {[trend.buckets[0], trend.buckets[Math.floor((trend.buckets.length - 1) / 2)], trend.buckets.at(-1)].map((bucket, index) => bucket && (
-                <div key={`${bucket.startUtc.toISOString()}-${index}`} className={`min-w-0 ${index === 1 ? 'text-center' : index === 2 ? 'text-right' : 'text-left'} ${trend.selectedMonth?.year === bucket.month.year && trend.selectedMonth.month === bucket.month.month ? 'font-semibold text-primary' : ''}`}>
-                  <span className="block break-words">{formatBucketMonthLabel(bucket)}</span>
-                  <span className="block break-words">{bucket.month.year}</span>
-                </div>
-              ))}
+              </div>
             </div>
           </div>
           {monthNotes.length > 0 && <p className="text-xs text-secondary">{monthNotes.join(' · ')}</p>}

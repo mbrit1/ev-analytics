@@ -93,6 +93,35 @@ describe('SessionSpendingTrendSlab', () => {
     expect(plot.querySelector('polyline, path')).not.toBeInTheDocument()
   })
 
+  it('highlights the selected summary month independently from the inspected month in every metric', () => {
+    // Arrange
+    const { rerender } = render(<SessionSpendingTrendSlab period={period} trend={trend} isLoading={false} metric="spending" onMetricChange={() => {}} />)
+
+    // Assert: Each metric uses the same filled, rounded highlight before the chart grid, while inspection can move elsewhere.
+    for (const metric of ['spending', 'energy', 'price'] as const) {
+      rerender(<SessionSpendingTrendSlab period={period} trend={metric === 'spending' ? trend : metric === 'energy' ? energyTrend : priceTrend} isLoading={false} metric={metric} onMetricChange={() => {}} />)
+      const plot = screen.getByRole('slider', { name: metric === 'spending' ? 'Monthly spending by month' : metric === 'energy' ? 'Monthly energy by month' : 'Monthly average price by month' })
+      const highlight = plot.querySelector('[data-selected-month-anchor="true"]')!
+      const svg = plot.querySelector('svg')!
+      expect(highlight).toHaveAttribute('rx')
+      expect(highlight).toHaveAttribute('fill', 'var(--color-accent)')
+      expect(highlight).toHaveAttribute('stroke', 'none')
+      expect([...svg.children].indexOf(highlight)).toBeLessThan([...svg.children].findIndex((child) => child.tagName === 'line'))
+      expect(screen.getByText('Highlighted month matches the selected summary · July 2026')).toBeVisible()
+
+      fireEvent.keyDown(plot, { key: 'Home' })
+      expect(plot).toHaveAttribute('aria-valuenow', '0')
+      expect(plot.querySelector('[data-selected-month-anchor="true"]')).toBeInTheDocument()
+    }
+
+    // Assert: Rolling ranges without a selected summary month have no summary highlight or explanation.
+    const rollingTrend = { ...trend, selectedMonth: null }
+    rerender(<SessionSpendingTrendSlab period={period} trend={rollingTrend} isLoading={false} metric="spending" onMetricChange={() => {}} />)
+    const rollingPlot = screen.getByRole('slider', { name: 'Monthly spending by month' })
+    expect(rollingPlot.querySelector('[data-selected-month-anchor="true"]')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Highlighted month matches/)).not.toBeInTheDocument()
+  })
+
   it('shows discrete monthly energy with truthful partial and unavailable coverage', () => {
     // Arrange
     render(<SessionSpendingTrendSlab period={period} trend={energyTrend} isLoading={false} metric="energy" onMetricChange={() => {}} />)
@@ -103,16 +132,45 @@ describe('SessionSpendingTrendSlab', () => {
     expect(screen.getAllByText(/1 of 2 sessions/).length).toBeGreaterThan(1)
     expect(screen.getByText(/Unavailable: no valid billed energy/)).toBeInTheDocument()
     expect(screen.getByRole('slider', { name: 'Monthly energy by month' }).querySelector('[data-selected-month-anchor="true"]')).toBeInTheDocument()
-    const marks = screen.getByRole('slider', { name: 'Monthly energy by month' }).querySelectorAll('[data-energy-mark]')
-    expect([...marks].map((mark) => mark.getAttribute('data-energy-kwh'))).toEqual(['0.126', '0.2', '0', '0.02'])
-    const fractionalMark = [...marks].find((mark) => mark.getAttribute('data-energy-kwh') === '0.126')!
+    const bars = [...screen.getByRole('slider', { name: 'Monthly energy by month' }).querySelectorAll('[data-energy-bar]')]
+    expect(bars.map((bar) => bar.getAttribute('data-energy-kwh'))).toEqual(['0.126', '0.2', '0', '0.02'])
+    const fractionalBar = bars.find((bar) => bar.getAttribute('data-energy-kwh') === '0.126')!
     const energyTicks = [...screen.getByRole('group', { name: 'Energy scale in kWh' }).querySelectorAll('[data-axis-label-kwh]')]
     const axisMaximum = Number(energyTicks.at(-1)?.getAttribute('data-axis-label-kwh'))
-    expect((Number.parseFloat((fractionalMark as HTMLElement).style.top) / 100) * 220)
-      .toBeCloseTo(176 - (0.126 / axisMaximum) * (176 - 58))
-    expect(fractionalMark).toHaveClass('h-2.5', 'w-2.5')
+    expect(Number(fractionalBar.getAttribute('data-bar-height')))
+      .toBeCloseTo((0.126 / axisMaximum) * (176 - 58))
+    expect(screen.getByRole('slider', { name: 'Monthly energy by month' }).querySelector('[data-energy-gap]')).toBeInTheDocument()
+    expect(screen.getByRole('slider', { name: 'Monthly energy by month' }).querySelector('[data-energy-mark]')).not.toBeInTheDocument()
     expect(screen.getByRole('slider', { name: 'Monthly energy by month' }).querySelector('polyline, path')).not.toBeInTheDocument()
     expect(screen.getByRole('group', { name: 'Energy scale in kWh' })).toBeInTheDocument()
+  })
+
+  it('renders energy bars scaled to the billed subtotal and omits buckets without valid measurements', () => {
+    // Arrange
+    const { rerender } = render(<SessionSpendingTrendSlab period={period} trend={energyTrend} isLoading={false} metric="energy" onMetricChange={() => {}} />)
+    const plot = screen.getByRole('slider', { name: 'Monthly energy by month' })
+
+    // Assert: Partial coverage uses its valid measured subtotal; no sessions and unavailable energy have no bar.
+    const bars = [...plot.querySelectorAll('[data-energy-bar]')]
+    expect(bars.map((bar) => bar.getAttribute('data-energy-kwh'))).toEqual(['0.126', '0.2', '0', '0.02'])
+
+    // Assert: Valid zero and energy on a free session remain visible bars, scaled by the energy axis.
+    const zeroBar = plot.querySelector('[data-energy-bar][data-energy-kwh="0"]')!
+    const freeSessionBar = plot.querySelector('[data-energy-bar][data-energy-kwh="0.02"]')!
+    expect(zeroBar).toHaveAttribute('data-bar-height', '0')
+    expect(freeSessionBar).toHaveAttribute('data-energy-kwh', '0.02')
+    const axisTicks = [...screen.getByRole('group', { name: 'Energy scale in kWh' }).querySelectorAll('[data-axis-label-kwh]')]
+    const axisMaximum = Number(axisTicks.at(-1)?.getAttribute('data-axis-label-kwh'))
+    expect(Number(freeSessionBar.getAttribute('data-bar-height'))).toBeCloseTo((0.02 / axisMaximum) * (176 - 58))
+
+    // Assert: Energy and spending use the same bar width and zero baseline geometry.
+    rerender(<SessionSpendingTrendSlab period={period} trend={energyTrend} isLoading={false} metric="spending" onMetricChange={() => {}} />)
+    const spendingPlot = screen.getByRole('slider', { name: 'Monthly spending by month' })
+    const spendingZeroBar = spendingPlot.querySelector('[data-month-bar][data-spend-cents="0"]')!
+    expect(freeSessionBar).toHaveAttribute('width', spendingZeroBar.getAttribute('width'))
+    rerender(<SessionSpendingTrendSlab period={period} trend={energyTrend} isLoading={false} metric="energy" onMetricChange={() => {}} />)
+    const rerenderedZeroEnergyBar = screen.getByRole('slider', { name: 'Monthly energy by month' }).querySelector('[data-energy-bar][data-energy-kwh="0"]')!
+    expect(rerenderedZeroEnergyBar).toHaveAttribute('y', spendingZeroBar.getAttribute('y'))
   })
 
   it('visibly qualifies partial energy for uninspected buckets when the values table is closed', () => {
@@ -264,6 +322,26 @@ describe('SessionSpendingTrendSlab', () => {
     expect(screen.getByRole('heading', { name: 'Monthly spending (EUR), 11 Dec 2025 – 10 Mar 2026' })).toBeInTheDocument()
     expect(screen.getByText('11 Dec 2025 – 10 Mar 2026 · 3 Months context')).toBeInTheDocument()
     expect(screen.queryByText('4 Mar – 10 Mar 2026')).not.toBeInTheDocument()
+  })
+
+  it('shows every aligned month label for a four-bucket range crossing a year boundary', () => {
+    // Arrange: Three months ending mid-January spans October through January.
+    const now = new Date(2026, 0, 15, 12)
+    const shortPeriod = createAnalyticsPeriod({ kind: 'preset', preset: '3-months' }, now)
+    const fourMonthTrend = calculateSessionSpendingTrend([], shortPeriod)!
+    render(<SessionSpendingTrendSlab period={shortPeriod} trend={fourMonthTrend} isLoading={false} />)
+
+    // Assert: All four plot-aligned labels remain available, including the year transition.
+    const alignedLabels = document.querySelector('[data-month-label-row="all-buckets"]')
+    expect(alignedLabels).toHaveClass('grid')
+    expect(alignedLabels?.children).toHaveLength(4)
+    expect([...alignedLabels!.children].map((label) => [...label.children].map((part) => part.textContent).join(' '))).toEqual([
+      'Oct* 2025',
+      'Nov 2025',
+      'Dec 2025',
+      'Jan · MTD 2026',
+    ])
+    expect(document.querySelector('[data-month-label-row="sparse"]')).toHaveClass('hidden')
   })
 
   it('labels a calendar-month chart from its six actual context months', () => {
@@ -589,6 +667,10 @@ describe('SessionSpendingTrendSlab', () => {
     // Assert: All buckets remain available through the slider/table and sparse labels retain month/year.
     const plot = screen.getByRole('slider', { name: 'Monthly spending by month' })
     expect(plot).toHaveAttribute('aria-valuemax', '12')
+    const sparseLabels = plot.querySelector('[data-month-label-row="sparse"]')
+    expect(sparseLabels?.parentElement?.querySelector('svg')).toBeInTheDocument()
+    expect(sparseLabels?.parentElement).toHaveClass('flex-1')
+    expect(sparseLabels).toHaveClass('grid-cols-3')
     expect(screen.queryByText(/context/)).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Monthly spending (EUR), 16 Jul 2025 – 15 Jul 2026' })).toBeInTheDocument()
     expect(screen.getAllByText('Jul*').length).toBeGreaterThan(0)
