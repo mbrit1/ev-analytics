@@ -75,41 +75,79 @@ an overflow-triggered Analysis period bottom sheet offering Calendar Month and a
 four rolling presets. Mark the active option with a checkmark; month arrows and the
 month/year sheet are available only in calendar mode. Preserve modal background locking,
 focus containment, Escape/backdrop/Cancel dismissal, safe-area padding and focus return.
-Verify that the complete final card can scroll above the fixed bottom dock. Use existing slab and typography tokens,
-keep metric weights consistent, and stack values when available width is insufficient.
+Use existing slab and typography tokens, keep metric weights consistent, and stack
+values when available width is insufficient.
 
-The Analytics monthly chart uses a labelled native radio group for Spending,
-Energy and Price/kWh. Spending is the default; retain the chosen mode across a
-temporary 7 Days or 30 Days selection, where the chart is hidden. Calendar Month
-shows six months of context ending in the selected month, and 3 Months/Year use
-clipped rolling monthly buckets, including up to thirteen months. Label the wider
-calendar context and highlight the selected summary month independently of the
-inspected month. Keep the summary and lifetime scopes separate from chart context.
+The Analytics monthly chart is a local example, not a shared chart primitive.
+It uses a labelled native radio group for Spending, Energy and Price/kWh.
+Spending is the default; retain the chosen mode across a temporary 7 Days or
+30 Days selection, where the chart and selector are hidden. Calendar Month
+shows six months of context ending in the selected month; 3 Months and Year use
+clipped local-calendar monthly buckets, including up to four and thirteen
+buckets respectively. Keep summary and lifetime scopes separate from chart
+context, and show the wider Calendar Month dates when applicable.
 
-Use existing slab and color tokens, discrete spending bars and discrete energy and
-price marks, restrained grid lines and metric-specific zero-based scales. Do not
-connect monthly values. Disclose partial billed-energy coverage with measured and
-total session counts. Explain unavailable cost or energy and price gaps; preserve
-true free zero separately from empty or unavailable positions. Price requires
-complete valid cost and billed energy and represents the weighted session rate.
+Place the metric-specific heading and Info button on one row, followed by the
+left-aligned segmented selector, date-range context and selected-month
+explanation when applicable. The selector has one rounded, padded container,
+three equal segments in a horizontal row, and minimum 44px targets. It fills
+the available mobile width and is capped at 420px from the desktop `md`
+breakpoint. Use the environment and primary/secondary typography tokens where
+applicable: the light container resolves to `#F5F5F7`, with a `#1D1D1F`
+active segment, white active text and `#1D1D1F` inactive text. The dark
+container resolves to `#000000`, with a white active segment, `#1D1D1F` active
+text and `#8E8E93` inactive text. Preserve native single-selection semantics,
+arrow-key navigation, the `#007AFF` focus accent and reduced-motion behavior.
 
-The plot is the touch selection area and supports dragging, visible keyboard focus,
-arrow keys and Home/End; the scale gutter is outside the hit area. Show the tooltip
-only during pointer, touch, focus or keyboard inspection, and close it on Escape or
-blur. Keep month/year and the active metric first, with covered days and status
-secondary. At narrow widths, put sparse month labels in a full-width row below the
-axis and plot. Keep exact chart dates in the accessible heading and table, mark
-partial boundary months with an asterisk and the current month with MTD, and
-explain only applicable abbreviations. Retain dates, status, counts and coverage
-explanations in accessible inspection text and the table. Preserve distinct
-loading, query failure, empty and recorded-free states without stale values.
+Use vertical bars for the additive monthly Spending and Energy totals, sharing
+bar geometry, and independent dots for the weighted Price/kWh rate. Use the
+existing slab, accent and typography tokens, restrained grid lines and
+metric-specific zero-based scales; do not connect, interpolate or accumulate
+monthly values. Spending uses recorded session charges in EUR, excluding
+subscription fees. Energy is provider-billed kWh, not battery-added energy:
+show a known partial subtotal only with measured and total session counts, and
+never turn missing or invalid measurements into zero. A free session with valid
+billed energy can have an Energy bar. Price requires complete valid cost and
+billed energy coverage; an incomplete rate is unavailable, while complete free
+charging can yield a true zero price. Preserve the existing calculation
+contracts and localized European formatting, including tabular numeric values.
 
-Keep View monthly values collapsed by default and visually quiet, with visible
-focus and a minimum 44px target. Its complete textual monthly values must match
-the accessible inspection text and announcements, including dates, status, counts and
-unavailable explanations. Use a named, focusable internal table scroller when
-necessary; verify six- and thirteen-bucket charts and expanded values at 320px,
-wider mobile and desktop widths, dark theme and enlarged text. The chart has no
-essential animation. Record Browser evidence separately from physical Safari/PWA
-and spoken screen-reader validation. This remains a local exception, not a new
-shared chart primitive or master design-system rule.
+For Calendar Month, identify the selected summary month with a softly rounded
+accent background at approximately 7% opacity behind the grid and data, an
+emphasized month/year label and the text explaining its relationship to the
+summary. This tint is contextual, not an interactive button state. Keep the
+independent inspected-month indicator and metric-specific tooltip; inspecting a
+bucket must not change the summary month. Rolling presets without a selected
+summary month have no persistent highlight.
+
+The focusable plot supports pointer and touch inspection and dragging, visible
+keyboard focus, arrow keys and Home/End; the scale gutter is outside the hit
+area. Show the tooltip only during pointer, touch, focus or keyboard inspection,
+and close it on Escape or blur. Keep month/year and the active metric first,
+with covered days and status secondary. At widths that fit, show individual
+labels for the six-month context; use sparse labels when necessary. Show every
+plot-aligned label for up to four buckets, including a rolling 3 Months range
+that spans four months. For denser Year charts use restrained first, middle and
+last labels within the plot column. Keep partial-month asterisks, MTD and year
+labels legible across year boundaries, without shrinking or overlapping text.
+All buckets remain inspectable and available in the equivalent textual table.
+
+Keep the existing approximately 16px section rhythm, plot geometry and slab
+padding. Coverage explanations precede the plot when needed; partial-month and
+MTD notes and the collapsed-by-default View monthly values disclosure follow
+it. Preserve distinct loading, query failure, empty, zero, partial and
+unavailable states without stale values. Accessible headings, inspection text,
+announcements and the table retain metric units, exact covered dates, session
+counts and coverage or unavailability explanations. The disclosure has a
+minimum 44px target and a named, focusable internal table scroller when needed.
+
+The complete chart and disclosure, expanded table including its final row, and
+Lifetime Overall Price slab must scroll above the fixed mobile dock. Internal
+table scrolling must not cause document-level horizontal overflow; respect
+safe-area spacing in iOS Safari/PWA. Browser checks have covered representative
+mobile and desktop layouts in light and dark themes, keyboard inspection and
+dock clearance. Confirmed 200% browser zoom, enlarged system text, physical
+iOS Safari/PWA scrolling and safe-area behavior, and physical touch inspection
+remain outstanding; browser evidence is not physical-device validation. The
+chart has no essential animation. Record spoken screen-reader validation
+separately. This remains an Analytics-local exception, not a global rule.

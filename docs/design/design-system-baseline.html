@@ -304,6 +304,166 @@
       font-weight: 500;
     }
 
+    /* Local Analytics chart example; this is not a shared chart primitive. */
+    .analytics-chart-example {
+      display: grid;
+      min-width: 0;
+      gap: 16px;
+      padding: 20px;
+    }
+
+    .analytics-chart-heading {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .analytics-chart-info {
+      display: inline-grid;
+      width: 20px;
+      height: 20px;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 1px solid var(--secondary-typography);
+      border-radius: 50%;
+      color: var(--secondary-typography);
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .analytics-chart-segments {
+      display: grid;
+      width: min(100%, 420px);
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      padding: 4px;
+      border-radius: 16px;
+      background: var(--bg-environment);
+      color: var(--primary-typography);
+      font-size: 12px;
+      font-weight: 600;
+      text-align: center;
+    }
+
+    .analytics-chart-segments span {
+      display: grid;
+      min-width: 0;
+      min-height: 44px;
+      place-items: center;
+      border-radius: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .analytics-chart-segments span:first-child {
+      background: var(--matrix-node-active-bg);
+      color: var(--matrix-node-active-text);
+    }
+
+    .analytics-chart-plot {
+      grid-column: 2;
+      grid-row: 1;
+      display: block;
+      width: 100%;
+      height: 208px;
+      overflow: visible;
+    }
+
+    .analytics-chart-visual {
+      display: grid;
+      min-width: 0;
+      grid-template-columns: 38px minmax(0, 1fr);
+    }
+
+    .analytics-chart-axis {
+      position: relative;
+      grid-column: 1;
+      grid-row: 1;
+      height: 208px;
+      color: var(--secondary-typography);
+      font-size: 11px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .analytics-chart-axis span {
+      position: absolute;
+      right: 5px;
+      transform: translateY(-50%);
+    }
+
+    .analytics-chart-axis .axis-150 { top: 13.33%; }
+    .analytics-chart-axis .axis-100 { top: 35.71%; }
+    .analytics-chart-axis .axis-50 { top: 58%; }
+    .analytics-chart-axis .axis-zero { top: 80%; }
+
+    .analytics-chart-grid {
+      stroke: var(--slab-border-color);
+      stroke-width: 1;
+    }
+
+    .analytics-chart-bar {
+      fill: var(--universal-accent);
+      opacity: 0.72;
+    }
+
+    .analytics-chart-month-selected {
+      fill: var(--universal-accent);
+      opacity: 0.07;
+    }
+
+    .analytics-chart-label {
+      grid-column: 2;
+      grid-row: 2;
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      color: var(--primary-typography);
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+    }
+
+    .analytics-chart-label span {
+      min-width: 0;
+    }
+
+    .analytics-chart-label span:nth-child(1) { grid-column: 1; }
+    .analytics-chart-label span:nth-child(2) { grid-column: 2; }
+    .analytics-chart-label span:nth-child(3) { grid-column: 3; }
+    .analytics-chart-label span:nth-child(4) { grid-column: 4; }
+    .analytics-chart-label span:nth-child(5) { grid-column: 5; }
+    .analytics-chart-label span:nth-child(6) { grid-column: 6; }
+
+    .analytics-chart-label span:last-child {
+      font-weight: 700;
+    }
+
+    .analytics-chart-context {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 4px 12px;
+    }
+
+    @media (max-width: 360px) {
+      .analytics-chart-label span:nth-child(2),
+      .analytics-chart-label span:nth-child(4),
+      .analytics-chart-label span:nth-child(5) {
+        display: none;
+      }
+    }
+
+    .analytics-chart-note {
+      max-width: 56ch;
+      font-size: 13px;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .analytics-chart-segments {
+        color: var(--secondary-typography);
+      }
+    }
+
     /* Analytics-specific breakpoint, not a shared metric-grid rule. */
     @media (min-width: 1024px) {
       .analytics-summary-metrics {
@@ -664,6 +824,42 @@
           </div>
         </dl>
         <p class="supporting-copy">2 charging sessions · Session spend excludes subscription fees.</p>
+      </article>
+      <article class="slab analytics-chart-example" aria-labelledby="analytics-chart-title" aria-describedby="analytics-chart-alt">
+        <div class="analytics-chart-heading">
+          <h3 class="content-slab-title" id="analytics-chart-title">Monthly spending (EUR)</h3>
+          <span class="analytics-chart-info" aria-hidden="true">i</span>
+        </div>
+        <p class="sr-only" id="analytics-chart-alt">
+          Static illustrative six-month spending chart in euros. The vertical axis starts at zero and is marked at 50, 100, and 150 euros. Monthly spending rises from about 40 euros in May to 140 euros in October, with October highlighted.
+        </p>
+        <div class="analytics-chart-segments" aria-hidden="true">
+          <span>Spending</span><span>Energy</span><span>Price/kWh</span>
+        </div>
+        <div class="analytics-chart-context supporting-copy" aria-hidden="true">
+          <span>Example period · May–October</span><span>October selected</span>
+        </div>
+        <div class="analytics-chart-visual" aria-hidden="true">
+          <div class="analytics-chart-axis"><span class="axis-150">150</span><span class="axis-100">100</span><span class="axis-50">50</span><span class="axis-zero">0</span></div>
+          <svg class="analytics-chart-plot" viewBox="0 0 600 210" preserveAspectRatio="none" focusable="false">
+            <rect class="analytics-chart-month-selected" x="500" y="8" width="88" height="164" rx="12" />
+            <path class="analytics-chart-grid" d="M12 28H588 M12 75H588 M12 121H588 M12 168H588" />
+            <rect class="analytics-chart-bar" x="28" y="130.67" width="44" height="37.33" />
+            <rect class="analytics-chart-bar" x="128" y="112" width="44" height="56" />
+            <rect class="analytics-chart-bar" x="228" y="93.33" width="44" height="74.67" />
+            <rect class="analytics-chart-bar" x="328" y="74.67" width="44" height="93.33" />
+            <rect class="analytics-chart-bar" x="428" y="56" width="44" height="112" />
+            <rect class="analytics-chart-bar" x="528" y="37.33" width="44" height="130.67" />
+          </svg>
+          <div class="analytics-chart-label">
+            <span>May</span><span>Jun</span><span>Jul</span><span>Aug</span><span>Sep</span><span>Oct</span>
+          </div>
+        </div>
+        <p class="supporting-copy analytics-chart-note">
+          Illustrative static example. Bars show monthly spending in euros. Energy and Price/kWh are separate chart modes.
+          The tint identifies the summary month; chart inspection is independent. This Analytics example is local, not a shared primitive. See the
+          <a href="governance-checklist.md">design governance checklist</a> for detailed chart rules.
+        </p>
       </article>
       <article class="slab analytics-summary-example" aria-labelledby="analytics-lifetime-title">
         <p class="meta-label">Lifetime · All recorded sessions</p>
