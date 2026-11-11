@@ -7,6 +7,7 @@ import { AnalyticsMonthSelector } from './AnalyticsMonthSelector'
 import { MonthlySessionSpendSlab } from './MonthlySessionSpendSlab'
 import { SessionSpendingTrendSlab, type SessionSpendingChartMetric } from './SessionSpendingTrendSlab'
 import { OverallPriceSlab } from './OverallPriceSlab'
+import { BillingProviderBreakdownSlab } from './BillingProviderBreakdownSlab'
 
 /** Props for the responsive Analytics route composition. */
 export interface AnalyticsPageProps {
@@ -37,7 +38,7 @@ export function AnalyticsPage({
   const showSpendingChart = selection.kind !== 'preset'
     || (selection.preset !== '7-days' && selection.preset !== '30-days')
   const layoutMode = useAnalyticsLayoutMode()
-  const { result: monthlyResult, trend, isLoading: isMonthlyLoading, error: monthlyError } = useMonthlySessionSpend(period)
+  const { result: monthlyResult, providerBreakdown, trend, isLoading: isMonthlyLoading, error: monthlyError } = useMonthlySessionSpend(period)
   const overallPriceQuery = useOverallChargingPrice(formatLocalDateKey(now))
 
   useEffect(() => {
@@ -104,6 +105,7 @@ export function AnalyticsPage({
           onMetricChange={setChartMetric}
         />
       )}
+      <BillingProviderBreakdownSlab breakdown={providerBreakdown} isLoading={isMonthlyLoading} error={monthlyError} />
       <section aria-label="Lifetime Overall Price" className="space-y-3">
         <p className="text-xs font-bold uppercase tracking-wider text-secondary">Lifetime · All recorded sessions</p>
         {overallContent}

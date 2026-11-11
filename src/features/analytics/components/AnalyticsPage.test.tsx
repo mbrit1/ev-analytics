@@ -190,6 +190,59 @@ describe('AnalyticsPage', () => {
     expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
   })
 
+  it('updates provider totals for 7 and 30 Days and keeps the slab before lifetime', async () => {
+    // Arrange: June falls outside 7 Days but inside 30 Days; July remains in both periods.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date(2026, 6, 15, 12))
+    vi.mocked(useMonthlySessionSpend).mockImplementation((period) => {
+      const sessions: ChargingSession[] = [
+        {
+          id: 'june-provider-session', user_id: 'analytics-owner', session_mode: 'ad_hoc', provider_id: null,
+          tariff_plan_id: null, plan_selection_id: null, pricing_context: 'ad_hoc', ad_hoc_pricing: { pricePerKwh: 100 },
+          session_timestamp: new Date(2026, 5, 20, 12), provider_name_snapshot: 'Shared Provider', charging_type: 'AC',
+          kwh_billed: 5, total_cost: 500, applied_session_fee: 0, created_at: new Date(2026, 5, 20, 12), updated_at: new Date(2026, 5, 20, 12),
+        },
+        {
+          id: 'july-provider-session', user_id: 'analytics-owner', session_mode: 'ad_hoc', provider_id: null,
+          tariff_plan_id: null, plan_selection_id: null, pricing_context: 'ad_hoc', ad_hoc_pricing: { pricePerKwh: 100 },
+          session_timestamp: new Date(2026, 6, 10, 12), provider_name_snapshot: 'Shared Provider', charging_type: 'AC',
+          kwh_billed: 10, total_cost: 1200, applied_session_fee: 0, created_at: new Date(2026, 6, 10, 12), updated_at: new Date(2026, 6, 10, 12),
+        },
+      ]
+      return {
+        result: calculateMonthlySessionSpend(sessions, period),
+        providerBreakdown: calculateBillingProviderBreakdown(sessions, period),
+        trend: calculateSessionSpendingTrend(sessions, period),
+        isLoading: false,
+        error: null,
+      }
+    })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AnalyticsPage onAddSession={vi.fn()} />)
+
+    // Assert: July is initially selected, and provider totals follow its period.
+    const initialProviderHeading = screen.getByRole('heading', { name: 'Billing providers' })
+    const initialProviderSlab = initialProviderHeading.parentElement?.parentElement
+    const lifetime = screen.getByRole('region', { name: 'Lifetime Overall Price' })
+    const lifetimeSnapshot = lifetime.textContent
+    expect(initialProviderSlab).not.toBeNull()
+    expect(within(initialProviderSlab as HTMLElement).getAllByText('12,00 €').length).toBeGreaterThan(0)
+    expect(initialProviderHeading.compareDocumentPosition(lifetime)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(lifetime).toHaveTextContent('0,60')
+
+    // Act / Assert: Both short presets update the provider totals and remain visible before lifetime.
+    for (const [label, expectedSpend] of [['7 Days', '12,00 €'], ['30 Days', '17,00 €']] as const) {
+      await user.click(screen.getByRole('button', { name: /^Other ranges/ }))
+      await user.click(within(screen.getByRole('dialog', { name: 'Other ranges' })).getByRole('button', { name: label }))
+      const providerHeading = screen.getByRole('heading', { name: 'Billing providers' })
+      const providerSlab = providerHeading.parentElement?.parentElement
+      expect(providerSlab).not.toBeNull()
+      expect(within(providerSlab as HTMLElement).getAllByText(expectedSpend).length).toBeGreaterThan(0)
+      expect(providerHeading.compareDocumentPosition(lifetime)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+      expect(lifetime.textContent).toBe(lifetimeSnapshot)
+    }
+  })
+
   it('preserves the chosen chart metric while a short preset temporarily hides the chart', async () => {
     // Arrange
     vi.useFakeTimers({ shouldAdvanceTime: true })
