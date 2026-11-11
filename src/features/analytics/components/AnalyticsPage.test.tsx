@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAnalyticsLayoutMode } from '../hooks/useAnalyticsLayoutMode'
 import { useMonthlySessionSpend } from '../hooks/useMonthlySessionSpend'
+import { calculateBillingProviderBreakdown } from '../model/billingProviderBreakdown'
 import { calculateMonthlySessionSpend } from '../model/monthlySessionSpend'
 import { createAnalyticsPeriod } from '../model/analyticsPeriods'
 import { calculateSessionSpendingTrend } from '../model/sessionSpendingTrend'
@@ -39,6 +40,10 @@ const emptyTrend = calculateSessionSpendingTrend([], createAnalyticsPeriod(
   { kind: 'month', month: { year: 2026, month: 6 } },
   new Date(2026, 6, 15, 12),
 ))
+const emptyProviderBreakdown = calculateBillingProviderBreakdown([], createAnalyticsPeriod(
+  { kind: 'month', month: { year: 2026, month: 6 } },
+  new Date(2026, 6, 15, 12),
+))
 
 const readyOverallPrice: OverallChargingPriceQueryState = {
   status: 'success',
@@ -61,7 +66,7 @@ const readyOverallPrice: OverallChargingPriceQueryState = {
  */
 describe('AnalyticsPage', () => {
   beforeEach(() => {
-    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, trend: emptyTrend, isLoading: false, error: null })
+    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, providerBreakdown: emptyProviderBreakdown, trend: emptyTrend, isLoading: false, error: null })
     vi.mocked(useOverallChargingPrice).mockReturnValue(readyOverallPrice)
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('sidebar')
   })
@@ -99,6 +104,7 @@ describe('AnalyticsPage', () => {
     vi.setSystemTime(new Date(2026, 6, 15, 12))
     vi.mocked(useMonthlySessionSpend).mockReturnValue({
       result: monthlyResult,
+      providerBreakdown: emptyProviderBreakdown,
       trend: {
         ...emptyTrend,
         startUtc: new Date(2026, 1, 1),
@@ -238,6 +244,7 @@ describe('AnalyticsPage', () => {
     vi.mocked(useMonthlySessionSpend).mockImplementation((period) => {
       return {
         result: calculateMonthlySessionSpend(sessions, period),
+        providerBreakdown: calculateBillingProviderBreakdown(sessions, period),
         trend: calculateSessionSpendingTrend(sessions, period),
         isLoading: false,
         error: null,
@@ -367,6 +374,7 @@ describe('AnalyticsPage', () => {
     vi.mocked(useMonthlySessionSpend).mockImplementation((period) => {
       return {
         result: monthlyResult,
+        providerBreakdown: calculateBillingProviderBreakdown([], period),
         trend: calculateSessionSpendingTrend([], period),
         isLoading: false,
         error: null,
@@ -415,6 +423,7 @@ describe('AnalyticsPage', () => {
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('sidebar')
     vi.mocked(useMonthlySessionSpend).mockImplementation((period) => ({
       result: monthlyResult,
+      providerBreakdown: calculateBillingProviderBreakdown([], period),
       trend: calculateSessionSpendingTrend([], period),
       isLoading: false,
       error: null,
@@ -473,6 +482,7 @@ describe('AnalyticsPage', () => {
     vi.setSystemTime(new Date(2026, 6, 15, 12))
     vi.mocked(useMonthlySessionSpend).mockImplementation((period) => ({
       result: monthlyResult,
+      providerBreakdown: calculateBillingProviderBreakdown([], period),
       trend: calculateSessionSpendingTrend([], period),
       isLoading: false,
       error: null,
@@ -603,12 +613,12 @@ describe('AnalyticsPage', () => {
   })
   it('keeps lifetime available during a monthly query failure and recovers', () => {
     // Arrange
-    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, trend: emptyTrend, isLoading: false, error: new Error('read failed') })
+    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, providerBreakdown: emptyProviderBreakdown, trend: emptyTrend, isLoading: false, error: new Error('read failed') })
     const { rerender } = render(<AnalyticsPage onAddSession={vi.fn()} />)
     // Act / Assert
     expect(screen.getByText('Unable to load the summary. Please try again.')).toHaveAttribute('role', 'alert')
     expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
-    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, trend: emptyTrend, isLoading: false, error: null })
+    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, providerBreakdown: emptyProviderBreakdown, trend: emptyTrend, isLoading: false, error: null })
     rerender(<AnalyticsPage onAddSession={vi.fn()} />)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.getByText('0 charging sessions')).toBeInTheDocument()

@@ -45,6 +45,41 @@ describe('selected-period summary local reactivity', () => {
     await db.sync_outbox.clear()
   })
 
+  it('reacts to an unsynchronized provider snapshot edit without widening the owner-scoped period', async () => {
+    // Arrange: The selected period contains one local record and another owner's matching-period row.
+    const selectedTime = new Date(2026, 5, 10, 12)
+    const selected = createSession('provider-edit-selected', 'analytics-owner', selectedTime, 1200, { provider_name_snapshot: 'Old Provider' })
+    const otherOwner = createSession('provider-edit-other-owner', 'someone-else', selectedTime, 9000, { provider_name_snapshot: 'Old Provider' })
+    const priorMonth = createSession('provider-edit-prior-month', 'analytics-owner', new Date(2026, 4, 20), 700, { provider_name_snapshot: 'Outside Provider' })
+    await db.sessions.bulkPut([selected, otherOwner, priorMonth])
+    const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, new Date(2026, 6, 1))
+    const { result } = renderHook(() => useMonthlySessionSpend(period))
+    await waitFor(() => expect(result.current.providerBreakdown.groups).toEqual([
+      expect.objectContaining({ normalizedName: 'old provider', sessionCount: 1, totalCostCents: 1200 }),
+    ]))
+    const selectedSummary = result.current.result
+    const selectedTrend = result.current.trend
+
+    // Act: Rename the locally persisted billing snapshot and queue the edit for later sync.
+    await act(async () => {
+      await db.transaction('rw', db.sessions, db.sync_outbox, async () => {
+        await db.sessions.update(selected.id, { provider_name_snapshot: 'New Provider' })
+        await db.sync_outbox.add({ table_name: 'sessions', action: 'UPDATE', payload: { ...selected, provider_name_snapshot: 'New Provider' }, timestamp: selectedTime })
+      })
+    })
+
+    // Assert: Provider totals react, while the unchanged summary and trend stay period-scoped.
+    await waitFor(() => expect(result.current.providerBreakdown.groups).toEqual([
+      expect.objectContaining({ normalizedName: 'new provider', sessionCount: 1, totalCostCents: 1200 }),
+    ]))
+    expect(result.current.result).toEqual(selectedSummary)
+    expect(result.current.trend).toEqual(selectedTrend)
+    expect(result.current.providerBreakdown).toMatchObject({ sessionCount: 1, totalSessionSpendCents: 1200, billedEnergyKwh: 10 })
+    expect(result.current.providerBreakdown.periodStartUtc).toEqual(period.startUtc)
+    expect(result.current.providerBreakdown.periodEndUtc).toEqual(period.endUtc)
+    expect(await db.sync_outbox.count()).toBe(1)
+  })
+
   it('reacts to unsynchronized edits, deletion and preset changes while excluding another owner', async () => {
     // Arrange: Persist current and older local sessions, plus another owner's row.
     const timestamp = new Date(2026, 5, 10)
