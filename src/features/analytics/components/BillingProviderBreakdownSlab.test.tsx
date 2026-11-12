@@ -95,6 +95,23 @@ describe('BillingProviderBreakdownSlab', () => {
     expect(screen.getByText(/Energy unavailable/)).toBeInTheDocument()
   })
 
+  it('labels the desktop provider columns and gives unavailable values context', () => {
+    // Arrange
+    const breakdown = breakdownFor(['Alpha', 'Beta'], undefined, 'Beta')
+
+    // Act
+    render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} />)
+
+    // Assert
+    const headings = screen.getByText('Provider').parentElement!
+    expect([...headings.children].map((heading) => heading.textContent)).toEqual(['Provider', 'Billed energy', 'Session spend'])
+    expect(headings).toHaveAttribute('aria-hidden', 'true')
+    expect(headings).toHaveClass('hidden', 'md:grid', 'text-[#6E6E73]', 'dark:text-[#8E8E93]')
+    expect(screen.getByText('Billed energy', { selector: '.sr-only' }).parentElement).toHaveTextContent('Billed energy Unavailable')
+    expect(screen.getByText('Alpha')).toBeInTheDocument()
+    expect(screen.getAllByText('1,00 €')).toHaveLength(2)
+  })
+
   it('uses the same fixed palette color for each provider bar segment and row dot', () => {
     // Arrange
     const breakdown = breakdownFor(['EWE Go', 'Aral pulse'])

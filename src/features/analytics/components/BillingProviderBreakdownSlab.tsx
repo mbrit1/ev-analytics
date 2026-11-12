@@ -94,6 +94,12 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
             )}
             {breakdown.totalSessionSpendCents === null && <p className="text-xs text-secondary">At least one session has an invalid recorded cost.</p>}
           </div>
+          <div>
+            <div aria-hidden="true" className="hidden grid-cols-[minmax(0,1fr)_minmax(4rem,6rem)_minmax(4rem,6rem)] gap-x-3 pb-1 text-xs font-medium text-[#6E6E73] dark:text-[#8E8E93] md:grid">
+              <span>Provider</span>
+              <span className="text-right">Billed energy</span>
+              <span className="text-right">Session spend</span>
+            </div>
           <ul ref={providerListRef} tabIndex={-1} className="divide-y divide-slab-border border-t border-slab-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60" aria-label="Provider totals">
             {groupedProviders.groups.map((group) => {
               return (
@@ -127,13 +133,13 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
                       </div>
                     </div>
                     <p className="hidden text-right text-sm tabular-nums text-secondary md:block">
-                      {group.billedEnergyKwh === null ? 'Unavailable' : `${formatKwh(group.billedEnergyKwh)} kWh`}
+                      {group.billedEnergyKwh === null ? <><span className="sr-only">Billed energy </span>Unavailable</> : `${formatKwh(group.billedEnergyKwh)} kWh`}
                       {group.validBilledEnergySessionCount < group.sessionCount && (
                         <span className="block text-[10px]">{group.validBilledEnergySessionCount}/{group.sessionCount} measured</span>
                       )}
                     </p>
                     <p className="shrink-0 text-right text-sm font-semibold tabular-nums text-primary">
-                      {group.totalCostCents === null ? 'Unavailable' : formatCurrency(group.totalCostCents)}
+                      {group.totalCostCents === null ? <><span className="sr-only">Session spend </span>Unavailable</> : formatCurrency(group.totalCostCents)}
                       {group.totalCostCents === 0 && <span className="block text-xs font-normal text-secondary">Free</span>}
                     </p>
                   </div>
@@ -149,13 +155,13 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
                             </span>
                           </span>
                           <span className="hidden text-right tabular-nums text-secondary md:block">
-                            {member.billedEnergyKwh === null ? 'Unavailable' : `${formatKwh(member.billedEnergyKwh)} kWh`}
+                            {member.billedEnergyKwh === null ? <><span className="sr-only">Billed energy </span>Unavailable</> : `${formatKwh(member.billedEnergyKwh)} kWh`}
                             {member.validBilledEnergySessionCount < member.sessionCount && (
                               <span className="block text-[10px]">{member.validBilledEnergySessionCount}/{member.sessionCount} measured</span>
                             )}
                           </span>
                           <span className="text-right tabular-nums text-primary">
-                            {member.totalCostCents === null ? 'Unavailable' : formatCurrency(member.totalCostCents)}
+                            {member.totalCostCents === null ? <><span className="sr-only">Session spend </span>Unavailable</> : formatCurrency(member.totalCostCents)}
                           </span>
                         </li>
                       ))}
@@ -165,6 +171,7 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
               )
             })}
           </ul>
+          </div>
         </div>
       )}
     </Slab>

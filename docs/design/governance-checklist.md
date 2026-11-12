@@ -86,7 +86,7 @@ provider names; preserve known energy subtotals with measured/total coverage,
 label partial totals as known billed energy, explain when no positive known energy
 prevents a provider distribution, show unavailable values explicitly, and
 distinguish free spend. At bottom-dock widths show four named providers when
-there are four, or three plus Others at five or more. At sidebar widths show five named providers, adding Others at six
+there are four, or four plus Others at five or more. At sidebar widths show five named providers, adding Others at six
 or more. Others discloses its members without changing the bar. Directly above
 the bar, show “Billed energy by provider” for complete coverage or “Known billed
 energy by provider” for partial coverage, matching the accessible description.
@@ -100,7 +100,12 @@ keep a provider's segment and list indicator the same color, separate adjacent
 segments with a 1px surface-colored divider, and retain text labels and values
 so color is not the sole cue. Hide the bar for a single group or no positive known
 energy. Stack energy beneath the name on mobile; align energy and spend in
-separate columns on desktop. Keep the disclosure keyboard-operable with visible
+separate columns on desktop. The desktop column labels use an Analytics-local
+accessible text treatment: `#6E6E73` on `#FFFFFF` in light mode (5.07:1),
+and `#8E8E93` on `#1C1C1E` in dark mode (5.22:1). The light value differs
+from the global secondary token to achieve at least 4.5:1 contrast for small
+labels. Consider promoting this treatment to a shared accessible-label token
+when the global foundation is reviewed; it remains a local exception. Keep the disclosure keyboard-operable with visible
 focus and a 44px target, including when the layout changes while expanded.
 This treatment improves scanning of period spend and energy on narrow screens;
 it is a local exception, not a shared chart or grouping rule.
