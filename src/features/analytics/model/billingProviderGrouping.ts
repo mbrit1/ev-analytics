@@ -56,7 +56,7 @@ export function groupBillingProviders(
 ): GroupedBillingProviders {
   const threshold = layoutMode === 'sidebar' ? 5 : 4
   const namedLimit = providerGroups.length > threshold
-    ? (layoutMode === 'sidebar' ? 5 : 3)
+    ? (layoutMode === 'sidebar' ? 5 : 4)
     : providerGroups.length
   const visible = providerGroups.slice(0, namedLimit)
   const hidden = providerGroups.slice(namedLimit)

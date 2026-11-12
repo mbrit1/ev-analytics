@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createAnalyticsPeriod } from './analyticsPeriods'
 import { calculateBillingProviderBreakdown } from './billingProviderBreakdown'
+import type { BillingProviderGroup } from './billingProviderBreakdown'
 import { groupBillingProviders } from './billingProviderGrouping'
 
 /** Test suite for responsive provider grouping and stable segment colors. */
@@ -40,20 +41,26 @@ describe('groupBillingProviders', () => {
     const desktop = groupBillingProviders(breakdown.groups, 'sidebar')
 
     // Assert
-    expect(mobile.groups.map(({ name }) => name)).toEqual(['Alpha', 'Beta', 'Gamma', 'Others'])
+    expect(mobile.groups.map(({ name }) => name)).toEqual(['Alpha', 'Beta', 'Gamma', 'Delta', 'Others'])
     expect(desktop.groups.map(({ name }) => name)).toEqual(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Others'])
-    expect(mobile.groups.at(-1)).toMatchObject({ name: 'Others', sessionCount: 3, billedEnergyKwh: 6, totalCostCents: 300 })
+    expect(mobile.groups.at(-1)).toMatchObject({ name: 'Others', sessionCount: 2, billedEnergyKwh: 3, totalCostCents: 200 })
+    expect(mobile.groups.at(-1)?.members?.map(({ name }) => name)).toEqual(['Epsilon', 'Zeta'])
     expect(mobile.barGroups).toEqual(mobile.groups)
   })
 
   it.each([
+    ['bottom-dock', 0, 0, 0],
+    ['bottom-dock', 1, 1, 0],
+    ['bottom-dock', 3, 3, 0],
     ['bottom-dock', 4, 4, 0],
-    ['bottom-dock', 5, 3, 2],
+    ['bottom-dock', 5, 4, 1],
+    ['bottom-dock', 6, 4, 2],
+    ['bottom-dock', 10, 4, 6],
     ['sidebar', 5, 5, 0],
     ['sidebar', 6, 5, 1],
   ] as const)('applies the %s threshold with %i providers', (layout, count, named, hidden) => {
     // Arrange
-    const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta'].slice(0, count))
+    const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta', 'Iota', 'Kappa'].slice(0, count))
 
     // Act
     const grouped = groupBillingProviders(breakdown.groups, layout)
@@ -62,6 +69,40 @@ describe('groupBillingProviders', () => {
     expect(grouped.groups.filter((group) => !group.isOthers)).toHaveLength(named)
     expect(grouped.hiddenProviderCount).toBe(hidden)
     expect(grouped.groups.filter((group) => group.isOthers)).toHaveLength(hidden > 0 ? 1 : 0)
+    expect(grouped.groups.filter((group) => !group.isOthers).map(({ name }) => name)).toEqual(
+      breakdown.groups.slice(0, named).map(({ name }) => name),
+    )
+    expect(grouped.groups.at(-1)?.members?.map(({ name }) => name) ?? []).toEqual(
+      breakdown.groups.slice(named).map(({ name }) => name),
+    )
+  })
+
+  it('preserves hidden group totals when cost or energy measurements are unavailable', () => {
+    // Arrange
+    const makeGroup = (group: Partial<BillingProviderGroup> & Pick<BillingProviderGroup, 'name' | 'normalizedName'>): BillingProviderGroup => ({
+      sessionCount: 1,
+      validBilledEnergySessionCount: 0,
+      billedEnergyKwh: null,
+      totalCostCents: 100,
+      ...group,
+    })
+    const groups = [
+      makeGroup({ name: 'A', normalizedName: 'a', billedEnergyKwh: 5, validBilledEnergySessionCount: 1 }),
+      makeGroup({ name: 'B', normalizedName: 'b', billedEnergyKwh: 4, validBilledEnergySessionCount: 1 }),
+      makeGroup({ name: 'C', normalizedName: 'c', billedEnergyKwh: 3, validBilledEnergySessionCount: 1 }),
+      makeGroup({ name: 'D', normalizedName: 'd', billedEnergyKwh: 2, validBilledEnergySessionCount: 1 }),
+      makeGroup({ name: 'E', normalizedName: 'e', billedEnergyKwh: null, totalCostCents: null }),
+      makeGroup({ name: 'F', normalizedName: 'f', billedEnergyKwh: null, totalCostCents: 250 }),
+    ]
+
+    // Act
+    const grouped = groupBillingProviders(groups, 'bottom-dock')
+
+    // Assert
+    expect(grouped.groups.at(-1)).toMatchObject({
+      name: 'Others', sessionCount: 2, validBilledEnergySessionCount: 0, billedEnergyKwh: null, totalCostCents: null,
+    })
+    expect(grouped.groups.at(-1)?.members?.map(({ name }) => name)).toEqual(['E', 'F'])
   })
 
   it('keeps a provider color stable when rank changes and resolves collisions deterministically', () => {

@@ -8,12 +8,13 @@ import { BillingProviderBreakdownSlab } from './BillingProviderBreakdownSlab'
 describe('BillingProviderBreakdownSlab', () => {
   const period = createAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, new Date('2026-07-15T12:00:00Z'))
 
-  function breakdownFor(names: string[], partialProviderName?: string) {
+  function breakdownFor(names: string[], partialProviderName?: string, unavailableEnergyProviderName?: string) {
     const sessions = names.map((name, index) => ({
       id: `provider-session-${index}`, user_id: 'owner', session_mode: 'ad_hoc' as const,
       provider_id: null, tariff_plan_id: null, plan_selection_id: null, pricing_context: 'ad_hoc' as const,
       ad_hoc_pricing: { pricePerKwh: 10 }, session_timestamp: new Date(`2026-07-14T${String(index).padStart(2, '0')}:00:00Z`),
-      provider_name_snapshot: name, charging_type: 'AC' as const, kwh_billed: names.length - index,
+      provider_name_snapshot: name, charging_type: 'AC' as const,
+      kwh_billed: name === unavailableEnergyProviderName ? Number.NaN : names.length - index,
       total_cost: 100, applied_session_fee: 0, created_at: new Date('2026-07-14T12:00:00Z'),
       updated_at: new Date('2026-07-14T12:00:00Z'),
     }))
@@ -131,33 +132,47 @@ describe('BillingProviderBreakdownSlab', () => {
 
   it('uses the layout limit and expands Others without changing the collapsed subtotal', () => {
     // Arrange
-    const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta'], 'Epsilon')
+    const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta'], 'Epsilon', 'Eta')
 
     // Act
     const { rerender } = render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="bottom-dock" />)
 
     // Assert
-    expect(screen.getByRole('img', { name: /Alpha 6 kWh, Beta 5 kWh, Gamma 4 kWh, Others 6 kWh/ })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /Alpha 7 kWh, Beta 6 kWh, Gamma 5 kWh, Delta 4 kWh, Others 5 kWh/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Others \(3 providers\)/ })).toHaveAttribute('aria-expanded', 'false')
-    expect(screen.queryByText('Delta')).not.toBeInTheDocument()
+    const providerColor = (element: Element) => (element as HTMLElement).style.getPropertyValue('--provider-color')
+    const mobileBar = screen.getByRole('img', { name: /Alpha 7 kWh, Beta 6 kWh, Gamma 5 kWh, Delta 4 kWh, Others 5 kWh/ })
+    const mobileSegments = [...mobileBar.querySelectorAll('span')]
+    expect(mobileSegments).toHaveLength(5)
+    expect(providerColor(mobileSegments.at(-1)!)).toBe('#8E8E93')
+    expect(providerColor(screen.getByRole('button', { name: /Others \(3 providers\)/ }).parentElement!.parentElement!.firstElementChild!)).toBe('#8E8E93')
+    expect(screen.queryByText('Epsilon')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Others \(3 providers\)/ }))
     expect(screen.getByRole('button', { name: /Others \(3 providers\)/ })).toHaveAttribute('aria-expanded', 'true')
     expect(screen.getByRole('list', { name: 'Other provider totals' })).toBeInTheDocument()
-    expect(screen.getByText('Delta')).toBeInTheDocument()
+    expect(screen.getByText('Epsilon')).toBeInTheDocument()
+    expect(screen.getByText('Zeta')).toBeInTheDocument()
+    expect(screen.getByText('Eta')).toBeInTheDocument()
+    expect(screen.getByText(/Energy unavailable/)).toBeInTheDocument()
     expect(screen.getByText('1/2 measured')).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: /Others 6 kWh/ })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /Others 5 kWh/ })).toBeInTheDocument()
 
     rerender(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="sidebar" />)
-    expect(screen.getByRole('img', { name: /Alpha 6 kWh, Beta 5 kWh, Gamma 4 kWh, Delta 3 kWh, Epsilon 2 kWh, Others 1 kWh/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Others (1 provider)' })).toBeInTheDocument()
-    expect(screen.getByText('1/2 measured')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /Alpha 7 kWh, Beta 6 kWh, Gamma 5 kWh, Delta 4 kWh, Epsilon 3 kWh, Others 2 kWh/ })).toBeInTheDocument()
+    const desktopBar = screen.getByRole('img', { name: /Known billed energy by provider/ })
+    const desktopSegments = [...desktopBar.querySelectorAll('span')]
+    expect(desktopSegments).toHaveLength(6)
+    expect(providerColor(desktopSegments.at(-1)!)).toBe('#8E8E93')
+    expect(screen.getByRole('button', { name: 'Others (2 providers)' })).toBeInTheDocument()
+    expect(providerColor(screen.getByRole('button', { name: 'Others (2 providers)' }).parentElement!.parentElement!.firstElementChild!)).toBe('#8E8E93')
+    expect(screen.getAllByText('1/2 measured')).toHaveLength(2)
   })
 
   it('moves focus to the provider list when a layout change removes Others', () => {
     // Arrange
     const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon'])
     const { rerender } = render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="bottom-dock" />)
-    const othersButton = screen.getByRole('button', { name: /Others \(2 providers\)/ })
+    const othersButton = screen.getByRole('button', { name: /Others \(1 provider\)/ })
     othersButton.focus()
 
     // Act
@@ -200,7 +215,7 @@ describe('BillingProviderBreakdownSlab', () => {
 
     // Assert
     expect(screen.getByText('__others__')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Others \(3 providers\)/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Others \(2 providers\)/ })).toBeInTheDocument()
     expect(consoleError.mock.calls.flat().join(' ')).not.toMatch(/same key/i)
     consoleError.mockRestore()
   })
