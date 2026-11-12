@@ -89,6 +89,21 @@ describe('BillingProviderBreakdownSlab', () => {
     expect(screen.getByText(/Energy unavailable/)).toBeInTheDocument()
   })
 
+  it('labels the energy distribution according to measurement coverage', () => {
+    // Arrange
+    const complete = breakdownFor(['Alpha', 'Beta'])
+    const partial = breakdownFor(['Alpha', 'Beta'], 'Alpha')
+
+    // Act / Assert
+    const { rerender } = render(<BillingProviderBreakdownSlab breakdown={complete} isLoading={false} />)
+    expect(screen.getByText('Billed energy by provider')).toBeVisible()
+    expect(screen.getByRole('img', { name: /^Billed energy by provider: Alpha 2 kWh, Beta 1 kWh$/ })).toBeInTheDocument()
+    rerender(<BillingProviderBreakdownSlab breakdown={partial} isLoading={false} />)
+    expect(screen.getByText('Known billed energy by provider')).toBeVisible()
+    expect(screen.getByRole('img', { name: /^Known billed energy by provider: Alpha 2 kWh, Beta 1 kWh$/ })).toBeInTheDocument()
+    expect(screen.getByText('Available for 2 of 3 sessions.')).toBeInTheDocument()
+  })
+
   it('uses the layout limit and expands Others without changing the collapsed subtotal', () => {
     // Arrange
     const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta'], 'Epsilon')
@@ -203,6 +218,9 @@ describe('BillingProviderBreakdownSlab', () => {
     render(<BillingProviderBreakdownSlab breakdown={unavailable} isLoading={false} />)
 
     // Assert
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(screen.queryByText(/billed energy by provider/i)).not.toBeInTheDocument()
+    expect(screen.getByText('Available for 0 of 2 sessions.')).toBeInTheDocument()
     expect(screen.getByText('No provider distribution is shown because no sessions have positive known billed energy.')).toBeInTheDocument()
   })
 })

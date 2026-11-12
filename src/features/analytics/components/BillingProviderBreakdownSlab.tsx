@@ -37,6 +37,7 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
   const positiveEnergyTotal = positiveEnergyGroups.reduce((total, group) => total + (group.billedEnergyKwh ?? 0), 0)
   const showEnergyBar = groupedProviders.groups.length > 1 && positiveEnergyTotal > 0
   const hasPartialBilledEnergy = breakdown.validBilledEnergySessionCount < breakdown.sessionCount
+  const energyBarLabel = hasPartialBilledEnergy ? 'Known billed energy by provider' : 'Billed energy by provider'
 
   useLayoutEffect(() => {
     if (!groupedProviders.groups.some((group) => group.isOthers) && othersWasFocused.current) {
@@ -82,19 +83,22 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
             </div>
           </div>
           {showEnergyBar && (
-            <div
-              role="img"
-              aria-label={`Billed energy by provider: ${groupedProviders.barGroups.map((group) => `${group.name} ${group.billedEnergyKwh === null ? 'energy unavailable' : `${formatKwh(group.billedEnergyKwh)} kWh`}`).join(', ')}`}
-              className="flex h-3 w-full overflow-hidden rounded-full bg-secondary/10"
-            >
-              {positiveEnergyGroups.map((group) => (
-                <span
-                  key={group.isOthers ? 'group:others' : `provider:${group.normalizedName}`}
-                  aria-hidden="true"
-                  className="h-full min-w-0 bg-[var(--provider-color-light)] dark:bg-[var(--provider-color-dark)]"
-                  style={{ ...providerColorStyle(group.color), width: `${((group.billedEnergyKwh ?? 0) / positiveEnergyTotal) * 100}%` }}
-                />
-              ))}
+            <div className="space-y-1">
+              <p aria-hidden="true" className="text-xs text-secondary">{energyBarLabel}</p>
+              <div
+                role="img"
+                aria-label={`${energyBarLabel}: ${groupedProviders.barGroups.map((group) => `${group.name} ${group.billedEnergyKwh === null ? 'energy unavailable' : `${formatKwh(group.billedEnergyKwh)} kWh`}`).join(', ')}`}
+                className="flex h-3 w-full overflow-hidden rounded-full bg-secondary/10"
+              >
+                {positiveEnergyGroups.map((group) => (
+                  <span
+                    key={group.isOthers ? 'group:others' : `provider:${group.normalizedName}`}
+                    aria-hidden="true"
+                    className="h-full min-w-0 bg-[var(--provider-color-light)] dark:bg-[var(--provider-color-dark)]"
+                    style={{ ...providerColorStyle(group.color), width: `${((group.billedEnergyKwh ?? 0) / positiveEnergyTotal) * 100}%` }}
+                  />
+                ))}
+              </div>
             </div>
           )}
           {positiveEnergyTotal === 0 && (
