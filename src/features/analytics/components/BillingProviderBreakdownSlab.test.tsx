@@ -29,7 +29,7 @@ describe('BillingProviderBreakdownSlab', () => {
     return calculateBillingProviderBreakdown(sessions, period)
   }
 
-  it('shows European spend, billed energy, and provider rows', () => {
+  it('shows the period energy total and provider rows without duplicate spend or energy KPIs', () => {
     // Arrange
     const breakdown = calculateBillingProviderBreakdown([{
       id: 'session-1', user_id: 'owner', session_mode: 'ad_hoc', provider_id: null, tariff_plan_id: null,
@@ -44,8 +44,11 @@ describe('BillingProviderBreakdownSlab', () => {
 
     // Assert
     expect(screen.getByText('Billing providers')).toBeInTheDocument()
-    expect(screen.getAllByText('32,50 €')).toHaveLength(2)
+    expect(screen.getByText('Billed energy and session spending by provider')).toBeInTheDocument()
+    expect(screen.getByText('12,5', { selector: 'p' })).toHaveTextContent('kWh')
+    expect(screen.getAllByText('32,50 €')).toHaveLength(1)
     expect(screen.getAllByText(/12,5/)).toHaveLength(3)
+    expect(screen.queryByText('Total spend')).not.toBeInTheDocument()
     expect(screen.getByText('Example Charge')).toBeInTheDocument()
   })
 
@@ -81,11 +84,13 @@ describe('BillingProviderBreakdownSlab', () => {
     expect(screen.getByText('No charging sessions recorded for this period.')).toBeInTheDocument()
     rerender(<BillingProviderBreakdownSlab breakdown={partial} isLoading={false} />)
     expect(screen.getByText('Mixed Provider')).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Known billed energy' })).toBeInTheDocument()
+    expect(screen.getByText('2', { selector: 'p' })).toHaveTextContent('kWh')
+    expect(screen.getByText('At least one session has an invalid recorded cost.')).toBeInTheDocument()
+    expect(screen.getByText('Available for 1 of 3 sessions.')).toBeInTheDocument()
     expect(screen.getAllByText(/1\/2 measured/)).toHaveLength(2)
     expect(screen.getByText('Free Provider')).toBeInTheDocument()
     expect(screen.getByText('Free', { selector: 'span' })).toBeInTheDocument()
-    expect(screen.getAllByText('Unavailable', { selector: 'p' })).toHaveLength(3)
+    expect(screen.getAllByText('Unavailable', { selector: 'p' })).toHaveLength(2)
     expect(screen.getByText(/Energy unavailable/)).toBeInTheDocument()
   })
 
@@ -119,6 +124,7 @@ describe('BillingProviderBreakdownSlab', () => {
     expect(screen.getByRole('img', { name: /^Billed energy by provider: Alpha 2 kWh, Beta 1 kWh$/ })).toBeInTheDocument()
     rerender(<BillingProviderBreakdownSlab breakdown={partial} isLoading={false} />)
     expect(screen.getByText('Known billed energy by provider')).toBeVisible()
+    expect(screen.getByText('3', { selector: 'p' })).toHaveTextContent('kWh')
     expect(screen.getByRole('img', { name: /^Known billed energy by provider: Alpha 2 kWh, Beta 1 kWh$/ })).toBeInTheDocument()
     expect(screen.getByText('Available for 2 of 3 sessions.')).toBeInTheDocument()
   })
@@ -238,7 +244,8 @@ describe('BillingProviderBreakdownSlab', () => {
 
     // Assert
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
-    expect(screen.queryByText(/billed energy by provider/i)).not.toBeInTheDocument()
+    expect(screen.getByText('Known billed energy by provider')).toBeInTheDocument()
+    expect(screen.queryByText(/\bkWh\b/)).not.toBeInTheDocument()
     expect(screen.getByText('Available for 0 of 2 sessions.')).toBeInTheDocument()
     expect(screen.getByText('No provider distribution is shown because no sessions have positive known billed energy.')).toBeInTheDocument()
   })

@@ -5,7 +5,7 @@ import type { AnalyticsLayoutMode } from '../hooks/useAnalyticsLayoutMode'
 import { groupBillingProviders, type ProviderColor } from '../model/billingProviderGrouping'
 import type { BillingProviderBreakdown } from '../model/billingProviderBreakdown'
 
-/** Props for the selected-period provider spend summary. */
+/** Props for the selected-period provider breakdown. */
 export interface BillingProviderBreakdownSlabProps {
   breakdown: BillingProviderBreakdown
   isLoading: boolean
@@ -23,7 +23,7 @@ function providerColorStyle(color: ProviderColor): ProviderColorStyle {
   }
 }
 
-/** Shows provider spend and billed energy for the selected Analytics period. */
+/** Shows selected-period spending and billed energy grouped by provider. */
 export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = null, layoutMode = 'bottom-dock' }: BillingProviderBreakdownSlabProps) {
   const [isOthersExpanded, setIsOthersExpanded] = useState(false)
   const detailsId = useId()
@@ -48,7 +48,7 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
     <Slab padding="none" className="w-full space-y-5 p-5 md:p-8" aria-busy={isLoading && error === null}>
       <div className="space-y-1">
         <h2 className="text-sm font-semibold text-primary">Billing providers</h2>
-        <p className="text-xs text-secondary">Recorded session charges by provider</p>
+        <p className="text-xs text-secondary">Billed energy and session spending by provider</p>
       </div>
       {error !== null ? (
         <p role="alert" className="text-sm text-primary">Unable to load billing providers. Please try again.</p>
@@ -61,28 +61,16 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
         <p className="text-sm text-secondary">No charging sessions recorded for this period.</p>
       ) : (
         <div className="space-y-5">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="min-w-0 space-y-1">
-              <h3 className="text-sm font-medium text-secondary">Total spend</h3>
-              <p className="break-words text-3xl font-bold leading-tight tracking-tight text-primary tabular-nums">
-                {breakdown.totalSessionSpendCents === null ? 'Unavailable' : formatCurrency(breakdown.totalSessionSpendCents)}
-              </p>
-              {breakdown.totalSessionSpendCents === null && <p className="text-xs text-secondary">At least one session has an invalid recorded cost.</p>}
-              {breakdown.totalSessionSpendCents === 0 && <p className="text-xs text-secondary">Free sessions</p>}
-            </div>
-            <div className="min-w-0 space-y-1 sm:border-l sm:border-slab-border sm:pl-5">
-              <h3 className="text-sm font-medium text-secondary">{hasPartialBilledEnergy ? 'Known billed energy' : 'Billed energy'}</h3>
-              <p className="text-xl font-semibold leading-tight text-primary tabular-nums">
-                {breakdown.billedEnergyKwh === null ? 'Unavailable' : <>{formatKwh(breakdown.billedEnergyKwh)} <span className="text-sm">kWh</span></>}
-              </p>
-              {breakdown.validBilledEnergySessionCount < breakdown.sessionCount && (
-                <p className="text-xs text-secondary">Available for {breakdown.validBilledEnergySessionCount} of {breakdown.sessionCount} sessions.</p>
+          <div className="space-y-1">
+            <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <h3 aria-hidden={showEnergyBar || undefined} className="text-xs font-medium text-secondary">{energyBarLabel}</h3>
+              {breakdown.billedEnergyKwh !== null && (
+                <p className="text-sm font-semibold tabular-nums text-primary">
+                  {formatKwh(breakdown.billedEnergyKwh)} <span className="text-xs font-normal">kWh</span>
+                </p>
               )}
             </div>
-          </div>
-          {showEnergyBar && (
-            <div className="space-y-1">
-              <p aria-hidden="true" className="text-xs text-secondary">{energyBarLabel}</p>
+            {showEnergyBar && (
               <div
                 role="img"
                 aria-label={`${energyBarLabel}: ${groupedProviders.barGroups.map((group) => `${group.name} ${group.billedEnergyKwh === null ? 'energy unavailable' : `${formatKwh(group.billedEnergyKwh)} kWh`}`).join(', ')}`}
@@ -97,11 +85,15 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
                   />
                 ))}
               </div>
-            </div>
-          )}
-          {positiveEnergyTotal === 0 && (
-            <p className="text-xs text-secondary">No provider distribution is shown because no sessions have positive known billed energy.</p>
-          )}
+            )}
+            {hasPartialBilledEnergy && (
+              <p className="text-xs text-secondary">Available for {breakdown.validBilledEnergySessionCount} of {breakdown.sessionCount} sessions.</p>
+            )}
+            {positiveEnergyTotal === 0 && (
+              <p className="text-xs text-secondary">No provider distribution is shown because no sessions have positive known billed energy.</p>
+            )}
+            {breakdown.totalSessionSpendCents === null && <p className="text-xs text-secondary">At least one session has an invalid recorded cost.</p>}
+          </div>
           <ul ref={providerListRef} tabIndex={-1} className="divide-y divide-slab-border border-t border-slab-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60" aria-label="Provider totals">
             {groupedProviders.groups.map((group) => {
               return (
