@@ -78,6 +78,23 @@ focus containment, Escape/backdrop/Cancel dismissal, safe-area padding and focus
 Use existing slab and typography tokens, keep metric weights consistent, and stack
 values when available width is insufficient.
 
+The Billing providers slab is an Analytics-local exception: it pairs prominent
+selected-period spend with secondary billed energy, then a proportional energy
+bar and a labelled provider list. It remains visible for short periods and sits
+before lifetime Overall Price. Use recorded billing snapshots, not current
+provider names; preserve known energy subtotals with measured/total coverage,
+show unavailable values explicitly, and distinguish free spend. At bottom-dock
+widths show four named providers when there are four, or three plus Others at
+five or more. At sidebar widths show five named providers, adding Others at six
+or more. Others discloses its members without changing the bar. Use stable
+identity-based colors across rank changes, neutral Others, and text labels so
+color is not the sole cue. Hide the bar for a single group or no positive known
+energy. Stack energy beneath the name on mobile; align energy and spend in
+separate columns on desktop. Keep the disclosure keyboard-operable with visible
+focus and a 44px target, including when the layout changes while expanded.
+This treatment improves scanning of period spend and energy on narrow screens;
+it is a local exception, not a shared chart or grouping rule.
+
 The Analytics monthly chart is a local example, not a shared chart primitive.
 It uses a labelled native radio group for Spending, Energy and Price/kWh.
 Spending is the default; retain the chosen mode across a temporary 7 Days or
