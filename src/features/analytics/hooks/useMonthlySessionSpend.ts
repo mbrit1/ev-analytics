@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { useSessions } from '../../charging-sessions'
 import type { AnalyticsPeriod } from '../model/analyticsPeriods'
+import { calculateBillingProviderBreakdown } from '../model/billingProviderBreakdown'
 import { calculateMonthlySessionSpend } from '../model/monthlySessionSpend'
 import { calculateSessionSpendingTrend } from '../model/sessionSpendingTrend'
 
@@ -11,10 +12,14 @@ export function useMonthlySessionSpend(period: AnalyticsPeriod) {
     () => calculateMonthlySessionSpend(sessions, period),
     [sessions, period],
   )
+  const providerBreakdown = useMemo(
+    () => calculateBillingProviderBreakdown(sessions, period),
+    [sessions, period],
+  )
   const trend = useMemo(
     () => calculateSessionSpendingTrend(sessions, period),
     [sessions, period],
   )
 
-  return { result, trend, isLoading, error }
+  return { result, providerBreakdown, trend, isLoading, error }
 }

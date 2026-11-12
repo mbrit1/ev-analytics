@@ -304,7 +304,7 @@ the version cannot price a later date.
 
 The current Analytics slice is calculated in the browser from local charging sessions. [`useMonthlySessionSpend`](../src/features/analytics/hooks/useMonthlySessionSpend.ts) consumes `useSessions`, and [`calculateMonthlySessionSpend`](../src/features/analytics/model/monthlySessionSpend.ts) performs the aggregation.
 
-The page uses a vertical layout on mobile and desktop: the Analytics period selector, one summary slab (Billed energy, Session spend, Average session price), a monthly metric chart when the selected range supports it, then the separately labelled lifetime Overall Price. Summary values stack on narrow screens. The initial selection is the current calendar month. Desktop makes the selected month primary, with previous/next controls and a month-label button opening a month/year chooser. A compact Other ranges control reveals trailing 7 Days, 30 Days, 3 Months, and Year choices only when opened. In desktop rolling-range mode, only the active range label and Other ranges control remain; month navigation is hidden, and the popup can restore the remembered Calendar Month. Rolling ranges stay relative to today, with no historical block navigation. Mobile uses compact month-first controls with month arrows, a tappable month label opening a month/year bottom sheet, and an overflow control opening the modal Analysis period sheet. The sheet offers Calendar Month and all four presets, marks the active choice, traps focus and background interaction, and restores trigger focus on dismissal. Mobile rolling mode shows only its active range label and overflow control. Existing app-shell dock clearance allows the final Analytics card to scroll completely above the fixed navigation. The selector owns one quiet inclusive date-range and progress line, with an accessible description on the controls. Desktop places this range beside the selected month or preset label and wraps it below the selection before squeezing 44px controls; mobile keeps the range beneath the controls. The summary is visibly headed “Summary”; its accessible name retains the selected month or preset, exact inclusive dates, and progress state.
+The page uses a vertical layout on mobile and desktop: the Analytics period selector, one summary slab (Billed energy, Session spend, Average session price), a monthly metric chart when the selected range supports it, the Billing providers slab, then the separately labelled lifetime Overall Price. Summary values stack on narrow screens. The initial selection is the current calendar month. Desktop makes the selected month primary, with previous/next controls and a month-label button opening a month/year chooser. A compact Other ranges control reveals trailing 7 Days, 30 Days, 3 Months, and Year choices only when opened. In desktop rolling-range mode, only the active range label and Other ranges control remain; month navigation is hidden, and the popup can restore the remembered Calendar Month. Rolling ranges stay relative to today, with no historical block navigation. Mobile uses compact month-first controls with month arrows, a tappable month label opening a month/year bottom sheet, and an overflow control opening the modal Analysis period sheet. The sheet offers Calendar Month and all four presets, marks the active choice, traps focus and background interaction, and restores trigger focus on dismissal. Mobile rolling mode shows only its active range label and overflow control. Existing app-shell dock clearance allows the final Analytics card to scroll completely above the fixed navigation. The selector owns one quiet inclusive date-range and progress line, with an accessible description on the controls. Desktop places this range beside the selected month or preset label and wraps it below the selection before squeezing 44px controls; mobile keeps the range beneath the controls. The summary is visibly headed “Summary”; its accessible name retains the selected month or preset, exact inclusive dates, and progress state.
 
 The rules are intentionally narrow:
 
@@ -329,6 +329,39 @@ The chart-local radio group selects Spending, Energy or Price/kWh; Spending is t
 Each bucket reuses the summary aggregation and its validity rules. An empty bucket has zero spend but unavailable energy and price. Valid billed energy can be shown as a subtotal when some sessions lack it, with the measured-session count disclosed. Invalid recorded cost makes spend and price unavailable; incomplete energy also makes price unavailable. Complete free charging is a true zero price. The chart explains unavailable values and keeps gaps inspectable, including clipped months. Loading and query errors hide stale values. Context-only invalid data does not invalidate the selected summary.
 
 The chart uses existing slab, accent and typography tokens, metric-specific zero-based scales, and a native Info disclosure. A focusable plot supports pointer and touch inspection and dragging, arrow keys and Home/End. Its tooltip appears during inspection and closes on Escape or blur. Accessible inspection text and the collapsed-by-default View monthly values table retain exact dates, session counts, coverage and unavailable explanations. The table has a named, focusable internal scroller for narrow layouts. The chart has no essential animation. Lifetime Overall Price retains its separate scope and fixed-cost calculation; browser checks are distinct from physical Safari/PWA or spoken screen-reader validation.
+
+### Billing providers
+
+The Billing providers slab uses the same owner-scoped local sessions and selected
+period as the summary, including 7 Days and 30 Days. It remains independent of
+the chart's wider context and lifetime Overall Price. Unsynchronized local edits
+update it through the same reactive read path. It groups both plan and ad-hoc
+sessions by `provider_name_snapshot`, trimming and collapsing whitespace and
+comparing case-insensitively, not by current provider name or charging-station
+operator. Renamed snapshots remain separate;
+blank snapshots appear as Unknown provider. The newest snapshot supplies display
+spelling, with the lexically greater session ID breaking equal-timestamp ties.
+Groups rank by known billed kWh descending, then normalized name.
+
+The slab shows recorded session spend and provider-billed energy, excluding
+subscription fees. Valid positive energy is summed even with partial coverage;
+measured and total session counts disclose gaps, and partial totals are labelled
+“Known billed energy.” No valid energy is unavailable, not zero; the slab explains
+why no provider distribution is shown. Invalid cost makes the affected group and
+overall spend unavailable;
+free sessions remain valid zero spend. Others applies the same rules to its
+members. Loading, query errors and empty periods have distinct states.
+
+At bottom-dock widths, show up to four named providers and add Others at five
+or more. At sidebar widths, show up to five named providers and add Others at
+six or more. The proportional bar and collapsed list use the same groups.
+Others opens a bottom sheet at bottom-dock widths and expands inline at sidebar
+widths. Both show the member totals while the bar keeps its collapsed grouping.
+Only positive known energy sizes segments. Hide the bar for one group or when
+there is no positive known total. A fixed palette maps each normalized billing
+name to the same color across periods and layouts. Providers can share a color.
+Others uses neutral gray. Names and values identify the groups independently of
+color. The slab is an Analytics-local pattern.
 
 ### Lifetime Overall Price
 

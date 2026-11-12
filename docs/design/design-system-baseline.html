@@ -304,6 +304,63 @@
       font-weight: 500;
     }
 
+    /* Billing provider colors and layout are local to Analytics. */
+    .analytics-provider-example {
+      display: grid;
+      gap: 20px;
+      padding: 20px;
+    }
+
+    .analytics-provider-example {
+      --provider-label: light-dark(#6e6e73, #8e8e93);
+    }
+
+    .analytics-provider-energy {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 4px 12px;
+      margin-bottom: 4px;
+      font-size: 14px;
+    }
+
+    .analytics-provider-label { color: var(--provider-label); font-size: 12px; }
+    .analytics-provider-bar { display: flex; height: 12px; overflow: hidden; border-radius: 999px; }
+    .analytics-provider-bar span + span { border-left: 1px solid var(--surface-slab); }
+    .analytics-provider-list { margin: 0; padding: 0; list-style: none; }
+    .analytics-provider-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 0;
+      font-size: 14px;
+    }
+    .analytics-provider-list .analytics-provider-row { border-top: 1px solid var(--slab-border-color); }
+    .analytics-provider-name { display: flex; align-items: baseline; gap: 12px; overflow-wrap: anywhere; }
+    .analytics-provider-dot { width: 12px; height: 12px; flex: none; border-radius: 50%; }
+    .analytics-provider-amount { text-align: right; }
+    .analytics-provider-mobile-energy { display: block; }
+    .analytics-provider-desktop { display: none; }
+    .analytics-provider-others { min-height: 44px; }
+    .analytics-provider-sheet {
+      width: 100%;
+      max-width: 32rem;
+      margin-inline: auto;
+      padding: 16px 20px;
+      border: 1px solid var(--slab-border-color);
+      border-radius: 32px 32px 0 0;
+      background: var(--surface-slab);
+    }
+
+    @media (min-width: 768px) {
+      .analytics-provider-desktop { display: block; }
+      .analytics-provider-mobile, .analytics-provider-mobile-energy { display: none; }
+      .analytics-provider-row { grid-template-columns: minmax(0, 1fr) minmax(4rem, 6rem) minmax(4rem, 6rem); }
+      .analytics-provider-columns { display: grid; }
+    }
+
     /* Local Analytics chart example; this is not a shared chart primitive. */
     .analytics-chart-example {
       display: grid;
@@ -860,6 +917,94 @@
           The tint identifies the summary month; chart inspection is independent. This Analytics example is local, not a shared primitive. See the
           <a href="governance-checklist.md">design governance checklist</a> for detailed chart rules.
         </p>
+      </article>
+      <article class="slab analytics-provider-example" aria-labelledby="analytics-provider-title">
+        <div class="section-copy">
+          <h3 class="content-slab-title" id="analytics-provider-title">Billing providers</h3>
+          <p class="supporting-copy">Billed energy and session spending by provider</p>
+        </div>
+        <div>
+          <div class="analytics-provider-energy">
+            <span class="analytics-provider-label" aria-hidden="true">Billed energy by provider</span>
+            <strong class="tabular">141,6 kWh</strong>
+          </div>
+          <div class="analytics-provider-desktop">
+            <div class="analytics-provider-bar" role="img" aria-label="Billed energy by provider: Tesla 45,2 kWh, EnBW 42 kWh, PromoCharge 22 kWh, Cariqa 20 kWh, Electroverse 12,4 kWh">
+              <span style="width: 31.9209%; background: #986CC7"></span>
+              <span style="width: 29.6610%; background: #8F694A"></span>
+              <span style="width: 15.5367%; background: #007AFF"></span>
+              <span style="width: 14.1243%; background: #E69F00"></span>
+              <span style="width: 8.7571%; background: #5B5FC7"></span>
+            </div>
+          </div>
+          <div class="analytics-provider-mobile">
+            <div class="analytics-provider-bar" role="img" aria-label="Billed energy by provider: Tesla 45,2 kWh, EnBW 42 kWh, PromoCharge 22 kWh, Cariqa 20 kWh, Others (1 provider) 12,4 kWh">
+              <span style="width: 31.9209%; background: #986CC7"></span>
+              <span style="width: 29.6610%; background: #8F694A"></span>
+              <span style="width: 15.5367%; background: #007AFF"></span>
+              <span style="width: 14.1243%; background: #E69F00"></span>
+              <span style="width: 8.7571%; background: #8E8E93"></span>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="analytics-provider-row analytics-provider-columns analytics-provider-desktop analytics-provider-label" aria-hidden="true">
+            <span>Provider</span>
+            <span class="analytics-provider-amount">Billed energy</span>
+            <span class="analytics-provider-amount">Session spend</span>
+          </div>
+          <ul class="analytics-provider-list" aria-label="Provider totals">
+            <li class="analytics-provider-row">
+              <span class="analytics-provider-name"><span class="analytics-provider-dot" style="background: #986CC7" aria-hidden="true"></span><span>Tesla<span class="analytics-provider-mobile-energy analytics-provider-label tabular">45,2 kWh</span></span></span>
+              <span class="analytics-provider-desktop analytics-provider-amount tabular">45,2 kWh</span>
+              <strong class="analytics-provider-amount tabular">20,34 €</strong>
+            </li>
+            <li class="analytics-provider-row">
+              <span class="analytics-provider-name"><span class="analytics-provider-dot" style="background: #8F694A" aria-hidden="true"></span><span>EnBW<span class="analytics-provider-mobile-energy analytics-provider-label tabular">42 kWh</span></span></span>
+              <span class="analytics-provider-desktop analytics-provider-amount tabular">42 kWh</span>
+              <strong class="analytics-provider-amount tabular">24,90 €</strong>
+            </li>
+            <li class="analytics-provider-row">
+              <span class="analytics-provider-name"><span class="analytics-provider-dot" style="background: #007AFF" aria-hidden="true"></span><span>PromoCharge<span class="analytics-provider-mobile-energy analytics-provider-label tabular">22 kWh</span></span></span>
+              <span class="analytics-provider-desktop analytics-provider-amount tabular">22 kWh</span>
+              <strong class="analytics-provider-amount tabular">10,78 €</strong>
+            </li>
+            <li class="analytics-provider-row">
+              <span class="analytics-provider-name"><span class="analytics-provider-dot" style="background: #E69F00" aria-hidden="true"></span><span>Cariqa<span class="analytics-provider-mobile-energy analytics-provider-label tabular">20 kWh</span></span></span>
+              <span class="analytics-provider-desktop analytics-provider-amount tabular">20 kWh</span>
+              <strong class="analytics-provider-amount tabular">10,20 €</strong>
+            </li>
+            <li class="analytics-provider-desktop">
+              <div class="analytics-provider-row">
+                <span class="analytics-provider-name"><span class="analytics-provider-dot" style="background: #5B5FC7" aria-hidden="true"></span><span>Electroverse<span class="analytics-provider-mobile-energy analytics-provider-label tabular">12,4 kWh</span></span></span>
+                <span class="analytics-provider-desktop analytics-provider-amount tabular">12,4 kWh</span>
+                <strong class="analytics-provider-amount tabular">5,83 €</strong>
+              </div>
+            </li>
+            <li class="analytics-provider-mobile">
+              <div class="analytics-provider-row analytics-provider-others">
+                <span class="analytics-provider-name"><span class="analytics-provider-dot" style="background: #8E8E93" aria-hidden="true"></span><span>Others (1 provider)<span class="analytics-provider-mobile-energy analytics-provider-label tabular">12,4 kWh</span></span></span>
+                <span class="analytics-provider-desktop analytics-provider-amount tabular">12,4 kWh</span>
+                <strong class="analytics-provider-amount tabular">5,83 € <span aria-hidden="true">›</span></strong>
+              </div>
+            </li>
+          </ul>
+        </div>
+        <div class="analytics-provider-mobile">
+          <section class="analytics-provider-sheet" aria-labelledby="analytics-provider-sheet-title">
+            <h4 class="content-slab-title" id="analytics-provider-sheet-title">Other billing providers</h4>
+            <p class="supporting-copy">1 additional provider</p>
+            <ul class="analytics-provider-list" aria-label="Other provider totals">
+              <li class="analytics-provider-row">
+                <span class="analytics-provider-name"><span class="analytics-provider-dot" style="background: #5B5FC7" aria-hidden="true"></span><span>Electroverse<span class="analytics-provider-mobile-energy analytics-provider-label tabular">12,4 kWh</span></span></span>
+                <span class="analytics-provider-desktop analytics-provider-amount tabular">12,4 kWh</span>
+                <strong class="analytics-provider-amount tabular">5,83 €</strong>
+              </li>
+            </ul>
+          </section>
+          <p class="supporting-copy">Static view of the bottom sheet opened from Others.</p>
+        </div>
+        <p class="supporting-copy">Partial coverage uses “Known billed energy by provider”. Colors stay fixed by normalized billing name across periods and themes. See the <a href="governance-checklist.md">design governance checklist</a> for the palette and disclosure behavior.</p>
       </article>
       <article class="slab analytics-summary-example" aria-labelledby="analytics-lifetime-title">
         <p class="meta-label">Lifetime · All recorded sessions</p>

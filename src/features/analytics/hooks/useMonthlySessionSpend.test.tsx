@@ -59,6 +59,9 @@ describe('useMonthlySessionSpend', () => {
     expect(result.current.trend).toMatchObject({ selectedMonth: { year: 2026, month: 5 } })
     expect(result.current.trend).not.toBeNull()
     expect(result.current.trend!.buckets.at(-1)?.totalSessionSpendCents).toBe(1234)
+    expect(result.current.providerBreakdown.groups).toEqual([
+      expect.objectContaining({ normalizedName: 'provider', name: 'Provider', totalCostCents: 1234, billedEnergyKwh: 18.4 }),
+    ])
   })
 
   it('recalculates when the selected month changes', () => {

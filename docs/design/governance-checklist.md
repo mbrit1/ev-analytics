@@ -78,6 +78,46 @@ focus containment, Escape/backdrop/Cancel dismissal, safe-area padding and focus
 Use existing slab and typography tokens, keep metric weights consistent, and stack
 values when available width is insufficient.
 
+The Billing providers slab is an Analytics-local exception. Show the
+selected-period billed kWh beside the distribution label above the proportional
+bar. Emphasize session spend in each provider row. It remains visible for short periods and sits
+before lifetime Overall Price. Use recorded billing snapshots, not current
+provider names; preserve known energy subtotals with measured/total coverage,
+label partial totals as known billed energy, explain when no positive known energy
+prevents a provider distribution, show unavailable values explicitly, and
+distinguish free spend. At bottom-dock widths show up to four named providers
+and add Others at five or more. At sidebar widths show up to five named providers
+and add Others at six or more. Both layouts keep the bar grouped by the collapsed
+list. Directly above the bar, show “Billed energy by provider” for complete coverage or “Known billed
+energy by provider” for partial coverage, matching the accessible description.
+Map the normalized billing snapshot name to a fixed color independently of
+period, rank, other providers, layout and theme. Use the Analytics-local palette:
+green `#009E73`, blue `#007AFF`, amber `#E69F00`, purple `#986CC7`,
+vermilion `#D55E00`, teal `#007C91`, indigo `#5B5FC7`, olive `#6F7F28`,
+and brown `#8F694A`; reserve `#8E8E93` for the synthetic Others aggregate.
+These are categorical colors, not global accent tokens. Collisions are allowed:
+keep a provider's segment and list indicator the same color, separate adjacent
+segments with a 1px surface-colored divider, and retain text labels and values
+so color is not the sole cue. Hide the bar for a single group or no positive known
+energy. Stack energy beneath the name on mobile; align energy and spend in
+separate columns on desktop. The desktop column labels use an Analytics-local
+accessible text treatment: `#6E6E73` on `#FFFFFF` in light mode (5.07:1),
+and `#8E8E93` on `#1C1C1E` in dark mode (5.22:1). The light value differs
+from the global secondary token to achieve at least 4.5:1 contrast for small
+labels. Consider promoting this treatment to a shared accessible-label token
+when the global foundation is reviewed. It remains a local exception.
+
+At bottom-dock widths, the full Others row opens the **Other billing providers**
+bottom sheet with each member’s billed kWh and spend. Keep long lists scrollable
+within the sheet, account for safe areas, lock the background, and contain focus
+in the sheet. Support dismissal with Close, Escape, or the backdrop. Return
+focus to Others on dismissal or to the provider list if the trigger disappears.
+At sidebar widths, Others expands its member rows inline. Both controls use
+visible keyboard focus and a 44px minimum target. Close the disclosure if the
+layout or membership of Others changes.
+This treatment improves scanning of period spend and energy on narrow screens;
+it is a local exception, not a shared chart or grouping rule.
+
 The Analytics monthly chart is a local example, not a shared chart primitive.
 It uses a labelled native radio group for Spending, Energy and Price/kWh.
 Spending is the default; retain the chosen mode across a temporary 7 Days or
