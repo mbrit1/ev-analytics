@@ -352,14 +352,16 @@ overall spend unavailable;
 free sessions remain valid zero spend. Others applies the same rules to its
 members. Loading, query errors and empty periods have distinct states.
 
-At bottom-dock widths, up to four providers are named; five or more show the
-first three and Others. At sidebar widths, up to five are named; six or more
-show the first five and Others. The proportional bar and collapsed list use the
-same groups; expansion reveals Others members without changing the bar. Only
-positive known energy sizes segments, and the bar is hidden for one group or no
-positive known total. Provider colors derive from normalized identity rather
-than rank, with collision handling for the current set and neutral Others;
-labels and values do not depend on color. The slab is an Analytics-local pattern.
+At bottom-dock widths, show up to four named providers and add Others at five
+or more. At sidebar widths, show up to five named providers and add Others at
+six or more. The proportional bar and collapsed list use the same groups.
+Others opens a bottom sheet at bottom-dock widths and expands inline at sidebar
+widths. Both show the member totals while the bar keeps its collapsed grouping.
+Only positive known energy sizes segments. Hide the bar for one group or when
+there is no positive known total. A fixed palette maps each normalized billing
+name to the same color across periods and layouts. Providers can share a color.
+Others uses neutral gray. Names and values identify the groups independently of
+color. The slab is an Analytics-local pattern.
 
 ### Lifetime Overall Price
 
