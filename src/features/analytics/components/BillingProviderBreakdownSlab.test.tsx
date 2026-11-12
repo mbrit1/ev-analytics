@@ -1,8 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { createAnalyticsPeriod } from '../model/analyticsPeriods'
 import { calculateBillingProviderBreakdown } from '../model/billingProviderBreakdown'
+import { groupBillingProviders } from '../model/billingProviderGrouping'
 import { BillingProviderBreakdownSlab } from './BillingProviderBreakdownSlab'
+import userEvent from '@testing-library/user-event'
 
 /** Test suite for selected-period provider totals and coverage states. */
 describe('BillingProviderBreakdownSlab', () => {
@@ -156,25 +158,23 @@ describe('BillingProviderBreakdownSlab', () => {
 
     // Assert
     expect(screen.getByRole('img', { name: /Alpha 7 kWh, Beta 6 kWh, Gamma 5 kWh, Delta 4 kWh, Others 5 kWh/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Others \(3 providers\)/ })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.getByRole('button', { name: 'Show 3 other providers' })).not.toHaveAttribute('aria-expanded')
     const providerColor = (element: Element) => (element as HTMLElement).style.getPropertyValue('--provider-color')
     const mobileBar = screen.getByRole('img', { name: /Alpha 7 kWh, Beta 6 kWh, Gamma 5 kWh, Delta 4 kWh, Others 5 kWh/ })
     const mobileSegments = [...mobileBar.querySelectorAll('span')]
     expect(mobileSegments).toHaveLength(5)
     expect(providerColor(mobileSegments.at(-1)!)).toBe('#8E8E93')
-    expect(providerColor(screen.getByRole('button', { name: /Others \(3 providers\)/ }).parentElement!.parentElement!.firstElementChild!)).toBe('#8E8E93')
+    expect(providerColor(screen.getByRole('button', { name: 'Show 3 other providers' }).querySelector('span[aria-hidden="true"]')!)).toBe('#8E8E93')
     expect(screen.queryByText('Epsilon')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /Others \(3 providers\)/ }))
-    expect(screen.getByRole('button', { name: /Others \(3 providers\)/ })).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByRole('list', { name: 'Other provider totals' })).toBeInTheDocument()
-    expect(screen.getByText('Epsilon')).toBeInTheDocument()
-    expect(screen.getByText('Zeta')).toBeInTheDocument()
-    expect(screen.getByText('Eta')).toBeInTheDocument()
-    expect(screen.getByText(/Energy unavailable/)).toBeInTheDocument()
-    expect(screen.getByText('1/2 measured')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Show 3 other providers' }))
+    expect(screen.getByRole('dialog', { name: 'Other billing providers' })).toBeInTheDocument()
+    expect(within(screen.getByRole('list', { name: 'Other provider totals' })).getByText('Epsilon')).toBeInTheDocument()
+    expect(within(screen.getByRole('list', { name: 'Other provider totals' })).getByText('Zeta')).toBeInTheDocument()
+    expect(within(screen.getByRole('list', { name: 'Other provider totals' })).getByText('Eta')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /Others 5 kWh/ })).toBeInTheDocument()
 
     rerender(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="sidebar" />)
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.getByRole('img', { name: /Alpha 7 kWh, Beta 6 kWh, Gamma 5 kWh, Delta 4 kWh, Epsilon 3 kWh, Others 2 kWh/ })).toBeInTheDocument()
     const desktopBar = screen.getByRole('img', { name: /Known billed energy by provider/ })
     const desktopSegments = [...desktopBar.querySelectorAll('span')]
@@ -183,13 +183,130 @@ describe('BillingProviderBreakdownSlab', () => {
     expect(screen.getByRole('button', { name: 'Others (2 providers)' })).toBeInTheDocument()
     expect(providerColor(screen.getByRole('button', { name: 'Others (2 providers)' }).parentElement!.parentElement!.firstElementChild!)).toBe('#8E8E93')
     expect(screen.getAllByText('1/2 measured')).toHaveLength(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Others (2 providers)' }))
+    expect(screen.getByRole('button', { name: 'Others (2 providers)' })).toHaveAttribute('aria-expanded', 'true')
+    expect(within(screen.getByRole('list', { name: 'Other provider totals' })).getByText('Zeta')).toBeInTheDocument()
+  })
+
+  it('opens Others as a modal bottom sheet on mobile with the correct provider totals and colors', async () => {
+    // Arrange: More than four providers produce a mobile Others group.
+    const user = userEvent.setup()
+    const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta'])
+    const { container } = render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="bottom-dock" />)
+    const trigger = screen.getByRole('button', { name: 'Show 3 other providers' })
+
+    // Act: Open the complete Others row.
+    await user.click(trigger)
+
+    // Assert: The sheet exposes only the hidden group, preserves provider colors, and isolates the page.
+    const dialog = screen.getByRole('dialog', { name: 'Other billing providers' })
+    const memberList = screen.getByRole('list', { name: 'Other provider totals' })
+    const colorFor = (name: string) => groupBillingProviders(breakdown.groups, 'bottom-dock').providerColors.get(name.toLowerCase())
+    const dotFor = (name: string) => screen.getByText(name).parentElement!.previousElementSibling as HTMLElement
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(dialog).toHaveAccessibleDescription('3 additional providers')
+    expect(dialog).toHaveClass('overflow-hidden', 'pt-[max(1rem,env(safe-area-inset-top))]')
+    expect(memberList).toBeInTheDocument()
+    expect(memberList.parentElement).toHaveClass('overflow-y-auto', 'overscroll-contain')
+    expect(within(memberList).getByText('Epsilon')).toBeInTheDocument()
+    expect(within(memberList).getByText('Zeta')).toBeInTheDocument()
+    expect(within(memberList).getByText('Eta')).toBeInTheDocument()
+    expect(dotFor('Epsilon').style.getPropertyValue('--provider-color')).toBe(colorFor('Epsilon'))
+    expect(dotFor('Zeta').style.getPropertyValue('--provider-color')).toBe(colorFor('Zeta'))
+    expect(screen.getByRole('button', { name: 'Close other billing providers' })).toHaveFocus()
+    await user.tab()
+    expect(screen.getByRole('button', { name: 'Close other billing providers' })).toHaveFocus()
+    expect(document.body.style.overflow).toBe('hidden')
+    expect(container).toHaveAttribute('inert')
+
+    // Act: Escape dismisses the modal.
+    await user.keyboard('{Escape}')
+
+    // Assert: Focus, scrolling, and background interaction return to their prior state.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+    expect(document.body.style.overflow).toBe('')
+    expect(container).not.toHaveAttribute('inert')
+  })
+
+  it('dismisses the mobile Others sheet from its backdrop and when layout or group membership changes', async () => {
+    // Arrange: Render a mobile Others group and open its sheet.
+    const user = userEvent.setup()
+    const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta'])
+    const { rerender } = render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="bottom-dock" />)
+    const trigger = screen.getByRole('button', { name: 'Show 2 other providers' })
+    await user.click(trigger)
+
+    // Act / Assert: Backdrop dismissal closes the sheet and restores focus.
+    await user.click(screen.getByRole('button', { name: 'Dismiss other billing providers' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+
+    // Act: Reopen and change to the desktop layout.
+    await user.click(trigger)
+    rerender(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="sidebar" />)
+
+    // Assert: Layout changes close the mobile sheet and restore existing inline Others behavior.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Others \(1 provider\)/ })).toBeInTheDocument()
+
+    // Act: Reopen mobile sheet and change the group membership so no Others group remains.
+    rerender(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="bottom-dock" />)
+    await user.click(screen.getByRole('button', { name: 'Show 2 other providers' }))
+    rerender(<BillingProviderBreakdownSlab breakdown={breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta'])} isLoading={false} layoutMode="bottom-dock" />)
+
+    // Assert: The stale member sheet closes when the Others group disappears.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Others/ })).not.toBeInTheDocument()
+  })
+
+  it('describes the aggregate energy, coverage, and spend on the concise mobile trigger', () => {
+    // Arrange: More than four known providers create an aggregate mobile Others row.
+    const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta'])
+
+    // Act
+    render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="bottom-dock" />)
+
+    // Assert: The short accessible name stays concise while all aggregate totals remain available.
+    const trigger = screen.getByRole('button', { name: 'Show 3 other providers' })
+    expect(trigger).toHaveAccessibleDescription(/Billed energy 6 kWh.*3 of 3 sessions measured.*Session spend 3,00 €/)
+  })
+
+  it('restores focus to the live Others row after a layout change closes its sheet', async () => {
+    // Arrange: Open the mobile sheet for a group that still exists in sidebar layout.
+    const user = userEvent.setup()
+    const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta'])
+    const { rerender } = render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="bottom-dock" />)
+    await user.click(screen.getByRole('button', { name: 'Show 2 other providers' }))
+
+    // Act: Change layout while the mobile trigger is removed and desktop Others remains.
+    rerender(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="sidebar" />)
+
+    // Assert: The surviving inline Others control receives focus after modal cleanup.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Others (1 provider)' })).toHaveFocus()
+  })
+
+  it('restores focus to the provider list when a group change removes the open Others trigger', async () => {
+    // Arrange: Open the mobile sheet before replacing its membership with four named providers.
+    const user = userEvent.setup()
+    const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta'])
+    const { rerender } = render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="bottom-dock" />)
+    await user.click(screen.getByRole('button', { name: 'Show 2 other providers' }))
+
+    // Act: Remove the Others group while its modal is open.
+    rerender(<BillingProviderBreakdownSlab breakdown={breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta'])} isLoading={false} layoutMode="bottom-dock" />)
+
+    // Assert: Focus moves to the surviving list after the stale modal and trigger are removed.
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('list', { name: 'Provider totals' })).toHaveFocus()
   })
 
   it('moves focus to the provider list when a layout change removes Others', () => {
     // Arrange
     const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon'])
     const { rerender } = render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="bottom-dock" />)
-    const othersButton = screen.getByRole('button', { name: /Others \(1 provider\)/ })
+    const othersButton = screen.getByRole('button', { name: 'Show 1 other provider' })
     othersButton.focus()
 
     // Act
@@ -210,7 +327,7 @@ describe('BillingProviderBreakdownSlab', () => {
       </>
     )
     const { rerender } = render(view('bottom-dock'))
-    screen.getByRole('button', { name: /Others/ }).focus()
+    screen.getByRole('button', { name: 'Show 1 other provider' }).focus()
     const outsideControl = screen.getByRole('button', { name: 'Outside control' })
     outsideControl.focus()
 
@@ -232,7 +349,7 @@ describe('BillingProviderBreakdownSlab', () => {
 
     // Assert
     expect(screen.getByText('__others__')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Others \(2 providers\)/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Show 2 other providers' })).toBeInTheDocument()
     expect(consoleError.mock.calls.flat().join(' ')).not.toMatch(/same key/i)
     consoleError.mockRestore()
   })
