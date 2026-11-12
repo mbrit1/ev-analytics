@@ -36,6 +36,7 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
   const positiveEnergyGroups = groupedProviders.barGroups.filter((group) => (group.billedEnergyKwh ?? 0) > 0)
   const positiveEnergyTotal = positiveEnergyGroups.reduce((total, group) => total + (group.billedEnergyKwh ?? 0), 0)
   const showEnergyBar = groupedProviders.groups.length > 1 && positiveEnergyTotal > 0
+  const hasPartialBilledEnergy = breakdown.validBilledEnergySessionCount < breakdown.sessionCount
 
   useLayoutEffect(() => {
     if (!groupedProviders.groups.some((group) => group.isOthers) && othersWasFocused.current) {
@@ -71,7 +72,7 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
               {breakdown.totalSessionSpendCents === 0 && <p className="text-xs text-secondary">Free sessions</p>}
             </div>
             <div className="min-w-0 space-y-1 sm:border-l sm:border-slab-border sm:pl-5">
-              <h3 className="text-sm font-medium text-secondary">Billed energy</h3>
+              <h3 className="text-sm font-medium text-secondary">{hasPartialBilledEnergy ? 'Known billed energy' : 'Billed energy'}</h3>
               <p className="text-xl font-semibold leading-tight text-primary tabular-nums">
                 {breakdown.billedEnergyKwh === null ? 'Unavailable' : <>{formatKwh(breakdown.billedEnergyKwh)} <span className="text-sm">kWh</span></>}
               </p>
@@ -95,6 +96,9 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
                 />
               ))}
             </div>
+          )}
+          {positiveEnergyTotal === 0 && (
+            <p className="text-xs text-secondary">No provider distribution is shown because no sessions have positive known billed energy.</p>
           )}
           <ul ref={providerListRef} tabIndex={-1} className="divide-y divide-slab-border border-t border-slab-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60" aria-label="Provider totals">
             {groupedProviders.groups.map((group) => {

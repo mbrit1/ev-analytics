@@ -336,16 +336,19 @@ The Billing providers slab uses the same owner-scoped local sessions and selecte
 period as the summary, including 7 Days and 30 Days. It remains independent of
 the chart's wider context and lifetime Overall Price. Unsynchronized local edits
 update it through the same reactive read path. It groups both plan and ad-hoc
-sessions by trimmed, case-insensitive `provider_name_snapshot`, not the current
-provider name or charging-station operator. Renamed snapshots remain separate;
+sessions by `provider_name_snapshot`, trimming and collapsing whitespace and
+comparing case-insensitively, not by current provider name or charging-station
+operator. Renamed snapshots remain separate;
 blank snapshots appear as Unknown provider. The newest snapshot supplies display
 spelling, with the lexically greater session ID breaking equal-timestamp ties.
 Groups rank by known billed kWh descending, then normalized name.
 
 The slab shows recorded session spend and provider-billed energy, excluding
 subscription fees. Valid positive energy is summed even with partial coverage;
-measured and total session counts disclose gaps. No valid energy is unavailable,
-not zero. Invalid cost makes the affected group and overall spend unavailable;
+measured and total session counts disclose gaps, and partial totals are labelled
+“Known billed energy.” No valid energy is unavailable, not zero; the slab explains
+why no provider distribution is shown. Invalid cost makes the affected group and
+overall spend unavailable;
 free sessions remain valid zero spend. Others applies the same rules to its
 members. Loading, query errors and empty periods have distinct states.
 

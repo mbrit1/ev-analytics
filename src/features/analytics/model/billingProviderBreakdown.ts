@@ -3,7 +3,7 @@ import type { AnalyticsPeriodBounds } from './analyticsPeriods'
 
 /** Aggregated billed amount and energy for one normalized billing-provider snapshot. */
 export interface BillingProviderGroup {
-  /** Trimmed, case-folded identity key; empty for sessions with a blank snapshot. */
+  /** Trimmed, whitespace-collapsed, case-folded identity key; empty for blank snapshots. */
   normalizedName: string
   /** Newest recorded snapshot spelling, or the explicit label for a blank snapshot. */
   name: string
@@ -68,7 +68,7 @@ export function calculateBillingProviderBreakdown(
 
   for (const session of includedSessions) {
     const snapshot = (session.provider_name_snapshot ?? '').trim()
-    const normalizedName = snapshot.toLowerCase()
+    const normalizedName = snapshot.replace(/\s+/g, ' ').toLowerCase()
     const timestamp = new Date(session.session_timestamp).getTime()
     let group = groupsByName.get(normalizedName)
 

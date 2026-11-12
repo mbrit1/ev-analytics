@@ -56,6 +56,22 @@ describe('calculateBillingProviderBreakdown', () => {
     ])
   })
 
+  it('collapses internal whitespace when grouping names and preserves the newest recorded spelling', () => {
+    // Arrange: Whitespace-only differences identify one provider; the newer spelling stays visible.
+    const sessions = [
+      buildSession('older', new Date(2026, 5, 4), '  ChargeCo   Fast  '),
+      buildSession('newer', new Date(2026, 5, 5), 'CHARGECO Fast'),
+    ]
+
+    // Act
+    const result = calculateBillingProviderBreakdown(sessions, period)
+
+    // Assert
+    expect(result.groups).toEqual([
+      expect.objectContaining({ normalizedName: 'chargeco fast', name: 'CHARGECO Fast', sessionCount: 2 }),
+    ])
+  })
+
   it('uses newest snapshot spelling with an ID tie break and ranks equal energy by normalized name', () => {
     // Arrange: Equal energy totals have deliberate name and timestamp ties.
     const sessions = [

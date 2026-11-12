@@ -83,9 +83,10 @@ selected-period spend with secondary billed energy, then a proportional energy
 bar and a labelled provider list. It remains visible for short periods and sits
 before lifetime Overall Price. Use recorded billing snapshots, not current
 provider names; preserve known energy subtotals with measured/total coverage,
-show unavailable values explicitly, and distinguish free spend. At bottom-dock
-widths show four named providers when there are four, or three plus Others at
-five or more. At sidebar widths show five named providers, adding Others at six
+label partial totals as known billed energy, explain when no positive known energy
+prevents a provider distribution, show unavailable values explicitly, and
+distinguish free spend. At bottom-dock widths show four named providers when
+there are four, or three plus Others at five or more. At sidebar widths show five named providers, adding Others at six
 or more. Others discloses its members without changing the bar. Use stable
 identity-based colors across rank changes, neutral Others, and text labels so
 color is not the sole cue. Hide the bar for a single group or no positive known

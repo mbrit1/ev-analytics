@@ -81,6 +81,7 @@ describe('BillingProviderBreakdownSlab', () => {
     expect(screen.getByText('No charging sessions recorded for this period.')).toBeInTheDocument()
     rerender(<BillingProviderBreakdownSlab breakdown={partial} isLoading={false} />)
     expect(screen.getByText('Mixed Provider')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Known billed energy' })).toBeInTheDocument()
     expect(screen.getAllByText(/1\/2 measured/)).toHaveLength(2)
     expect(screen.getByText('Free Provider')).toBeInTheDocument()
     expect(screen.getByText('Free', { selector: 'span' })).toBeInTheDocument()
@@ -180,5 +181,28 @@ describe('BillingProviderBreakdownSlab', () => {
     expect(screen.queryByRole('img', { name: /Billed energy by provider/ })).not.toBeInTheDocument()
     rerender(<BillingProviderBreakdownSlab breakdown={unavailable} isLoading={false} />)
     expect(screen.queryByRole('img', { name: /Billed energy by provider/ })).not.toBeInTheDocument()
+  })
+
+  it('explains that no provider distribution is shown when sessions have no positive known energy', () => {
+    // Arrange: Sessions exist, but neither provider has a positive billed-energy measurement.
+    const unavailable = calculateBillingProviderBreakdown([{
+      id: 'zero-energy-a', user_id: 'owner', session_mode: 'ad_hoc', provider_id: null, tariff_plan_id: null,
+      plan_selection_id: null, pricing_context: 'ad_hoc', ad_hoc_pricing: { pricePerKwh: 10 },
+      session_timestamp: new Date('2026-07-14T12:00:00Z'), provider_name_snapshot: 'Provider A',
+      charging_type: 'AC', kwh_billed: 0, total_cost: 100, applied_session_fee: 0,
+      created_at: new Date('2026-07-14T12:00:00Z'), updated_at: new Date('2026-07-14T12:00:00Z'),
+    }, {
+      id: 'zero-energy-b', user_id: 'owner', session_mode: 'ad_hoc', provider_id: null, tariff_plan_id: null,
+      plan_selection_id: null, pricing_context: 'ad_hoc', ad_hoc_pricing: { pricePerKwh: 10 },
+      session_timestamp: new Date('2026-07-14T13:00:00Z'), provider_name_snapshot: 'Provider B',
+      charging_type: 'AC', kwh_billed: Number.NaN, total_cost: 100, applied_session_fee: 0,
+      created_at: new Date('2026-07-14T13:00:00Z'), updated_at: new Date('2026-07-14T13:00:00Z'),
+    }], period)
+
+    // Act
+    render(<BillingProviderBreakdownSlab breakdown={unavailable} isLoading={false} />)
+
+    // Assert
+    expect(screen.getByText('No provider distribution is shown because no sessions have positive known billed energy.')).toBeInTheDocument()
   })
 })
