@@ -1,18 +1,10 @@
 import type { BillingProviderGroup } from './billingProviderBreakdown'
 
 type BillingProviderLayoutMode = 'sidebar' | 'bottom-dock'
-const PROVIDER_BASE_HUES = [0, 45, 90, 135, 180, 225, 270, 315]
-const PROVIDER_COLOR_HUES = [
-  ...PROVIDER_BASE_HUES,
-  22.5, 67.5, 112.5, 157.5, 202.5, 247.5, 292.5, 337.5,
-  15, 60, 105, 150, 195, 240, 285, 330,
-]
+const PROVIDER_COLORS = ['#009E73', '#007AFF', '#E69F00', '#986CC7', '#D55E00', '#007C91', '#5B5FC7', '#6F7F28', '#8F694A'] as const
+const OTHERS_COLOR = '#8E8E93'
 
-export interface ProviderColor {
-  hue: number
-  light: string
-  dark: string
-}
+export type ProviderColor = string
 
 /** A display group with a stable color and optional collapsed-group members. */
 export interface DisplayBillingProviderGroup extends BillingProviderGroup {
@@ -38,30 +30,12 @@ function hashProviderName(name: string): number {
   return hash >>> 0
 }
 
-function providerColor(hue: number): ProviderColor {
-  return { hue, light: `hsl(${hue} 70% 38%)`, dark: `hsl(${hue} 70% 68%)` }
+function colorForProvider(normalizedName: string): ProviderColor {
+  return PROVIDER_COLORS[hashProviderName(normalizedName) % PROVIDER_COLORS.length]
 }
 
 function assignProviderColors(groups: readonly BillingProviderGroup[]): Map<string, ProviderColor> {
-  const colors = new Map<string, ProviderColor>()
-  const sortedNames = [...new Set(groups.map(({ normalizedName }) => normalizedName))].sort()
-  const usedColors = new Set<number>()
-
-  sortedNames.forEach((name) => {
-    const baseIndex = hashProviderName(name) % PROVIDER_BASE_HUES.length
-    let colorIndex = baseIndex
-    for (let offset = 0; offset < PROVIDER_COLOR_HUES.length && usedColors.has(colorIndex); offset += 1) {
-      colorIndex = (colorIndex + 1) % PROVIDER_COLOR_HUES.length
-    }
-    if (usedColors.size < PROVIDER_COLOR_HUES.length) {
-      usedColors.add(colorIndex)
-    } else {
-      colorIndex = baseIndex
-    }
-    colors.set(name, providerColor(PROVIDER_COLOR_HUES[colorIndex]))
-  })
-
-  return colors
+  return new Map(groups.map(({ normalizedName }) => [normalizedName, colorForProvider(normalizedName)]))
 }
 
 function addGroupTotals(groups: readonly BillingProviderGroup[]): Omit<BillingProviderGroup, 'normalizedName' | 'name'> {
@@ -89,7 +63,7 @@ export function groupBillingProviders(
   const colors = assignProviderColors(providerGroups)
   const displayGroups: DisplayBillingProviderGroup[] = visible.map((group) => ({
     ...group,
-    color: colors.get(group.normalizedName) ?? { hue: 220, light: 'hsl(220 8% 38%)', dark: 'hsl(220 8% 68%)' },
+    color: colorForProvider(group.normalizedName),
     isOthers: false,
   }))
 
@@ -98,7 +72,7 @@ export function groupBillingProviders(
       normalizedName: '__others__',
       name: 'Others',
       ...addGroupTotals(hidden),
-      color: { hue: 220, light: 'hsl(220 8% 45%)', dark: 'hsl(220 8% 60%)' },
+      color: OTHERS_COLOR,
       members: hidden,
       isOthers: true,
     })

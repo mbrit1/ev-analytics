@@ -14,14 +14,12 @@ export interface BillingProviderBreakdownSlabProps {
 }
 
 type ProviderColorStyle = CSSProperties & {
-  '--provider-color-light': string
-  '--provider-color-dark': string
+  '--provider-color': string
 }
 
 function providerColorStyle(color: ProviderColor): ProviderColorStyle {
   return {
-    '--provider-color-light': color.light,
-    '--provider-color-dark': color.dark,
+    '--provider-color': color,
   }
 }
 
@@ -94,7 +92,7 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
                   <span
                     key={group.isOthers ? 'group:others' : `provider:${group.normalizedName}`}
                     aria-hidden="true"
-                    className="h-full min-w-0 bg-[var(--provider-color-light)] dark:bg-[var(--provider-color-dark)]"
+                    className="h-full min-w-0 border-l border-surface bg-[var(--provider-color)] first:border-l-0"
                     style={{ ...providerColorStyle(group.color), width: `${((group.billedEnergyKwh ?? 0) / positiveEnergyTotal) * 100}%` }}
                   />
                 ))}
@@ -110,7 +108,7 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
                 <li key={group.isOthers ? 'group:others' : `provider:${group.normalizedName}`} className="min-w-0 py-2">
                   <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 md:grid-cols-[minmax(0,1fr)_minmax(4rem,6rem)_minmax(4rem,6rem)] md:gap-x-3">
                     <div className="flex min-w-0 items-start gap-3">
-                      <span aria-hidden="true" className="mt-1.5 size-3 shrink-0 rounded-full bg-[var(--provider-color-light)] dark:bg-[var(--provider-color-dark)]" style={providerColorStyle(group.color)} />
+                      <span aria-hidden="true" className="mt-1.5 size-3 shrink-0 rounded-full bg-[var(--provider-color)]" style={providerColorStyle(group.color)} />
                       <div className="min-w-0 space-y-1">
                         {group.isOthers ? (
                           <button

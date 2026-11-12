@@ -7,15 +7,28 @@ import { groupBillingProviders } from './billingProviderGrouping'
 describe('groupBillingProviders', () => {
   const period = createAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, new Date('2026-07-15T12:00:00Z'))
 
-  function breakdownFor(names: string[]) {
-    return calculateBillingProviderBreakdown(names.map((name, index) => ({
-      id: `session-${index}`, user_id: 'owner', session_mode: 'ad_hoc' as const,
-      provider_id: null, tariff_plan_id: null, plan_selection_id: null, pricing_context: 'ad_hoc' as const,
-      ad_hoc_pricing: { pricePerKwh: 1 }, session_timestamp: new Date(`2026-07-14T${String(index % 24).padStart(2, '0')}:00:00Z`),
-      provider_name_snapshot: name, charging_type: 'AC' as const, kwh_billed: names.length - index,
-      total_cost: 100, applied_session_fee: 0, created_at: new Date('2026-07-14T12:00:00Z'),
-      updated_at: new Date('2026-07-14T12:00:00Z'),
-    })), period)
+  function breakdownFor(
+    names: string[],
+    selectedPeriod = period,
+    dates: string | readonly string[] = '2026-07-14',
+    sessionMode: 'ad_hoc' | 'plan' = 'ad_hoc',
+  ) {
+    const sessions = names.map((name, index) => {
+      const date = typeof dates === 'string' ? dates : dates[index] ?? dates[0]
+      const shared = {
+        id: `session-${index}`, user_id: 'owner', session_timestamp: new Date(`${date}T${String(index % 24).padStart(2, '0')}:00:00Z`),
+        provider_name_snapshot: name, charging_type: 'AC' as const, kwh_billed: names.length - index,
+        total_cost: 100, applied_session_fee: 0, created_at: new Date('2026-07-14T12:00:00Z'),
+        updated_at: new Date('2026-07-14T12:00:00Z'),
+      }
+      return sessionMode === 'plan'
+        ? { ...shared, session_mode: 'plan' as const, provider_id: 'provider-1', tariff_plan_id: 'plan-1', pricing_context: 'standard' as const }
+        : {
+          ...shared, session_mode: 'ad_hoc' as const, provider_id: null, tariff_plan_id: null, plan_selection_id: null,
+          pricing_context: 'ad_hoc' as const, ad_hoc_pricing: { pricePerKwh: 1 },
+        }
+    })
+    return calculateBillingProviderBreakdown(sessions, selectedPeriod)
   }
 
   it('uses mobile and desktop limits and keeps the same groups for rows and bar', () => {
@@ -61,8 +74,9 @@ describe('groupBillingProviders', () => {
     const reorderedColors = Object.fromEntries(groupBillingProviders(reordered.groups, 'sidebar').groups.map((group) => [group.normalizedName, group.color]))
 
     // Assert
-    expect(reorderedColors.alpha?.light).toBe(firstColors.alpha?.light)
-    expect(new Set(Object.values(firstColors).map(({ light }) => light)).size).toBe(Object.values(firstColors).length)
+    expect(reorderedColors.alpha).toBe(firstColors.alpha)
+    expect(firstColors.alpha).toBe('#8F694A')
+    expect(firstColors.beta).toBe('#E69F00')
   })
 
   it('keeps color stable when a provider crosses the mobile visibility cutoff', () => {
@@ -75,7 +89,7 @@ describe('groupBillingProviders', () => {
     const reorderedColor = groupBillingProviders(reordered.groups, 'bottom-dock').providerColors.get('gamma')
 
     // Assert
-    expect(originalColor?.light).toBe(reorderedColor?.light)
+    expect(originalColor).toBe(reorderedColor)
     expect(groupBillingProviders(original.groups, 'bottom-dock').groups.at(-1)?.isOthers).toBe(true)
   })
 
@@ -89,8 +103,8 @@ describe('groupBillingProviders', () => {
     const reorderedColors = groupBillingProviders(reordered.groups, 'bottom-dock').providerColors
 
     // Assert
-    expect(originalColors.get('beta')?.hue).toBe(reorderedColors.get('beta')?.hue)
-    expect(originalColors.get('zeta')?.hue).toBe(reorderedColors.get('zeta')?.hue)
+    expect(originalColors.get('beta')).toBe(reorderedColors.get('beta'))
+    expect(originalColors.get('zeta')).toBe(reorderedColors.get('zeta'))
   })
 
   it('keeps existing colors when a noncolliding provider is added', () => {
@@ -103,9 +117,9 @@ describe('groupBillingProviders', () => {
     const extendedColors = groupBillingProviders(extended.groups, 'sidebar').providerColors
 
     // Assert
-    expect(extendedColors.get('alpha')?.hue).toBe(initialColors.get('alpha')?.hue)
-    expect(extendedColors.get('beta')?.hue).toBe(initialColors.get('beta')?.hue)
-    expect(extendedColors.get('gamma')?.hue).toBe(initialColors.get('gamma')?.hue)
+    expect(extendedColors.get('alpha')).toBe(initialColors.get('alpha'))
+    expect(extendedColors.get('beta')).toBe(initialColors.get('beta'))
+    expect(extendedColors.get('gamma')).toBe(initialColors.get('gamma'))
   })
 
   it('handles provider sets larger than the color palette deterministically', () => {
@@ -114,7 +128,7 @@ describe('groupBillingProviders', () => {
 
     // Act
     const grouped = groupBillingProviders(breakdown.groups, 'sidebar')
-    const visibleColors = grouped.groups.filter(({ isOthers }) => !isOthers).map(({ color }) => color.light)
+    const visibleColors = grouped.groups.filter(({ isOthers }) => !isOthers).map(({ color }) => color)
 
     // Assert
     expect(visibleColors).toHaveLength(5)
@@ -122,39 +136,77 @@ describe('groupBillingProviders', () => {
     expect(visibleColors.every(Boolean)).toBe(true)
   })
 
-  it('spreads typical provider colors apart using normalized-name ordering', () => {
+  it('assigns distinct stable palette colors to the five common providers', () => {
     // Arrange
-    const breakdown = breakdownFor(['Tesla', 'EnBW', 'PromoCharge', 'Cariqa'])
+    const breakdown = breakdownFor(['Tesla', 'EnBW', 'PromoCharge', 'Cariqa', 'Electroverse'])
 
     // Act
-    const hues = groupBillingProviders(breakdown.groups, 'sidebar').groups.map(({ color }) => color.hue)
-    const hueDistances = hues.flatMap((hue, index) => hues.slice(index + 1).map((otherHue) => {
-      const difference = Math.abs(hue - otherHue)
-      return Math.min(difference, 360 - difference)
-    }))
+    const colors = groupBillingProviders(breakdown.groups, 'sidebar').groups.map(({ color }) => color)
 
     // Assert
-    expect(Math.min(...hueDistances)).toBeGreaterThanOrEqual(40)
+    expect(colors).toEqual(['#986CC7', '#8F694A', '#007AFF', '#E69F00', '#5B5FC7'])
+    expect(new Set(colors).size).toBe(5)
   })
 
-  it('keeps visible colors distinct when many providers are collapsed into Others', () => {
+  it('keeps EWE Go color when Aral pulse enters or leaves selected provider data', () => {
     // Arrange
-    const names = [
-      'Tesla', 'EnBW', 'PromoCharge', 'Cariqa', 'Zeta',
-      ...Array.from({ length: 16 }, (_, index) => `zz Hidden Provider ${index}`),
-    ]
-    const breakdown = breakdownFor(names)
+    const withAral = breakdownFor(['EWE Go', 'Aral pulse', 'Tesla'])
+    const withoutAral = breakdownFor(['EWE Go', 'Tesla'])
 
     // Act
-    const visible = groupBillingProviders(breakdown.groups, 'sidebar').groups.filter(({ isOthers }) => !isOthers)
-    const hues = visible.map(({ color }) => color.hue)
-    const hueDistances = hues.flatMap((hue, index) => hues.slice(index + 1).map((otherHue) => {
-      const difference = Math.abs(hue - otherHue)
-      return Math.min(difference, 360 - difference)
-    }))
+    const colorsWithAral = groupBillingProviders(withAral.groups, 'bottom-dock').providerColors
+    const colorsWithoutAral = groupBillingProviders(withoutAral.groups, 'sidebar').providerColors
 
     // Assert
-    expect(visible).toHaveLength(5)
-    expect(Math.min(...hueDistances)).toBeGreaterThanOrEqual(40)
+    expect(colorsWithAral.get('ewe go')).toBe('#007C91')
+    expect(colorsWithoutAral.get('ewe go')).toBe(colorsWithAral.get('ewe go'))
+  })
+
+  it('keeps colors across selected periods with overlapping sessions and unrelated local edits', () => {
+    // Arrange
+    const sevenDays = createAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, new Date('2026-07-15T12:00:00Z'))
+    const thirtyDays = createAnalyticsPeriod({ kind: 'preset', preset: '30-days' }, new Date('2026-07-15T12:00:00Z'))
+    const shortPeriod = breakdownFor(['EWE Go', 'Tesla'], sevenDays, '2026-07-14')
+    const longPeriod = breakdownFor(['EWE Go', 'Tesla', 'Aral pulse'], thirtyDays, ['2026-07-14', '2026-07-14', '2026-06-20'])
+    const locallyEdited = breakdownFor(['EWE Go', 'Tesla', 'A new local provider'], thirtyDays, ['2026-07-14', '2026-07-14', '2026-06-20'])
+
+    // Act
+    const shortColors = groupBillingProviders(shortPeriod.groups, 'bottom-dock').providerColors
+    const longColors = groupBillingProviders(longPeriod.groups, 'sidebar').providerColors
+    const editedColors = groupBillingProviders(locallyEdited.groups, 'sidebar').providerColors
+
+    // Assert
+    expect(shortPeriod.sessionCount).toBe(2)
+    expect(longPeriod.sessionCount).toBe(3)
+    expect(longColors.get('ewe go')).toBe(shortColors.get('ewe go'))
+    expect(editedColors.get('ewe go')).toBe(shortColors.get('ewe go'))
+    expect(editedColors.get('tesla')).toBe(shortColors.get('tesla'))
+  })
+
+  it('normalizes matching planned and ad-hoc provider snapshots to the same color', () => {
+    // Arrange
+    const adHoc = breakdownFor(['  EWE   Go  '], period, '2026-07-14', 'ad_hoc')
+    const planned = breakdownFor(['eWe Go'], period, '2026-07-14', 'plan')
+
+    // Act
+    const adHocGroups = groupBillingProviders(adHoc.groups, 'sidebar')
+    const plannedGroups = groupBillingProviders(planned.groups, 'sidebar')
+
+    // Assert
+    expect(adHoc.groups[0]?.normalizedName).toBe('ewe go')
+    expect(planned.groups[0]?.normalizedName).toBe('ewe go')
+    expect(plannedGroups.providerColors.get('ewe go')).toBe(adHocGroups.providerColors.get('ewe go'))
+  })
+
+  it('uses the dedicated neutral color for synthetic Others only', () => {
+    // Arrange
+    const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon'])
+
+    // Act
+    const grouped = groupBillingProviders(breakdown.groups, 'bottom-dock')
+
+    // Assert
+    expect(grouped.groups.at(-1)?.color).toBe('#8E8E93')
+    expect(grouped.groups.filter((group) => !group.isOthers).every((group) => group.color !== '#8E8E93')).toBe(true)
   })
 })

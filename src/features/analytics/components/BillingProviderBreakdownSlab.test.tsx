@@ -89,6 +89,25 @@ describe('BillingProviderBreakdownSlab', () => {
     expect(screen.getByText(/Energy unavailable/)).toBeInTheDocument()
   })
 
+  it('uses the same fixed palette color for each provider bar segment and row dot', () => {
+    // Arrange
+    const breakdown = breakdownFor(['EWE Go', 'Aral pulse'])
+    // Act
+    render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} />)
+
+    // Assert
+    const bar = screen.getByRole('img', { name: /Billed energy by provider/ })
+    const segments = [...bar.querySelectorAll('span')]
+    const rows = screen.getByRole('list', { name: 'Provider totals' })
+    const providerColor = (element: Element) => (element as HTMLElement).style.getPropertyValue('--provider-color')
+
+    expect(segments.map(providerColor)).toEqual(['#007C91', '#8F694A'])
+    expect(segments[1]).toHaveClass('border-l', 'border-surface')
+    expect(providerColor(screen.getByText('EWE Go').parentElement!.previousElementSibling!)).toBe('#007C91')
+    expect(providerColor(screen.getByText('Aral pulse').parentElement!.previousElementSibling!)).toBe('#8F694A')
+    expect(rows).toBeInTheDocument()
+  })
+
   it('labels the energy distribution according to measurement coverage', () => {
     // Arrange
     const complete = breakdownFor(['Alpha', 'Beta'])

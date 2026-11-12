@@ -304,6 +304,35 @@
       font-weight: 500;
     }
 
+    /* Billing provider colors and layout are local to Analytics. */
+    .analytics-provider-example {
+      display: grid;
+      gap: 20px;
+      padding: 20px;
+    }
+
+    .analytics-provider-totals {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px 32px;
+    }
+
+    .analytics-provider-total p { margin: 0; }
+    .analytics-provider-total .value { margin-top: 4px; font-size: 24px; font-weight: 700; }
+    .analytics-provider-bar { display: flex; height: 12px; overflow: hidden; border-radius: 999px; }
+    .analytics-provider-bar span + span { border-left: 1px solid var(--surface-slab); }
+    .analytics-provider-list { margin: 0; padding: 0; list-style: none; }
+    .analytics-provider-list li {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 8px 0;
+      border-top: 1px solid var(--slab-border-color);
+      font-size: 14px;
+    }
+    .analytics-provider-dot { width: 12px; height: 12px; flex: none; border-radius: 50%; }
+    .analytics-provider-list .amount { margin-left: auto; text-align: right; }
+
     /* Local Analytics chart example; this is not a shared chart primitive. */
     .analytics-chart-example {
       display: grid;
@@ -860,6 +889,29 @@
           The tint identifies the summary month; chart inspection is independent. This Analytics example is local, not a shared primitive. See the
           <a href="governance-checklist.md">design governance checklist</a> for detailed chart rules.
         </p>
+      </article>
+      <article class="slab analytics-provider-example" aria-labelledby="analytics-provider-title">
+        <div class="section-copy">
+          <h3 class="content-slab-title" id="analytics-provider-title">Billing providers</h3>
+          <p class="supporting-copy">Recorded session charges by provider</p>
+        </div>
+        <div class="analytics-provider-totals">
+          <div class="analytics-provider-total"><p class="supporting-copy">Total spend</p><p class="value tabular">72,05 €</p></div>
+          <div class="analytics-provider-total"><p class="supporting-copy">Billed energy</p><p class="value tabular">141,6 kWh</p></div>
+        </div>
+        <div>
+          <p class="supporting-copy" aria-hidden="true">Billed energy by provider</p>
+          <div class="analytics-provider-bar" role="img" aria-label="Billed energy by provider: Tesla 45,2 kWh, EnBW 42 kWh, PromoCharge 22 kWh, Others 32,4 kWh">
+            <span style="width: 31.92%; background: #986CC7"></span><span style="width: 29.66%; background: #8F694A"></span><span style="width: 15.54%; background: #007AFF"></span><span style="width: 22.88%; background: #8E8E93"></span>
+          </div>
+        </div>
+        <ul class="analytics-provider-list">
+          <li><span class="analytics-provider-dot" style="background: #986CC7" aria-hidden="true"></span><span>Tesla · 45,2 kWh</span><span class="amount tabular">20,34 €</span></li>
+          <li><span class="analytics-provider-dot" style="background: #8F694A" aria-hidden="true"></span><span>EnBW · 42 kWh</span><span class="amount tabular">24,90 €</span></li>
+          <li><span class="analytics-provider-dot" style="background: #007AFF" aria-hidden="true"></span><span>PromoCharge · 22 kWh</span><span class="amount tabular">10,78 €</span></li>
+          <li><span class="analytics-provider-dot" style="background: #8E8E93" aria-hidden="true"></span><span>Others · 32,4 kWh</span><span class="amount tabular">16,03 €</span></li>
+        </ul>
+        <p class="supporting-copy">Static Analytics-local example; Others is expandable in the application. Partial coverage uses “Known billed energy by provider”. Colors are stable per normalized billing name across periods and themes; collisions may occur. The nine named-provider colors are #009E73, #007AFF, #E69F00, #986CC7, #D55E00, #007C91, #5B5FC7, #6F7F28 and #8F694A; #8E8E93 is reserved for Others. See the <a href="governance-checklist.md">design governance checklist</a> for the full rules.</p>
       </article>
       <article class="slab analytics-summary-example" aria-labelledby="analytics-lifetime-title">
         <p class="meta-label">Lifetime · All recorded sessions</p>

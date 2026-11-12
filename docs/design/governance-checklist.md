@@ -87,9 +87,18 @@ label partial totals as known billed energy, explain when no positive known ener
 prevents a provider distribution, show unavailable values explicitly, and
 distinguish free spend. At bottom-dock widths show four named providers when
 there are four, or three plus Others at five or more. At sidebar widths show five named providers, adding Others at six
-or more. Others discloses its members without changing the bar. Use stable
-identity-based colors across rank changes, neutral Others, and text labels so
-color is not the sole cue. Hide the bar for a single group or no positive known
+or more. Others discloses its members without changing the bar. Directly above
+the bar, show “Billed energy by provider” for complete coverage or “Known billed
+energy by provider” for partial coverage, matching the accessible description.
+Map the normalized billing snapshot name to a fixed color independently of
+period, rank, other providers, layout and theme. Use the Analytics-local palette:
+green `#009E73`, blue `#007AFF`, amber `#E69F00`, purple `#986CC7`,
+vermilion `#D55E00`, teal `#007C91`, indigo `#5B5FC7`, olive `#6F7F28`,
+and brown `#8F694A`; reserve `#8E8E93` for the synthetic Others aggregate.
+These are categorical colors, not global accent tokens. Collisions are allowed:
+keep a provider's segment and list indicator the same color, separate adjacent
+segments with a 1px surface-colored divider, and retain text labels and values
+so color is not the sole cue. Hide the bar for a single group or no positive known
 energy. Stack energy beneath the name on mobile; align energy and spend in
 separate columns on desktop. Keep the disclosure keyboard-operable with visible
 focus and a 44px target, including when the layout changes while expanded.
