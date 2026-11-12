@@ -105,7 +105,7 @@ export function AnalyticsPage({
           onMetricChange={setChartMetric}
         />
       )}
-      <BillingProviderBreakdownSlab breakdown={providerBreakdown} isLoading={isMonthlyLoading} error={monthlyError} />
+      <BillingProviderBreakdownSlab breakdown={providerBreakdown} isLoading={isMonthlyLoading} error={monthlyError} layoutMode={layoutMode} />
       <section aria-label="Lifetime Overall Price" className="space-y-3">
         <p className="text-xs font-bold uppercase tracking-wider text-secondary">Lifetime · All recorded sessions</p>
         {overallContent}
