@@ -93,8 +93,8 @@ export function PreviousPeriodComparisonSlab({ period, previousPeriod, result, p
     <Slab padding="none" className="w-full space-y-5 p-5 md:p-8" aria-busy={isLoading && error === null}>
       <div className="space-y-2">
         <h2 className="text-base font-semibold text-primary">Previous period comparison</h2>
-        <p className="text-sm text-secondary">Current · {periodLabel(period)}: {formatAnalyticsPeriodRange(period)}{period.isInProgress ? ' · In progress' : ''}</p>
-        <p className="text-sm text-secondary">Previous · {previousLabel(previousPeriod)}: {formatAnalyticsPeriodRange(previousPeriod)}</p>
+        <p className="text-sm text-slab-secondary">Current · {periodLabel(period)}: {formatAnalyticsPeriodRange(period)}{period.isInProgress ? ' · In progress' : ''}</p>
+        <p className="text-sm text-slab-secondary">Previous · {previousLabel(previousPeriod)}: {formatAnalyticsPeriodRange(previousPeriod)}</p>
       </div>
       {error !== null ? <p role="alert" className="text-sm text-primary">Unable to load the previous period comparison. Please try again.</p>
         : isLoading ? <div role="status"><span className="sr-only">Loading comparison</span><div aria-hidden="true" className="h-20 animate-pulse rounded-xl bg-secondary/10 motion-reduce:animate-none" /></div>
@@ -111,9 +111,9 @@ export function PreviousPeriodComparisonSlab({ period, previousPeriod, result, p
               </tr>)}
             </tbody>
           </table>
-          <p className="text-xs text-secondary">Weighted session price requires complete session cost and billed energy coverage. Price change is current minus previous.</p>
-          {(comparison.spending.status === 'up-from-zero' || comparison.energy.status === 'up-from-zero') && <p className="text-xs text-secondary">Percentage change is unavailable when the previous value is zero.</p>}
-          {unequalNote && <p className="text-xs text-secondary">{unequalNote}</p>}
+          <p className="text-xs text-slab-secondary">Weighted session price requires complete session cost and billed energy coverage. Price change is current minus previous.</p>
+          {(comparison.spending.status === 'up-from-zero' || comparison.energy.status === 'up-from-zero') && <p className="text-xs text-slab-secondary">Percentage change is unavailable when the previous value is zero.</p>}
+          {unequalNote && <p className="text-xs text-slab-secondary">{unequalNote}</p>}
         </>}
     </Slab>
   )

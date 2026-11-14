@@ -17,6 +17,7 @@
       --surface-slab: #ffffff;
       --primary-typography: #1d1d1f;
       --secondary-typography: #86868b;
+      --slab-secondary-typography: #6e6e73;
       --universal-accent: #007aff;
       --accent-contrast: #ffffff;
       --matrix-node-bg: #f5f5f7;
@@ -36,6 +37,7 @@
         --surface-slab: #1c1c1e;
         --primary-typography: #f5f5f7;
         --secondary-typography: #8e8e93;
+        --slab-secondary-typography: #8e8e93;
         --matrix-node-bg: #2c2c2e;
         --matrix-node-active-bg: #ffffff;
         --matrix-node-active-text: #1d1d1f;
@@ -311,10 +313,6 @@
       padding: 20px;
     }
 
-    .analytics-provider-example {
-      --provider-label: light-dark(#6e6e73, #8e8e93);
-    }
-
     .analytics-provider-energy {
       display: flex;
       flex-wrap: wrap;
@@ -325,7 +323,7 @@
       font-size: 14px;
     }
 
-    .analytics-provider-label { color: var(--provider-label); font-size: 12px; }
+    .analytics-provider-label { color: var(--slab-secondary-typography); font-size: 12px; }
     .analytics-provider-bar { display: flex; height: 12px; overflow: hidden; border-radius: 999px; }
     .analytics-provider-bar span + span { border-left: 1px solid var(--surface-slab); }
     .analytics-provider-list { margin: 0; padding: 0; list-style: none; }
@@ -778,6 +776,10 @@
         <div class="token" style="--token-color: var(--surface-slab); --token-text: var(--primary-typography);">
           <span class="token-name">Surface</span>
           <span class="token-value">bg-surface</span>
+        </div>
+        <div class="token" style="--token-color: var(--surface-slab); --token-text: var(--slab-secondary-typography);">
+          <span class="token-name">Secondary text on slabs</span>
+          <span class="token-value">text-slab-secondary</span>
         </div>
         <div class="token" style="--token-color: var(--universal-accent); --token-text: #ffffff;">
           <span class="token-name">Accent</span>

@@ -108,7 +108,7 @@ describe('BillingProviderBreakdownSlab', () => {
     const headings = screen.getByText('Provider').parentElement!
     expect([...headings.children].map((heading) => heading.textContent)).toEqual(['Provider', 'Billed energy', 'Session spend'])
     expect(headings).toHaveAttribute('aria-hidden', 'true')
-    expect(headings).toHaveClass('hidden', 'md:grid', 'text-[#6E6E73]', 'dark:text-[#8E8E93]')
+    expect(headings).toHaveClass('hidden', 'md:grid', 'text-slab-secondary')
     expect(screen.getByText('Billed energy', { selector: '.sr-only' }).parentElement).toHaveTextContent('Billed energy Unavailable')
     expect(screen.getByText('Alpha')).toBeInTheDocument()
     expect(screen.getAllByText('1,00 €')).toHaveLength(2)
