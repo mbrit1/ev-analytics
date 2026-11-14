@@ -35,7 +35,13 @@ the distribution as known billed energy.
 
 ## After implementation
 
-Run normal live-browser QA on the rendered change at relevant mobile and desktop
-sizes and states. A further guardian review is optional and appropriate only
-when an unresolved question requires evidence from the actual rendered result.
-Distinguish browser evidence from physical-device or assistive-technology checks.
+For substantial visual changes and reviews, inspect the rendered UI in light
+and dark mode at representative mobile and desktop widths. Verify the active
+color scheme in the browser and check the affected states for readability,
+contrast, and visible controls. Record the theme and viewport for each check.
+If a theme cannot be exercised, report it as unverified.
+
+Use both themes as evidence when asking the guardian to review the rendered UI.
+Request a further guardian review when an unresolved question requires rendered
+evidence. Distinguish browser checks from physical-device or assistive-technology
+checks.
