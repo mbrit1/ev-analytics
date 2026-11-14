@@ -51,66 +51,56 @@ function periodDayCount(period: Pick<AnalyticsPeriod, 'startUtc' | 'endUtc'>): n
   return Math.round((endDay - startDay) / 86_400_000)
 }
 
-function metricValue(current: number | null, previous: number | null, formatter: (value: number) => string) {
-  return current === null || previous === null
-    ? 'Unavailable'
-    : `${formatter(current)} now · ${formatter(previous)} before`
+function valueForPeriod(result: MonthlySessionSpendResult, value: number | null, formatter: (value: number) => string): string {
+  if (result.isEmpty) return 'No sessions'
+  return value === null ? 'Unavailable' : formatter(value)
+}
+
+function energyValue(result: MonthlySessionSpendResult) {
+  const partial = !result.isEmpty && result.validBilledEnergySessionCount < result.sessionCount
+  const value = valueForPeriod(result, result.billedEnergyKwh, (amount) => `${formatKwh(amount)} kWh`)
+  return <>{partial && result.billedEnergyKwh !== null ? `Known: ${value}` : value}{partial && <span className="mt-1 block text-xs font-normal">{result.validBilledEnergySessionCount} of {result.sessionCount} sessions measured</span>}</>
+}
+
+function formatPrice(value: number): string {
+  return `${new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value / 100)} €/kWh`
 }
 
 /** Shows neutral, period-scoped changes in session spend, billed energy and weighted price. */
-export function PreviousPeriodComparisonSlab({
-  period,
-  previousPeriod,
-  result,
-  previousResult,
-  comparison,
-  isLoading,
-  error = null,
-}: PreviousPeriodComparisonSlabProps) {
-  const currentLabel = periodLabel(period)
-  const priorLabel = previousLabel(previousPeriod)
-  const equalDayCountNote = period.isInProgress && !previousPeriod.isDayCountEqual
-    ? `The ranges contain different numbers of days: current period ${periodDayCount(period)} days; previous period ${previousPeriod.dayCount} days. Percentage changes are unavailable for unequal ranges.`
+export function PreviousPeriodComparisonSlab({ period, previousPeriod, result, previousResult, comparison, isLoading, error = null }: PreviousPeriodComparisonSlabProps) {
+  const unequalNote = !previousPeriod.isDayCountEqual
+    ? `The ranges contain different numbers of days: current period ${periodDayCount(period)} days; previous period ${previousPeriod.dayCount} days.${period.isInProgress ? ' Percentage changes are unavailable for unequal ranges.' : ''}`
     : null
-
+  const rows = [
+    { label: 'Session spend', current: valueForPeriod(result, result.totalSessionSpendCents, formatCurrency), previous: valueForPeriod(previousResult, previousResult.totalSessionSpendCents, formatCurrency), change: formatChange(comparison.spending) },
+    { label: 'Billed energy', current: energyValue(result), previous: energyValue(previousResult), change: formatChange(comparison.energy) },
+    { label: 'Weighted session price', current: valueForPeriod(result, result.averageSessionPriceCtPerKwh, formatPrice), previous: valueForPeriod(previousResult, previousResult.averageSessionPriceCtPerKwh, formatPrice), change: formatPriceDifference(comparison.priceDifferenceEurPerKwh) },
+  ]
   return (
     <Slab padding="none" className="w-full space-y-5 p-5 md:p-8" aria-busy={isLoading && error === null}>
       <div className="space-y-2">
         <h2 className="text-base font-semibold text-primary">Previous period comparison</h2>
-        <p className="text-sm text-secondary">{currentLabel}: {formatAnalyticsPeriodRange(period)}{period.isInProgress ? ' · In progress' : ''}</p>
-        <p className="text-sm text-secondary">{priorLabel}: {formatAnalyticsPeriodRange(previousPeriod)}</p>
+        <p className="text-sm text-secondary">Current · {periodLabel(period)}: {formatAnalyticsPeriodRange(period)}{period.isInProgress ? ' · In progress' : ''}</p>
+        <p className="text-sm text-secondary">Previous · {previousLabel(previousPeriod)}: {formatAnalyticsPeriodRange(previousPeriod)}</p>
       </div>
-      {error !== null ? (
-        <p role="alert" className="text-sm text-primary">Unable to load the previous period comparison. Please try again.</p>
-      ) : isLoading ? (
-        <div role="status"><span className="sr-only">Loading comparison</span><div aria-hidden="true" className="h-20 animate-pulse rounded-xl bg-secondary/10 motion-reduce:animate-none" /></div>
-      ) : comparison.status === 'no-comparison-data' ? (
-        <p className="text-sm text-secondary">No comparison data: no charging sessions in the previous period.</p>
-      ) : (
-        <>
-          <div className="grid gap-5 sm:grid-cols-3">
-            <div className="space-y-2">
-              <h3 className="text-sm font-medium text-secondary">Session spend</h3>
-              <p className="text-sm font-semibold text-primary">{metricValue(result.isEmpty ? null : result.totalSessionSpendCents, previousResult.isEmpty ? null : previousResult.totalSessionSpendCents, formatCurrency)}</p>
-              <p className="text-sm text-secondary">Change: {formatChange(comparison.spending)}</p>
-            </div>
-            <div className="space-y-2 border-t border-slab-border pt-4 sm:border-t-0 sm:pt-0">
-              <h3 className="text-sm font-medium text-secondary">Billed energy</h3>
-              <p className="text-sm font-semibold text-primary">{metricValue(result.isEmpty ? null : result.billedEnergyKwh, previousResult.isEmpty ? null : previousResult.billedEnergyKwh, formatKwh)}{!result.isEmpty && result.billedEnergyKwh !== null && !previousResult.isEmpty && previousResult.billedEnergyKwh !== null ? ' kWh' : ''}</p>
-              <p className="text-sm text-secondary">Change: {formatChange(comparison.energy)}</p>
-              {result.sessionCount > 0 && result.validBilledEnergySessionCount < result.sessionCount && <p className="text-xs text-secondary">Current period energy is available for {result.validBilledEnergySessionCount} of {result.sessionCount} sessions.</p>}
-              {previousResult.sessionCount > 0 && previousResult.validBilledEnergySessionCount < previousResult.sessionCount && <p className="text-xs text-secondary">Previous period energy is available for {previousResult.validBilledEnergySessionCount} of {previousResult.sessionCount} sessions.</p>}
-            </div>
-            <div className="space-y-2 border-t border-slab-border pt-4 sm:border-t-0 sm:pt-0">
-              <h3 className="text-sm font-medium text-secondary">Weighted price difference</h3>
-              <p className="text-sm font-semibold text-primary">{formatPriceDifference(comparison.priceDifferenceEurPerKwh)}</p>
-              <p className="text-xs text-secondary">Current period minus previous period, based on complete cost and energy coverage.</p>
-            </div>
-          </div>
+      {error !== null ? <p role="alert" className="text-sm text-primary">Unable to load the previous period comparison. Please try again.</p>
+        : isLoading ? <div role="status"><span className="sr-only">Loading comparison</span><div aria-hidden="true" className="h-20 animate-pulse rounded-xl bg-secondary/10 motion-reduce:animate-none" /></div>
+        : <>
+          <table className="w-full text-left text-sm text-primary" aria-label="Previous period comparison">
+            <thead className="sr-only sm:not-sr-only">
+              <tr><th scope="col" className="pb-3 font-medium">Metric</th><th scope="col" className="pb-3 font-medium">Current</th><th scope="col" className="pb-3 font-medium">Previous</th><th scope="col" className="pb-3 font-medium">Change</th></tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => <tr key={row.label} className="grid grid-cols-3 gap-x-2 border-t border-slab-border py-4 sm:table-row sm:border-0 sm:py-0">
+                <th scope="row" className="col-span-3 pb-3 text-left font-medium sm:border-t sm:border-slab-border sm:py-4 sm:pr-3">{row.label}</th>
+                {[row.current, row.previous, row.change].map((value, index) => <td key={index} className="min-w-0 break-words tabular-nums align-top sm:border-t sm:border-slab-border sm:py-4 sm:pr-3"><span aria-hidden="true" className="mb-1 block text-xs font-normal sm:hidden">{['Current', 'Previous', 'Change'][index]}</span>{value}</td>)}
+              </tr>)}
+            </tbody>
+          </table>
+          <p className="text-xs text-secondary">Weighted session price requires complete session cost and billed energy coverage. Price change is current minus previous.</p>
           {(comparison.spending.status === 'up-from-zero' || comparison.energy.status === 'up-from-zero') && <p className="text-xs text-secondary">Percentage change is unavailable when the previous value is zero.</p>}
-        </>
-      )}
-      {!isLoading && error === null && equalDayCountNote && <p className="text-xs text-secondary">{equalDayCountNote}</p>}
+          {unequalNote && <p className="text-xs text-secondary">{unequalNote}</p>}
+        </>}
     </Slab>
   )
 }

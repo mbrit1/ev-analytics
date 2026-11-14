@@ -760,17 +760,17 @@ describe('AnalyticsPage', () => {
     render(<AnalyticsPage onAddSession={vi.fn()} />)
 
     // Assert initial July comparison before selecting June.
-    expect(screen.getByText('July 2026: 1 Jul – 15 Jul 2026 · In progress')).toBeInTheDocument()
-    expect(screen.getByText('120,00 € now · 90,00 € before')).toBeInTheDocument()
+    expect(screen.getByText('Current · July 2026: 1 Jul – 15 Jul 2026 · In progress')).toBeInTheDocument()
+    expect(within(screen.getByRole('table', { name: 'Previous period comparison' })).getByRole('row', { name: /Session spend/ })).toHaveTextContent('Current120,00 €Previous90,00 €')
 
     // Act: Navigate to the previous calendar month.
     await user.click(screen.getByRole('button', { name: 'Previous month' }))
 
     // Assert: Both labels and values follow the newly selected month.
-    expect(screen.getByText('June 2026: 1 Jun – 30 Jun 2026')).toBeInTheDocument()
-    expect(screen.getByText('May 2026: 1 May – 31 May 2026')).toBeInTheDocument()
-    expect(screen.getByText('200,00 € now · 110,00 € before')).toBeInTheDocument()
-    expect(screen.queryByText('120,00 € now · 90,00 € before')).not.toBeInTheDocument()
+    expect(screen.getByText('Current · June 2026: 1 Jun – 30 Jun 2026')).toBeInTheDocument()
+    expect(screen.getByText('Previous · May 2026: 1 May – 31 May 2026')).toBeInTheDocument()
+    expect(within(screen.getByRole('table', { name: 'Previous period comparison' })).getByRole('row', { name: /Session spend/ })).toHaveTextContent('Current200,00 €Previous110,00 €')
+    expect(within(screen.getByRole('table', { name: 'Previous period comparison' })).queryByText('120,00 €')).not.toBeInTheDocument()
   })
 
   it('keeps lifetime available during a monthly query failure and recovers', () => {
