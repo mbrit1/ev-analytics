@@ -3,6 +3,7 @@ import { formatCurrency, formatKwh, formatMonthLabel } from '../../../shared/lib
 import type { AnalyticsPeriod, PreviousAnalyticsPeriod } from '../model/analyticsPeriods'
 import type { MonthlySessionSpendResult } from '../model/monthlySessionSpend'
 import type { MetricChange, NoComparisonData, PreviousPeriodComparison } from '../model/previousPeriodComparison'
+import { selectPreviousPeriodHighlight, type PreviousPeriodHighlight } from '../model/previousPeriodHighlight'
 import { formatAnalyticsPeriodRange } from './analyticsPeriodLabels'
 
 /** Values and query state for comparing the selected period with its predecessor. */
@@ -66,11 +67,23 @@ function formatPrice(value: number): string {
   return `${new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value / 100)} €/kWh`
 }
 
+function highlightSentence(highlight: PreviousPeriodHighlight, equalDayCount: boolean): string {
+  if (highlight.metric === 'price') {
+    return `Weighted session price changed by ${formatPriceDifference(highlight.difference)}${equalDayCount ? '' : ' across periods of different lengths'}.`
+  }
+  const label = highlight.metric === 'spending' ? 'Session spend' : 'Billed energy'
+  const amount = highlight.metric === 'spending' ? formatCurrency(Math.abs(highlight.difference)) : `${formatKwh(Math.abs(highlight.difference))} kWh`
+  if (highlight.percentage === null) return `${label} increased from zero to ${amount}.`
+  const percent = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 }).format(Math.abs(highlight.percentage))
+  return `${label} ${highlight.difference > 0 ? 'increased' : 'decreased'} by ${amount} (${percent}%).`
+}
+
 /** Shows neutral, period-scoped changes in session spend, billed energy and weighted price. */
 export function PreviousPeriodComparisonSlab({ period, previousPeriod, result, previousResult, comparison, isLoading, error = null }: PreviousPeriodComparisonSlabProps) {
   const unequalNote = !previousPeriod.isDayCountEqual
     ? `The ranges contain different numbers of days: current period ${periodDayCount(period)} days; previous period ${previousPeriod.dayCount} days.${period.isInProgress ? ' Percentage changes are unavailable for unequal ranges.' : ''}`
     : null
+  const highlight = selectPreviousPeriodHighlight(result, previousResult, comparison, previousPeriod.isDayCountEqual)
   const rows = [
     { label: 'Session spend', current: valueForPeriod(result, result.totalSessionSpendCents, formatCurrency), previous: valueForPeriod(previousResult, previousResult.totalSessionSpendCents, formatCurrency), change: formatChange(comparison.spending) },
     { label: 'Billed energy', current: energyValue(result), previous: energyValue(previousResult), change: formatChange(comparison.energy) },
@@ -86,6 +99,7 @@ export function PreviousPeriodComparisonSlab({ period, previousPeriod, result, p
       {error !== null ? <p role="alert" className="text-sm text-primary">Unable to load the previous period comparison. Please try again.</p>
         : isLoading ? <div role="status"><span className="sr-only">Loading comparison</span><div aria-hidden="true" className="h-20 animate-pulse rounded-xl bg-secondary/10 motion-reduce:animate-none" /></div>
         : <>
+          {highlight && <p className="text-sm text-primary">{highlightSentence(highlight, previousPeriod.isDayCountEqual)}</p>}
           <table className="w-full text-left text-sm text-primary" aria-label="Previous period comparison">
             <thead className="sr-only sm:not-sr-only">
               <tr><th scope="col" className="pb-3 font-medium">Metric</th><th scope="col" className="pb-3 font-medium">Current</th><th scope="col" className="pb-3 font-medium">Previous</th><th scope="col" className="pb-3 font-medium">Change</th></tr>

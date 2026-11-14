@@ -66,14 +66,25 @@ describe('PreviousPeriodComparisonSlab', () => {
     expect(screen.getByText(/current period 31 days; previous period 28 days/)).not.toHaveTextContent('Percentage changes are unavailable')
     expect(screen.getAllByText('+25%')).toHaveLength(2)
   })
+  it('shows one observation immediately above the table only when a metric qualifies', () => {
+    // Arrange / Act
+    const { rerender } = render(<PreviousPeriodComparisonSlab period={period} previousPeriod={previousPeriod} result={current} previousResult={previous} comparison={compared} isLoading={false} />)
+    // Assert
+    const observation = screen.getByText('Session spend increased by 25,00 € (25%).')
+    expect(observation.nextElementSibling).toBe(screen.getByRole('table'))
+    rerender(<PreviousPeriodComparisonSlab period={period} previousPeriod={previousPeriod} result={previous} previousResult={previous} comparison={{ ...compared, spending: { status: 'percentage', percentage: 0 }, energy: { status: 'percentage', percentage: 0 }, priceDifferenceEurPerKwh: 0 }} isLoading={false} />)
+    expect(screen.queryByText(/increased by|decreased by|changed by/)).not.toBeInTheDocument()
+  })
   it('suppresses stale values during loading and error', () => {
     // Arrange / Act
     const { rerender } = render(<PreviousPeriodComparisonSlab period={period} previousPeriod={previousPeriod} result={current} previousResult={previous} comparison={compared} isLoading />)
     // Assert
     expect(screen.getByRole('status')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.queryByText(/increased by|decreased by|changed by/)).not.toBeInTheDocument()
     rerender(<PreviousPeriodComparisonSlab period={period} previousPeriod={previousPeriod} result={current} previousResult={previous} comparison={compared} isLoading={false} error={new Error('read failed')} />)
     expect(screen.getByRole('alert')).toHaveTextContent('Unable to load the previous period comparison.')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.queryByText(/increased by|decreased by|changed by/)).not.toBeInTheDocument()
   })
 })
