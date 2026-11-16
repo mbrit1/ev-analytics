@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from 'react'
 import { Slab } from '../../../shared/ui'
 import { formatCurrency, formatKwh, formatMonthLabel } from '../../../shared/lib'
 import type { AnalyticsPeriod, PreviousAnalyticsPeriod } from '../model/analyticsPeriods'
@@ -87,8 +88,28 @@ function isCalendarMonth(period: AnalyticsPeriod): boolean {
   return period.selection.kind === 'month'
 }
 
+const metricLabelColor = 'text-slab-secondary dark:text-[color-mix(in_srgb,var(--color-slab-secondary)_85%,var(--color-primary))]'
+
+// Match the Tailwind lg breakpoint so only one reading order is rendered.
+const DESKTOP_COMPARISON_QUERY = '(min-width: 64rem)'
+
+function subscribeToDesktopComparison(onChange: () => void) {
+  const query = window.matchMedia?.(DESKTOP_COMPARISON_QUERY)
+  query?.addEventListener('change', onChange)
+  return () => query?.removeEventListener('change', onChange)
+}
+
+function isDesktopComparison() {
+  return window.matchMedia?.(DESKTOP_COMPARISON_QUERY).matches ?? false
+}
+
+function isMobileComparison() {
+  return false
+}
+
 /** Shows neutral, period-scoped changes in session spend, billed energy and weighted price. */
 export function PreviousPeriodComparisonSlab({ period, previousPeriod, result, previousResult, comparison, isLoading, error = null }: PreviousPeriodComparisonSlabProps) {
+  const desktop = useSyncExternalStore(subscribeToDesktopComparison, isDesktopComparison, isMobileComparison)
   const unequalNote = !previousPeriod.isDayCountEqual
     ? `The ranges contain different numbers of days: current period ${periodDayCount(period)} days; previous period ${previousPeriod.dayCount} days.${period.isInProgress ? ' Percentage changes are unavailable for unequal ranges.' : ''}`
     : null
@@ -129,16 +150,43 @@ export function PreviousPeriodComparisonSlab({ period, previousPeriod, result, p
           {comparison.status === 'no-comparison-data' && <p className="text-sm text-slab-secondary">No comparison data</p>}
           <table className="w-full border-separate border-spacing-0 text-left text-sm text-primary" aria-label="Previous period comparison">
             <thead className="sr-only">
-              <tr><th scope="col">Metric</th><th scope="col">Current</th><th scope="col">Previous</th></tr>
+              <tr><th scope="col">Metric</th><th scope="col">Current</th><th scope="col">Previous</th>{desktop && <th scope="col">Change</th>}</tr>
             </thead>
-            <tbody className="block min-w-0 lg:grid lg:grid-cols-3 lg:divide-x lg:divide-slab-border">
-              {rows.map((row) => <tr key={row.label} role="row" className="mb-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 border-t border-slab-border py-4 last:mb-0 lg:mb-0 lg:block lg:border-t-0 lg:px-4 lg:py-3 first:lg:pl-0 last:lg:pr-0">
-                <th scope="row" role="rowheader" className="col-span-2 min-w-0 text-left font-medium lg:grid lg:grid-rows-[3rem_auto] lg:content-start lg:gap-1">
-                  <span className="min-w-0 break-words">{row.label}</span><span aria-label={`Change ${row.change}`} className="inline-flex w-fit max-w-full items-center rounded-full bg-secondary/10 px-2 py-1 text-xs font-medium tabular-nums text-slab-secondary">{row.change.startsWith('+') && row.label !== 'Weighted session price' ? <><span aria-hidden="true" className="mr-1">↑</span><span className="sr-only">Increase </span>{row.change}</> : row.change.startsWith('−') && row.label !== 'Weighted session price' ? <><span aria-hidden="true" className="mr-1">↓</span><span className="sr-only">Decrease </span>{row.change}</> : row.change}</span>
-                </th>
-                <td role="cell" className="min-w-0 break-words [overflow-wrap:anywhere] tabular-nums align-top lg:mt-3 lg:block"><span className="mb-1 block text-xs font-normal text-slab-secondary">Current</span><span className="block min-w-0 break-words [overflow-wrap:anywhere] text-lg font-semibold leading-tight text-primary">{row.current}</span>{row.difference && <span className="mt-1 block min-w-0 break-words [overflow-wrap:anywhere] text-xs font-normal text-slab-secondary">{row.difference}</span>}</td>
-                <td role="cell" className="min-w-0 break-words [overflow-wrap:anywhere] tabular-nums align-top lg:mt-3 lg:block"><span className="mb-1 block text-xs font-normal text-slab-secondary">Previous</span><span className="block min-w-0 break-words [overflow-wrap:anywhere] text-sm font-normal text-primary">{row.previous}</span></td>
-              </tr>)}
+            <tbody className="block min-w-0 lg:grid lg:grid-cols-3 lg:gap-y-3 lg:divide-x lg:divide-slab-border">
+              {rows.map((row) => {
+                const direction = row.label === 'Weighted session price' ? '' : row.change[0]
+                const change = (
+                  <span aria-label={desktop ? undefined : `Change ${row.change}`} className="inline-flex w-fit max-w-full items-center rounded-full bg-secondary/10 px-2 py-1 text-xs font-medium tabular-nums text-slab-secondary">
+                    {direction === '+' && <><span aria-hidden="true" className="mr-1">↑</span><span className="sr-only">Increase </span></>}
+                    {direction === '−' && <><span aria-hidden="true" className="mr-1">↓</span><span className="sr-only">Decrease </span></>}
+                    {desktop ? <span className="min-w-0 [overflow-wrap:anywhere]">{row.change}</span> : row.change}
+                  </span>
+                )
+                const difference = row.difference && <span className={`mt-1 block min-w-0 break-words [overflow-wrap:anywhere] text-xs font-normal ${metricLabelColor}`}>{row.difference}</span>
+                return (
+                  <tr key={row.label} role="row" className="mb-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 border-t border-slab-border py-4 last:mb-0 lg:row-span-4 lg:grid-cols-1 lg:grid-rows-subgrid lg:mb-0 lg:border-t-0 lg:px-4 lg:py-3 first:lg:pl-0 last:lg:pr-0">
+                    <th scope="row" role="rowheader" className="col-span-2 min-w-0 text-left font-medium lg:col-span-1">
+                      <span className="min-w-0 break-words">{row.label}</span>{!desktop && change}
+                    </th>
+                    <td role="cell" className="min-w-0 break-words [overflow-wrap:anywhere] tabular-nums align-top">
+                      <span className={`mb-1 block text-xs font-normal ${metricLabelColor}`}>Current</span>
+                      <span className="block min-w-0 break-words [overflow-wrap:anywhere] text-lg font-semibold leading-tight text-primary">{row.current}</span>
+                      {!desktop && difference}
+                    </td>
+                    <td role="cell" className="min-w-0 break-words [overflow-wrap:anywhere] tabular-nums align-top">
+                      <span className={`mb-1 block text-xs font-normal ${metricLabelColor}`}>Previous</span>
+                      <span className="block min-w-0 break-words [overflow-wrap:anywhere] text-sm font-normal text-primary">{row.previous}</span>
+                    </td>
+                    {desktop && (
+                      <td role="cell" className="min-w-0 pt-2 tabular-nums">
+                        <span className={`mb-1 block text-xs ${metricLabelColor}`}>Change</span>
+                        {change}
+                        {difference}
+                      </td>
+                    )}
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
           <p className="text-xs text-slab-secondary">Weighted session price requires complete session cost and billed energy coverage. Price change is current minus previous.</p>
