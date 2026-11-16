@@ -125,7 +125,7 @@ export function PreviousPeriodComparisonSlab({ period, previousPeriod, result, p
     ? compactMonthRange(previousPeriod.startUtc, previousPeriod.endUtc)
     : formatAnalyticsPeriodRange(previousPeriod)
   return (
-    <Slab padding="none" className="w-full space-y-5 p-5 md:p-8" aria-busy={isLoading && error === null}>
+    <Slab padding="none" className="w-full space-y-5 p-5 max-[360px]:px-4 md:p-8" aria-busy={isLoading && error === null}>
       <div className="min-w-0 space-y-2">
         <h2 className="text-base font-semibold text-primary">Previous period comparison</h2>
         <p className="text-sm font-medium text-slab-secondary">Recorded charging activity</p>
@@ -156,7 +156,7 @@ export function PreviousPeriodComparisonSlab({ period, previousPeriod, result, p
               {rows.map((row) => {
                 const direction = row.label === 'Weighted session price' ? '' : row.change[0]
                 const change = (
-                  <span aria-label={desktop ? undefined : `Change ${row.change}`} className="inline-flex w-fit max-w-full items-center rounded-full bg-secondary/10 px-2 py-1 text-xs font-medium tabular-nums text-slab-secondary">
+                  <span aria-label={desktop ? undefined : `Change ${row.change}`} className="inline-flex w-fit max-w-full items-center rounded-full bg-secondary/10 px-2 py-1 text-xs font-medium tabular-nums text-slab-secondary max-lg:[overflow-wrap:anywhere]">
                     {direction === '+' && <><span aria-hidden="true" className="mr-1">↑</span><span className="sr-only">Increase </span></>}
                     {direction === '−' && <><span aria-hidden="true" className="mr-1">↓</span><span className="sr-only">Decrease </span></>}
                     {desktop ? <span className="min-w-0 [overflow-wrap:anywhere]">{row.change}</span> : row.change}
@@ -165,7 +165,7 @@ export function PreviousPeriodComparisonSlab({ period, previousPeriod, result, p
                 const difference = row.difference && <span className={`mt-1 block min-w-0 break-words [overflow-wrap:anywhere] text-xs font-normal ${metricLabelColor}`}>{row.difference}</span>
                 return (
                   <tr key={row.label} role="row" className="mb-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 border-t border-slab-border py-4 last:mb-0 lg:row-span-4 lg:grid-cols-1 lg:grid-rows-subgrid lg:mb-0 lg:border-t-0 lg:px-4 lg:py-3 first:lg:pl-0 last:lg:pr-0">
-                    <th scope="row" role="rowheader" className="col-span-2 min-w-0 text-left font-medium lg:col-span-1">
+                    <th scope="row" role="rowheader" className="col-span-2 min-w-0 text-left font-medium max-lg:grid max-lg:grid-cols-[minmax(0,1fr)_fit-content(50%)] max-lg:items-center max-lg:gap-x-2 lg:col-span-1">
                       <span className="min-w-0 break-words">{row.label}</span>{!desktop && change}
                     </th>
                     <td role="cell" className="min-w-0 break-words [overflow-wrap:anywhere] tabular-nums align-top">
