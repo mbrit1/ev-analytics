@@ -28,6 +28,12 @@ function previousLabel(period: PreviousAnalyticsPeriod): string {
     : 'Previous period'
 }
 
+function compactMonthRange(start: Date, end: Date): string {
+  const lastIncluded = new Date(end.getTime() - 1)
+  const formatter = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short' })
+  return `${formatter.format(start)} – ${formatter.format(lastIncluded)}`
+}
+
 function formatChange(change: MetricChange): string {
   if (change.status === 'unavailable') return 'Unavailable'
   if (change.status === 'unequal-day-count') return 'Period lengths differ'
@@ -91,14 +97,28 @@ export function PreviousPeriodComparisonSlab({ period, previousPeriod, result, p
     { label: 'Billed energy', current: energyValue(result), previous: energyValue(previousResult), change: formatChange(comparison.energy), difference: comparisonDifference(comparison.energy, result.billedEnergyKwh, previousResult.billedEnergyKwh, (value) => `${formatKwh(value)} kWh`, 2) },
     { label: 'Weighted session price', current: valueForPeriod(result, result.averageSessionPriceCtPerKwh, formatPrice), previous: valueForPeriod(previousResult, previousResult.averageSessionPriceCtPerKwh, formatPrice), change: formatPriceDifference(comparison.priceDifferenceEurPerKwh), difference: null },
   ]
+  const currentRange = period.selection.kind === 'month'
+    ? compactMonthRange(period.startUtc, period.endUtc)
+    : formatAnalyticsPeriodRange(period)
+  const previousRange = previousPeriod.monthLabel
+    ? compactMonthRange(previousPeriod.startUtc, previousPeriod.endUtc)
+    : formatAnalyticsPeriodRange(previousPeriod)
   return (
     <Slab padding="none" className="w-full space-y-5 p-5 md:p-8" aria-busy={isLoading && error === null}>
       <div className="min-w-0 space-y-2">
         <h2 className="text-base font-semibold text-primary">Previous period comparison</h2>
         <p className="text-sm font-medium text-slab-secondary">Recorded charging activity</p>
         <div className="grid min-w-0 grid-cols-2 divide-x divide-slab-border rounded-xl bg-secondary/5 p-3">
-          <p className="min-w-0 break-words pr-3 text-sm text-slab-secondary">Current · {periodLabel(period)}: {formatAnalyticsPeriodRange(period)}{period.isInProgress ? ' · In progress' : ''}</p>
-          <p className="min-w-0 break-words pl-3 text-sm text-slab-secondary">Previous · {previousLabel(previousPeriod)}: {formatAnalyticsPeriodRange(previousPeriod)}</p>
+          <div className="min-w-0 pr-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slab-secondary">Current period</p>
+            <p className="mt-1 break-words text-sm font-medium text-primary">{periodLabel(period)}</p>
+            <p className="mt-1 break-words text-xs text-slab-secondary">{currentRange}{period.isInProgress ? ' · In progress' : ''}</p>
+          </div>
+          <div className="min-w-0 pl-3">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slab-secondary">Previous period</p>
+            <p className="mt-1 break-words text-sm font-medium text-primary">{previousLabel(previousPeriod)}</p>
+            <p className="mt-1 break-words text-xs text-slab-secondary">{previousRange}</p>
+          </div>
         </div>
         {period.isInProgress && isCalendarMonth(period) && previousPeriod.isDayCountEqual && <p className="text-xs text-slab-secondary">Compared across {periodDayCount(period)} matching calendar days.</p>}
         {unequalNote && <p className="text-xs text-slab-secondary">{unequalNote}</p>}
@@ -113,11 +133,11 @@ export function PreviousPeriodComparisonSlab({ period, previousPeriod, result, p
             </thead>
             <tbody className="block min-w-0 lg:grid lg:grid-cols-3 lg:divide-x lg:divide-slab-border">
               {rows.map((row) => <tr key={row.label} role="row" className="mb-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 border-t border-slab-border py-4 last:mb-0 lg:mb-0 lg:block lg:border-t-0 lg:px-4 lg:py-3 first:lg:pl-0 last:lg:pr-0">
-                <th scope="row" role="rowheader" className="col-span-2 min-w-0 text-left font-medium lg:flex lg:min-h-12 lg:flex-wrap lg:content-start lg:items-center lg:gap-2">
-                  <span>{row.label}</span><span aria-label={`Change ${row.change}`} className="inline-flex shrink-0 items-center rounded-full bg-secondary/10 px-2 py-1 text-xs font-medium tabular-nums text-slab-secondary">{row.change.startsWith('+') && row.label !== 'Weighted session price' ? <><span aria-hidden="true" className="mr-1">↑</span><span className="sr-only">Increase </span>{row.change}</> : row.change.startsWith('−') && row.label !== 'Weighted session price' ? <><span aria-hidden="true" className="mr-1">↓</span><span className="sr-only">Decrease </span>{row.change}</> : row.change}</span>
+                <th scope="row" role="rowheader" className="col-span-2 min-w-0 text-left font-medium lg:grid lg:grid-rows-[3rem_auto] lg:content-start lg:gap-1">
+                  <span className="min-w-0 break-words">{row.label}</span><span aria-label={`Change ${row.change}`} className="inline-flex w-fit max-w-full items-center rounded-full bg-secondary/10 px-2 py-1 text-xs font-medium tabular-nums text-slab-secondary">{row.change.startsWith('+') && row.label !== 'Weighted session price' ? <><span aria-hidden="true" className="mr-1">↑</span><span className="sr-only">Increase </span>{row.change}</> : row.change.startsWith('−') && row.label !== 'Weighted session price' ? <><span aria-hidden="true" className="mr-1">↓</span><span className="sr-only">Decrease </span>{row.change}</> : row.change}</span>
                 </th>
                 <td role="cell" className="min-w-0 break-words [overflow-wrap:anywhere] tabular-nums align-top lg:mt-3 lg:block"><span className="mb-1 block text-xs font-normal text-slab-secondary">Current</span><span className="block min-w-0 break-words [overflow-wrap:anywhere] text-lg font-semibold leading-tight text-primary">{row.current}</span>{row.difference && <span className="mt-1 block min-w-0 break-words [overflow-wrap:anywhere] text-xs font-normal text-slab-secondary">{row.difference}</span>}</td>
-                <td role="cell" className="min-w-0 break-words [overflow-wrap:anywhere] tabular-nums align-top lg:mt-3 lg:block"><span className="mb-1 block text-xs font-normal text-slab-secondary">Previous</span><span className="block min-w-0 break-words [overflow-wrap:anywhere] text-sm text-slab-secondary">{row.previous}</span></td>
+                <td role="cell" className="min-w-0 break-words [overflow-wrap:anywhere] tabular-nums align-top lg:mt-3 lg:block"><span className="mb-1 block text-xs font-normal text-slab-secondary">Previous</span><span className="block min-w-0 break-words [overflow-wrap:anywhere] text-sm font-normal text-primary">{row.previous}</span></td>
               </tr>)}
             </tbody>
           </table>

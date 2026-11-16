@@ -169,7 +169,7 @@ describe('AnalyticsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Previous month' }))
     // Assert
     expect(screen.queryByRole('tab')).not.toBeInTheDocument()
-    expect(screen.getByText('June 2026')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /June 2026 summary/ })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Overall price' })).toBeInTheDocument()
     expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
   })
@@ -193,7 +193,7 @@ describe('AnalyticsPage', () => {
     ] as const) {
       await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
       await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name }))
-      expect(screen.getByText(name)).toBeInTheDocument()
+      expect(screen.getAllByText(name).length).toBeGreaterThan(0)
       if (preset === '7-days') {
         expect(screen.queryByRole('heading', { name: 'Previous period comparison' })).not.toBeInTheDocument()
       } else {
@@ -208,7 +208,6 @@ describe('AnalyticsPage', () => {
     await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: 'Calendar Month' }))
 
     // Assert: The prior month remains selected after changing modes.
-    expect(screen.getByText('June 2026')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /June 2026 summary/ })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Previous period comparison' })).toBeInTheDocument()
     expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
@@ -504,7 +503,7 @@ describe('AnalyticsPage', () => {
     await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: 'Calendar Month' }))
 
     // Assert: The historical month selected before the preset remains selected.
-    expect(screen.getByText('June 2026')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /June 2026 summary/ })).toBeInTheDocument()
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0].selection)
       .toEqual({ kind: 'month', month: { year: 2026, month: 5 } })
   })
@@ -539,7 +538,7 @@ describe('AnalyticsPage', () => {
 
       // Assert: The title and exact range follow the rolling period, with no month controls.
       expect(screen.getByRole('heading', { name: new RegExp(`${label} summary`) })).toBeInTheDocument()
-      expect(screen.getAllByText(`${range} · In progress`)).toHaveLength(1)
+      expect(screen.getAllByText(new RegExp(range.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).length).toBeGreaterThan(0)
       expect(screen.queryByRole('button', { name: 'Previous month' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Next month' })).not.toBeInTheDocument()
       if (preset === '7-days' || preset === '30-days') {
@@ -760,15 +759,18 @@ describe('AnalyticsPage', () => {
     render(<AnalyticsPage onAddSession={vi.fn()} />)
 
     // Assert initial July comparison before selecting June.
-    expect(screen.getByText('Current · July 2026: 1 Jul – 15 Jul 2026 · In progress')).toBeInTheDocument()
+    expect(screen.getAllByText('July 2026').length).toBeGreaterThan(0)
+    expect(screen.getByText('1 Jul – 15 Jul · In progress')).toBeInTheDocument()
     expect(within(screen.getByRole('table', { name: 'Previous period comparison' })).getByRole('row', { name: /Session spend/ })).toHaveTextContent('Current120,00 €Difference +30,00 €Previous90,00 €')
 
     // Act: Navigate to the previous calendar month.
     await user.click(screen.getByRole('button', { name: 'Previous month' }))
 
     // Assert: Both labels and values follow the newly selected month.
-    expect(screen.getByText('Current · June 2026: 1 Jun – 30 Jun 2026')).toBeInTheDocument()
-    expect(screen.getByText('Previous · May 2026: 1 May – 31 May 2026')).toBeInTheDocument()
+    expect(screen.getAllByText('June 2026').length).toBeGreaterThan(0)
+    expect(screen.getByText('1 Jun – 30 Jun')).toBeInTheDocument()
+    expect(screen.getByText('May 2026')).toBeInTheDocument()
+    expect(screen.getByText('1 May – 31 May')).toBeInTheDocument()
     expect(within(screen.getByRole('table', { name: 'Previous period comparison' })).getByRole('row', { name: /Session spend/ })).toHaveTextContent('Current200,00 €Difference +90,00 €Previous110,00 €')
     expect(within(screen.getByRole('table', { name: 'Previous period comparison' })).queryByText('120,00 €')).not.toBeInTheDocument()
   })

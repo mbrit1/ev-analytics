@@ -18,8 +18,12 @@ describe('PreviousPeriodComparisonSlab', () => {
     // Arrange / Act
     render(<PreviousPeriodComparisonSlab period={period} previousPeriod={previousPeriod} result={current} previousResult={previous} comparison={compared} isLoading={false} />)
     // Assert
-    expect(screen.getByText('Current · July 2026: 1 Jul – 15 Jul 2026 · In progress')).toBeInTheDocument()
-    expect(screen.getByText('Previous · June 2026: 1 Jun – 15 Jun 2026')).toBeInTheDocument()
+    expect(screen.getByText('Current period', { selector: 'p' })).toBeInTheDocument()
+    expect(screen.getByText('July 2026')).toBeInTheDocument()
+    expect(screen.getByText('1 Jul – 15 Jul · In progress')).toBeInTheDocument()
+    expect(screen.getByText('Previous period', { selector: 'p' })).toBeInTheDocument()
+    expect(screen.getByText('June 2026')).toBeInTheDocument()
+    expect(screen.getByText('1 Jun – 15 Jun')).toBeInTheDocument()
     expect(screen.getByText('Compared across 15 matching calendar days.')).toBeInTheDocument()
     expect(screen.getByText('Recorded charging activity')).toBeInTheDocument()
     const table = screen.getByRole('table', { name: /previous period comparison/i })
@@ -38,6 +42,8 @@ describe('PreviousPeriodComparisonSlab', () => {
     expect(priceCells[0]).toHaveClass('min-w-0', '[overflow-wrap:anywhere]')
     expect(priceCells[1]).toHaveTextContent('Previous0,45 €/kWh')
     expect(priceCells[1]).toHaveClass('min-w-0', '[overflow-wrap:anywhere]')
+    expect(priceCells[0].querySelector('span:last-child')).toHaveClass('text-lg', 'font-semibold', 'text-primary')
+    expect(priceCells[1].querySelector('span:last-child')).toHaveClass('text-sm', 'font-normal', 'text-primary')
     expect(within(table).getAllByRole('row')).toHaveLength(4)
     expect(screen.queryByText(/increased by 25,00 €/)).not.toBeInTheDocument()
   })
@@ -82,6 +88,19 @@ describe('PreviousPeriodComparisonSlab', () => {
     rerender(<PreviousPeriodComparisonSlab period={completed} previousPeriod={prior} result={current} previousResult={previous} comparison={compared} isLoading={false} />)
     expect(screen.getByText(/current period 31 days; previous period 28 days/)).not.toHaveTextContent('Percentage changes are unavailable')
     expect(screen.getAllByText('+25%')).toHaveLength(2)
+  })
+  it('retains preset labels and full cross-year ranges for rolling periods', () => {
+    // Arrange: Build a rolling period that crosses a calendar year boundary.
+    const rolling = createAnalyticsPeriod({ kind: 'preset', preset: '30-days' }, new Date(2026, 0, 10, 12))
+    const rollingPrevious = createPreviousAnalyticsPeriod(rolling.selection, new Date(2026, 0, 10, 12))
+    // Act
+    render(<PreviousPeriodComparisonSlab period={rolling} previousPeriod={rollingPrevious} result={current} previousResult={previous} comparison={compared} isLoading={false} />)
+    // Assert: The preset labels remain while both exact ranges retain their year context.
+    expect(screen.getByText('30 Days')).toBeInTheDocument()
+    expect(screen.getAllByText('Previous period').length).toBeGreaterThan(0)
+    expect(screen.getByText(/12 Dec 2025 – 10 Jan 2026/)).toBeInTheDocument()
+    expect(screen.getByText('12 Nov – 11 Dec 2025')).toBeInTheDocument()
+    expect(screen.queryByText('Compared across 30 matching calendar days.')).not.toBeInTheDocument()
   })
   it('shows signed absolute differences only for comparable complete metrics', () => {
     // Arrange / Act
