@@ -20,20 +20,37 @@ describe('PreviousPeriodComparisonSlab', () => {
     // Assert
     expect(screen.getByText('Current · July 2026: 1 Jul – 15 Jul 2026 · In progress')).toBeInTheDocument()
     expect(screen.getByText('Previous · June 2026: 1 Jun – 15 Jun 2026')).toBeInTheDocument()
+    expect(screen.getByText('Compared across 15 matching calendar days.')).toBeInTheDocument()
+    expect(screen.getByText('Recorded charging activity')).toBeInTheDocument()
     const table = screen.getByRole('table', { name: /previous period comparison/i })
     expect(within(table).getByRole('columnheader', { name: 'Current' })).toBeInTheDocument()
-    expect(within(table).getByRole('row', { name: /Session spend/ })).toHaveTextContent('Current125,00 €Previous100,00 €Change+25%')
-    expect(within(table).getByRole('row', { name: /Weighted session price/ })).toHaveTextContent('Current0,50 €/kWhPrevious0,45 €/kWhChange+0,05 €/kWh')
+    expect(within(table).getByRole('columnheader', { name: 'Previous' })).toBeInTheDocument()
+    const spendRow = within(table).getByRole('row', { name: /Session spend/ })
+    expect(within(spendRow).getByRole('rowheader', { name: /Session spend/ })).toHaveAccessibleName('Session spendChange +25%')
+    expect(spendRow).toHaveTextContent('Session spend↑Increase +25%Current125,00 €Difference +25,00 €Previous100,00 €')
+    expect(spendRow).toHaveTextContent('Difference +25,00 €')
+    expect(within(table).getByRole('row', { name: /Weighted session price/ })).toHaveTextContent('Current0,50 €/kWhPrevious0,45 €/kWh')
+    expect(within(table).getByRole('row', { name: /Weighted session price/ })).toHaveTextContent('+0,05 €/kWh')
+    expect(within(spendRow).getByLabelText('Change +25%')).toBeInTheDocument()
+    const priceRow = within(table).getByRole('row', { name: /Weighted session price/ })
+    const priceCells = within(priceRow).getAllByRole('cell')
+    expect(priceCells[0]).toHaveTextContent('Current0,50 €/kWh')
+    expect(priceCells[0]).toHaveClass('min-w-0', '[overflow-wrap:anywhere]')
+    expect(priceCells[1]).toHaveTextContent('Previous0,45 €/kWh')
+    expect(priceCells[1]).toHaveClass('min-w-0', '[overflow-wrap:anywhere]')
+    expect(within(table).getAllByRole('row')).toHaveLength(4)
+    expect(screen.queryByText(/increased by 25,00 €/)).not.toBeInTheDocument()
   })
   it('preserves available values independently and distinguishes empty, unavailable and zero', () => {
     // Arrange / Act
     const { rerender } = render(<PreviousPeriodComparisonSlab period={period} previousPeriod={previousPeriod} result={{ ...current, totalSessionSpendCents: 0 }} previousResult={empty} comparison={{ status: 'no-comparison-data', spending: { status: 'unavailable' }, energy: { status: 'unavailable' }, priceDifferenceEurPerKwh: null }} isLoading={false} />)
     // Assert
-    expect(screen.getByRole('row', { name: /Session spend/ })).toHaveTextContent('Current0,00 €PreviousNo sessionsChangeUnavailable')
-    expect(screen.getByRole('row', { name: /Billed energy/ })).toHaveTextContent('Current250 kWhPreviousNo sessionsChangeUnavailable')
+    expect(screen.getByText('No comparison data')).toBeInTheDocument()
+    expect(screen.getByRole('row', { name: /Session spend/ })).toHaveTextContent('Current0,00 €PreviousNo sessions')
+    expect(screen.getByRole('row', { name: /Billed energy/ })).toHaveTextContent('Current250 kWhPreviousNo sessions')
     rerender(<PreviousPeriodComparisonSlab period={period} previousPeriod={previousPeriod} result={{ ...current, billedEnergyKwh: null, averageSessionPriceCtPerKwh: null }} previousResult={previous} comparison={{ ...compared, energy: { status: 'unavailable' }, priceDifferenceEurPerKwh: null }} isLoading={false} />)
-    expect(screen.getByRole('row', { name: /Billed energy/ })).toHaveTextContent('CurrentUnavailablePrevious200 kWhChangeUnavailable')
-    expect(screen.getByRole('row', { name: /Weighted session price/ })).toHaveTextContent('CurrentUnavailablePrevious0,45 €/kWhChangeUnavailable')
+    expect(screen.getByRole('row', { name: /Billed energy/ })).toHaveTextContent('Billed energyUnavailableCurrentUnavailablePrevious200 kWh')
+    expect(screen.getByRole('row', { name: /Weighted session price/ })).toHaveTextContent('Weighted session priceUnavailableCurrentUnavailablePrevious0,45 €/kWh')
   })
   it('associates partial energy coverage with each known subtotal', () => {
     // Arrange / Act
@@ -66,14 +83,19 @@ describe('PreviousPeriodComparisonSlab', () => {
     expect(screen.getByText(/current period 31 days; previous period 28 days/)).not.toHaveTextContent('Percentage changes are unavailable')
     expect(screen.getAllByText('+25%')).toHaveLength(2)
   })
-  it('shows one observation immediately above the table only when a metric qualifies', () => {
+  it('shows signed absolute differences only for comparable complete metrics', () => {
     // Arrange / Act
     const { rerender } = render(<PreviousPeriodComparisonSlab period={period} previousPeriod={previousPeriod} result={current} previousResult={previous} comparison={compared} isLoading={false} />)
     // Assert
-    const observation = screen.getByText('Session spend increased by 25,00 € (25%).')
-    expect(observation.nextElementSibling).toBe(screen.getByRole('table'))
+    expect(screen.getAllByText('Difference +25,00 €')).toHaveLength(1)
+    expect(screen.getAllByText('Difference +50 kWh')).toHaveLength(1)
+    expect(screen.getByLabelText('Change +0,05 €/kWh')).toBeInTheDocument()
+    expect(screen.getAllByText('↑')).toHaveLength(2)
     rerender(<PreviousPeriodComparisonSlab period={period} previousPeriod={previousPeriod} result={previous} previousResult={previous} comparison={{ ...compared, spending: { status: 'percentage', percentage: 0 }, energy: { status: 'percentage', percentage: 0 }, priceDifferenceEurPerKwh: 0 }} isLoading={false} />)
-    expect(screen.queryByText(/increased by|decreased by|changed by/)).not.toBeInTheDocument()
+    expect(screen.getByRole('row', { name: /Session spend/ })).toHaveTextContent('Session spend0%')
+    expect(screen.queryByText(/Difference [+-]/)).not.toBeInTheDocument()
+    rerender(<PreviousPeriodComparisonSlab period={period} previousPeriod={previousPeriod} result={{ ...current, validBilledEnergySessionCount: 2 }} previousResult={previous} comparison={{ ...compared, energy: { status: 'unavailable' } }} isLoading={false} />)
+    expect(screen.queryByText(/Difference .* kWh/)).not.toBeInTheDocument()
   })
   it('suppresses stale values during loading and error', () => {
     // Arrange / Act
@@ -81,10 +103,10 @@ describe('PreviousPeriodComparisonSlab', () => {
     // Assert
     expect(screen.getByRole('status')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(screen.queryByText(/increased by|decreased by|changed by/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Difference [+-]/)).not.toBeInTheDocument()
     rerender(<PreviousPeriodComparisonSlab period={period} previousPeriod={previousPeriod} result={current} previousResult={previous} comparison={compared} isLoading={false} error={new Error('read failed')} />)
     expect(screen.getByRole('alert')).toHaveTextContent('Unable to load the previous period comparison.')
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(screen.queryByText(/increased by|decreased by|changed by/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Difference [+-]/)).not.toBeInTheDocument()
   })
 })

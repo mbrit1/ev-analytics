@@ -3,7 +3,6 @@ import { formatCurrency, formatKwh, formatMonthLabel } from '../../../shared/lib
 import type { AnalyticsPeriod, PreviousAnalyticsPeriod } from '../model/analyticsPeriods'
 import type { MonthlySessionSpendResult } from '../model/monthlySessionSpend'
 import type { MetricChange, NoComparisonData, PreviousPeriodComparison } from '../model/previousPeriodComparison'
-import { selectPreviousPeriodHighlight, type PreviousPeriodHighlight } from '../model/previousPeriodHighlight'
 import { formatAnalyticsPeriodRange } from './analyticsPeriodLabels'
 
 /** Values and query state for comparing the selected period with its predecessor. */
@@ -46,6 +45,17 @@ function formatPriceDifference(value: number | null): string {
   return `${normalized > 0 ? '+' : normalized < 0 ? '−' : ''}${amount} €/kWh`
 }
 
+function signedDifference(value: number, formatter: (value: number) => string, precision = 0): string {
+  const threshold = precision === 2 ? 0.005 : precision === 1 ? 0.05 : 0
+  const normalized = Math.abs(value) < threshold ? 0 : value
+  return `${normalized > 0 ? '+' : normalized < 0 ? '−' : ''}${formatter(Math.abs(normalized)).replace(/ (?=€|kWh)/g, '\u00a0')}`
+}
+
+function comparisonDifference(change: MetricChange, current: number | null, previous: number | null, formatter: (value: number) => string, precision = 0): string | null {
+  if (!['percentage', 'no-change', 'up-from-zero'].includes(change.status) || current === null || previous === null) return null
+  return `Difference ${signedDifference(current - previous, formatter, precision)}`
+}
+
 function periodDayCount(period: Pick<AnalyticsPeriod, 'startUtc' | 'endUtc'>): number {
   const startDay = Date.UTC(period.startUtc.getFullYear(), period.startUtc.getMonth(), period.startUtc.getDate())
   const endDay = Date.UTC(period.endUtc.getFullYear(), period.endUtc.getMonth(), period.endUtc.getDate())
@@ -67,15 +77,8 @@ function formatPrice(value: number): string {
   return `${new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value / 100)} €/kWh`
 }
 
-function highlightSentence(highlight: PreviousPeriodHighlight, equalDayCount: boolean): string {
-  if (highlight.metric === 'price') {
-    return `Weighted session price changed by ${formatPriceDifference(highlight.difference)}${equalDayCount ? '' : ' across periods of different lengths'}.`
-  }
-  const label = highlight.metric === 'spending' ? 'Session spend' : 'Billed energy'
-  const amount = highlight.metric === 'spending' ? formatCurrency(Math.abs(highlight.difference)) : `${formatKwh(Math.abs(highlight.difference))} kWh`
-  if (highlight.percentage === null) return `${label} increased from zero to ${amount}.`
-  const percent = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 }).format(Math.abs(highlight.percentage))
-  return `${label} ${highlight.difference > 0 ? 'increased' : 'decreased'} by ${amount} (${percent}%).`
+function isCalendarMonth(period: AnalyticsPeriod): boolean {
+  return period.selection.kind === 'month'
 }
 
 /** Shows neutral, period-scoped changes in session spend, billed energy and weighted price. */
@@ -83,37 +86,43 @@ export function PreviousPeriodComparisonSlab({ period, previousPeriod, result, p
   const unequalNote = !previousPeriod.isDayCountEqual
     ? `The ranges contain different numbers of days: current period ${periodDayCount(period)} days; previous period ${previousPeriod.dayCount} days.${period.isInProgress ? ' Percentage changes are unavailable for unequal ranges.' : ''}`
     : null
-  const highlight = selectPreviousPeriodHighlight(result, previousResult, comparison, previousPeriod.isDayCountEqual)
   const rows = [
-    { label: 'Session spend', current: valueForPeriod(result, result.totalSessionSpendCents, formatCurrency), previous: valueForPeriod(previousResult, previousResult.totalSessionSpendCents, formatCurrency), change: formatChange(comparison.spending) },
-    { label: 'Billed energy', current: energyValue(result), previous: energyValue(previousResult), change: formatChange(comparison.energy) },
-    { label: 'Weighted session price', current: valueForPeriod(result, result.averageSessionPriceCtPerKwh, formatPrice), previous: valueForPeriod(previousResult, previousResult.averageSessionPriceCtPerKwh, formatPrice), change: formatPriceDifference(comparison.priceDifferenceEurPerKwh) },
+    { label: 'Session spend', current: valueForPeriod(result, result.totalSessionSpendCents, formatCurrency), previous: valueForPeriod(previousResult, previousResult.totalSessionSpendCents, formatCurrency), change: formatChange(comparison.spending), difference: comparisonDifference(comparison.spending, result.totalSessionSpendCents, previousResult.totalSessionSpendCents, formatCurrency) },
+    { label: 'Billed energy', current: energyValue(result), previous: energyValue(previousResult), change: formatChange(comparison.energy), difference: comparisonDifference(comparison.energy, result.billedEnergyKwh, previousResult.billedEnergyKwh, (value) => `${formatKwh(value)} kWh`, 2) },
+    { label: 'Weighted session price', current: valueForPeriod(result, result.averageSessionPriceCtPerKwh, formatPrice), previous: valueForPeriod(previousResult, previousResult.averageSessionPriceCtPerKwh, formatPrice), change: formatPriceDifference(comparison.priceDifferenceEurPerKwh), difference: null },
   ]
   return (
     <Slab padding="none" className="w-full space-y-5 p-5 md:p-8" aria-busy={isLoading && error === null}>
-      <div className="space-y-2">
+      <div className="min-w-0 space-y-2">
         <h2 className="text-base font-semibold text-primary">Previous period comparison</h2>
-        <p className="text-sm text-slab-secondary">Current · {periodLabel(period)}: {formatAnalyticsPeriodRange(period)}{period.isInProgress ? ' · In progress' : ''}</p>
-        <p className="text-sm text-slab-secondary">Previous · {previousLabel(previousPeriod)}: {formatAnalyticsPeriodRange(previousPeriod)}</p>
+        <p className="text-sm font-medium text-slab-secondary">Recorded charging activity</p>
+        <div className="grid min-w-0 grid-cols-2 divide-x divide-slab-border rounded-xl bg-secondary/5 p-3">
+          <p className="min-w-0 break-words pr-3 text-sm text-slab-secondary">Current · {periodLabel(period)}: {formatAnalyticsPeriodRange(period)}{period.isInProgress ? ' · In progress' : ''}</p>
+          <p className="min-w-0 break-words pl-3 text-sm text-slab-secondary">Previous · {previousLabel(previousPeriod)}: {formatAnalyticsPeriodRange(previousPeriod)}</p>
+        </div>
+        {period.isInProgress && isCalendarMonth(period) && previousPeriod.isDayCountEqual && <p className="text-xs text-slab-secondary">Compared across {periodDayCount(period)} matching calendar days.</p>}
+        {unequalNote && <p className="text-xs text-slab-secondary">{unequalNote}</p>}
       </div>
       {error !== null ? <p role="alert" className="text-sm text-primary">Unable to load the previous period comparison. Please try again.</p>
         : isLoading ? <div role="status"><span className="sr-only">Loading comparison</span><div aria-hidden="true" className="h-20 animate-pulse rounded-xl bg-secondary/10 motion-reduce:animate-none" /></div>
         : <>
-          {highlight && <p className="text-sm text-primary">{highlightSentence(highlight, previousPeriod.isDayCountEqual)}</p>}
-          <table className="w-full text-left text-sm text-primary" aria-label="Previous period comparison">
-            <thead className="sr-only sm:not-sr-only">
-              <tr><th scope="col" className="pb-3 font-medium">Metric</th><th scope="col" className="pb-3 font-medium">Current</th><th scope="col" className="pb-3 font-medium">Previous</th><th scope="col" className="pb-3 font-medium">Change</th></tr>
+          {comparison.status === 'no-comparison-data' && <p className="text-sm text-slab-secondary">No comparison data</p>}
+          <table className="w-full border-separate border-spacing-0 text-left text-sm text-primary" aria-label="Previous period comparison">
+            <thead className="sr-only">
+              <tr><th scope="col">Metric</th><th scope="col">Current</th><th scope="col">Previous</th></tr>
             </thead>
-            <tbody>
-              {rows.map((row) => <tr key={row.label} className="grid grid-cols-3 gap-x-2 border-t border-slab-border py-4 sm:table-row sm:border-0 sm:py-0">
-                <th scope="row" className="col-span-3 pb-3 text-left font-medium sm:border-t sm:border-slab-border sm:py-4 sm:pr-3">{row.label}</th>
-                {[row.current, row.previous, row.change].map((value, index) => <td key={index} className="min-w-0 break-words tabular-nums align-top sm:border-t sm:border-slab-border sm:py-4 sm:pr-3"><span aria-hidden="true" className="mb-1 block text-xs font-normal sm:hidden">{['Current', 'Previous', 'Change'][index]}</span>{value}</td>)}
+            <tbody className="block min-w-0 lg:grid lg:grid-cols-3 lg:divide-x lg:divide-slab-border">
+              {rows.map((row) => <tr key={row.label} role="row" className="mb-3 grid min-w-0 grid-cols-2 gap-x-3 gap-y-3 border-t border-slab-border py-4 last:mb-0 lg:mb-0 lg:block lg:border-t-0 lg:px-4 lg:py-3 first:lg:pl-0 last:lg:pr-0">
+                <th scope="row" role="rowheader" className="col-span-2 min-w-0 text-left font-medium lg:flex lg:min-h-12 lg:flex-wrap lg:content-start lg:items-center lg:gap-2">
+                  <span>{row.label}</span><span aria-label={`Change ${row.change}`} className="inline-flex shrink-0 items-center rounded-full bg-secondary/10 px-2 py-1 text-xs font-medium tabular-nums text-slab-secondary">{row.change.startsWith('+') && row.label !== 'Weighted session price' ? <><span aria-hidden="true" className="mr-1">↑</span><span className="sr-only">Increase </span>{row.change}</> : row.change.startsWith('−') && row.label !== 'Weighted session price' ? <><span aria-hidden="true" className="mr-1">↓</span><span className="sr-only">Decrease </span>{row.change}</> : row.change}</span>
+                </th>
+                <td role="cell" className="min-w-0 break-words [overflow-wrap:anywhere] tabular-nums align-top lg:mt-3 lg:block"><span className="mb-1 block text-xs font-normal text-slab-secondary">Current</span><span className="block min-w-0 break-words [overflow-wrap:anywhere] text-lg font-semibold leading-tight text-primary">{row.current}</span>{row.difference && <span className="mt-1 block min-w-0 break-words [overflow-wrap:anywhere] text-xs font-normal text-slab-secondary">{row.difference}</span>}</td>
+                <td role="cell" className="min-w-0 break-words [overflow-wrap:anywhere] tabular-nums align-top lg:mt-3 lg:block"><span className="mb-1 block text-xs font-normal text-slab-secondary">Previous</span><span className="block min-w-0 break-words [overflow-wrap:anywhere] text-sm text-slab-secondary">{row.previous}</span></td>
               </tr>)}
             </tbody>
           </table>
           <p className="text-xs text-slab-secondary">Weighted session price requires complete session cost and billed energy coverage. Price change is current minus previous.</p>
           {(comparison.spending.status === 'up-from-zero' || comparison.energy.status === 'up-from-zero') && <p className="text-xs text-slab-secondary">Percentage change is unavailable when the previous value is zero.</p>}
-          {unequalNote && <p className="text-xs text-slab-secondary">{unequalNote}</p>}
         </>}
     </Slab>
   )
