@@ -27,7 +27,22 @@ function withUtcTime(date: Date, hours: number, minutes: number): Date {
   ));
 }
 
+function startOfLocalCalendarDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function addLocalCalendarDays(date: Date, days: number): Date {
+  const next = new Date(date.getTime());
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function withLocalCalendarTime(date: Date, hours: number, minutes: number): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), hours, minutes);
+}
+
 const MOCK_TODAY = startOfUtcDay(new Date());
+const LOCAL_MOCK_TODAY = startOfLocalCalendarDay(new Date());
 const MOCK_NOW_ISO = withUtcTime(MOCK_TODAY, 9, 0).toISOString();
 const ACTIVE_PLAN_VALID_FROM = addUtcDays(MOCK_TODAY, -60);
 const PROMO_BASELINE_START = addUtcDays(MOCK_TODAY, -45);
@@ -37,6 +52,33 @@ const PROMO_RESTORE_START = PROMO_END_EXCLUSIVE;
 
 function buildSessionTimestamp(dayOffset: number, hours: number, minutes: number): string {
   return withUtcTime(addUtcDays(MOCK_TODAY, dayOffset), hours, minutes).toISOString();
+}
+
+function buildComparisonSession(id: string, date: Date, hours: number, totalCost: number, energyKwh: number) {
+  const timestamp = withLocalCalendarTime(date, hours, 0).toISOString();
+  const recordedAt = withLocalCalendarTime(date, hours, 5).toISOString();
+
+  return {
+    id,
+    user_id: 'mock-user-id',
+    session_timestamp: timestamp,
+    provider_id: null,
+    provider_name_snapshot: 'Comparison Sample',
+    tariff_plan_id: null,
+    charging_plan_name_snapshot: null,
+    charging_type: 'DC' as const,
+    kwh_billed: energyKwh,
+    total_cost: totalCost,
+    session_mode: 'ad_hoc' as const,
+    pricing_context: 'ad_hoc' as const,
+    plan_selection_id: null,
+    ad_hoc_pricing: { cpoName: null, pricePerKwh: 45 },
+    price_snapshot: { label: 'Ad-Hoc', kWhPrice: 45, sessionFee: 0 },
+    applied_price_per_kwh: 45,
+    applied_session_fee: 0,
+    created_at: recordedAt,
+    updated_at: recordedAt,
+  };
 }
 
 export const mockProviders = [
@@ -446,8 +488,11 @@ const defaultMockSessions = [
     applied_session_fee: 0,
     created_at: buildSessionTimestamp(-20, 7, 10),
     updated_at: buildSessionTimestamp(-20, 7, 10)
-  }
-];
+  },
+  buildComparisonSession('s9', LOCAL_MOCK_TODAY, 12, 1_845, 41),
+  buildComparisonSession('s10', new Date(LOCAL_MOCK_TODAY.getFullYear(), LOCAL_MOCK_TODAY.getMonth() - 1, 1), 11, 1_215, 27),
+  buildComparisonSession('s11', addLocalCalendarDays(LOCAL_MOCK_TODAY, -45), 13, 1_530, 34),
+].sort((left, right) => new Date(right.session_timestamp).getTime() - new Date(left.session_timestamp).getTime());
 
 const overallPriceMockFixture = selectOverallPriceMockFixture(
   import.meta.env.VITE_MOCK_ANALYTICS_SCENARIO,

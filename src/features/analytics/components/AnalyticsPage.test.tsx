@@ -44,6 +44,22 @@ const emptyProviderBreakdown = calculateBillingProviderBreakdown([], createAnaly
   { kind: 'month', month: { year: 2026, month: 6 } },
   new Date(2026, 6, 15, 12),
 ))
+const emptyComparison = {
+  status: 'no-comparison-data' as const,
+  spending: { status: 'unavailable' as const },
+  energy: { status: 'unavailable' as const },
+  priceDifferenceEurPerKwh: null,
+}
+
+const emptyMonthlyQuery = {
+  result: monthlyResult,
+  previousResult: monthlyResult,
+  comparison: emptyComparison,
+  providerBreakdown: emptyProviderBreakdown,
+  trend: emptyTrend,
+  isLoading: false,
+  error: null,
+}
 
 const readyOverallPrice: OverallChargingPriceQueryState = {
   status: 'success',
@@ -66,7 +82,7 @@ const readyOverallPrice: OverallChargingPriceQueryState = {
  */
 describe('AnalyticsPage', () => {
   beforeEach(() => {
-    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, providerBreakdown: emptyProviderBreakdown, trend: emptyTrend, isLoading: false, error: null })
+    vi.mocked(useMonthlySessionSpend).mockReturnValue(emptyMonthlyQuery)
     vi.mocked(useOverallChargingPrice).mockReturnValue(readyOverallPrice)
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('sidebar')
   })
@@ -126,6 +142,8 @@ describe('AnalyticsPage', () => {
       },
       isLoading: false,
       error: null,
+      previousResult: monthlyResult,
+      comparison: emptyComparison,
     })
 
     // Act
@@ -151,7 +169,7 @@ describe('AnalyticsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Previous month' }))
     // Assert
     expect(screen.queryByRole('tab')).not.toBeInTheDocument()
-    expect(screen.getByText('June 2026')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /June 2026 summary/ })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Overall price' })).toBeInTheDocument()
     expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
   })
@@ -175,7 +193,12 @@ describe('AnalyticsPage', () => {
     ] as const) {
       await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
       await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name }))
-      expect(screen.getByText(name)).toBeInTheDocument()
+      expect(screen.getAllByText(name).length).toBeGreaterThan(0)
+      if (preset === '7-days') {
+        expect(screen.queryByRole('heading', { name: 'Previous period comparison' })).not.toBeInTheDocument()
+      } else {
+        expect(screen.getByRole('heading', { name: 'Previous period comparison' })).toBeInTheDocument()
+      }
       expect(screen.queryByRole('button', { name: 'Previous month' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Next month' })).not.toBeInTheDocument()
       expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0].selection)
@@ -185,12 +208,12 @@ describe('AnalyticsPage', () => {
     await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: 'Calendar Month' }))
 
     // Assert: The prior month remains selected after changing modes.
-    expect(screen.getByText('June 2026')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /June 2026 summary/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Previous period comparison' })).toBeInTheDocument()
     expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
   })
 
-  it('updates provider totals for 7 and 30 Days and keeps the slab before lifetime', async () => {
+  it('keeps provider totals and lifetime visible for 7 and 30 Days and shows comparison only for 30 Days', async () => {
     // Arrange: June falls outside 7 Days but inside 30 Days; July remains in both periods.
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(new Date(2026, 6, 15, 12))
@@ -213,6 +236,8 @@ describe('AnalyticsPage', () => {
         result: calculateMonthlySessionSpend(sessions, period),
         providerBreakdown: calculateBillingProviderBreakdown(sessions, period),
         trend: calculateSessionSpendingTrend(sessions, period),
+        previousResult: monthlyResult,
+        comparison: emptyComparison,
         isLoading: false,
         error: null,
       }
@@ -230,10 +255,20 @@ describe('AnalyticsPage', () => {
     expect(initialProviderHeading.compareDocumentPosition(lifetime)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     expect(lifetime).toHaveTextContent('0,60')
 
-    // Act / Assert: Both short presets update the provider totals and remain visible before lifetime.
-    for (const [label, expectedSpend] of [['7 Days', '12,00 €'], ['30 Days', '17,00 €']] as const) {
+    // Act / Assert: Both short presets hide the chart and keep provider totals before lifetime.
+    for (const [label, expectedSpend, showsComparison] of [
+      ['7 Days', '12,00 €', false],
+      ['30 Days', '17,00 €', true],
+    ] as const) {
       await user.click(screen.getByRole('button', { name: /^Other ranges/ }))
       await user.click(within(screen.getByRole('dialog', { name: 'Other ranges' })).getByRole('button', { name: label }))
+      expect(screen.queryByRole('heading', { name: /Monthly spending/ })).not.toBeInTheDocument()
+      const comparisonHeading = screen.queryByRole('heading', { name: 'Previous period comparison' })
+      if (showsComparison) {
+        expect(comparisonHeading).toBeInTheDocument()
+      } else {
+        expect(comparisonHeading).not.toBeInTheDocument()
+      }
       const providerHeading = screen.getByRole('heading', { name: 'Billing providers' })
       const providerSlab = providerHeading.parentElement?.parentElement
       expect(providerSlab).not.toBeNull()
@@ -299,6 +334,8 @@ describe('AnalyticsPage', () => {
         result: calculateMonthlySessionSpend(sessions, period),
         providerBreakdown: calculateBillingProviderBreakdown(sessions, period),
         trend: calculateSessionSpendingTrend(sessions, period),
+        previousResult: monthlyResult,
+        comparison: emptyComparison,
         isLoading: false,
         error: null,
       }
@@ -431,6 +468,8 @@ describe('AnalyticsPage', () => {
         trend: calculateSessionSpendingTrend([], period),
         isLoading: false,
         error: null,
+        previousResult: monthlyResult,
+        comparison: emptyComparison,
       }
     })
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
@@ -464,7 +503,7 @@ describe('AnalyticsPage', () => {
     await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: 'Calendar Month' }))
 
     // Assert: The historical month selected before the preset remains selected.
-    expect(screen.getByText('June 2026')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /June 2026 summary/ })).toBeInTheDocument()
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0].selection)
       .toEqual({ kind: 'month', month: { year: 2026, month: 5 } })
   })
@@ -480,6 +519,8 @@ describe('AnalyticsPage', () => {
       trend: calculateSessionSpendingTrend([], period),
       isLoading: false,
       error: null,
+      previousResult: monthlyResult,
+      comparison: emptyComparison,
     }))
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<AnalyticsPage onAddSession={vi.fn()} />)
@@ -497,7 +538,7 @@ describe('AnalyticsPage', () => {
 
       // Assert: The title and exact range follow the rolling period, with no month controls.
       expect(screen.getByRole('heading', { name: new RegExp(`${label} summary`) })).toBeInTheDocument()
-      expect(screen.getAllByText(`${range} · In progress`)).toHaveLength(1)
+      expect(screen.getAllByText(new RegExp(range.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).length).toBeGreaterThan(0)
       expect(screen.queryByRole('button', { name: 'Previous month' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Next month' })).not.toBeInTheDocument()
       if (preset === '7-days' || preset === '30-days') {
@@ -539,6 +580,8 @@ describe('AnalyticsPage', () => {
       trend: calculateSessionSpendingTrend([], period),
       isLoading: false,
       error: null,
+      previousResult: monthlyResult,
+      comparison: emptyComparison,
     }))
     const onAddSession = vi.fn()
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
@@ -664,14 +707,85 @@ describe('AnalyticsPage', () => {
     })
     expect(vi.mocked(useOverallChargingPrice).mock.calls.at(-1)).toEqual(['2026-08-01'])
   })
+
+  it('queries the selected period and its immediately preceding comparison period', () => {
+    // Arrange: Select the current month with a fixed day of month.
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 6, 15, 12))
+
+    // Act: Render the month-to-date Analytics page.
+    render(<AnalyticsPage onAddSession={vi.fn()} />)
+
+    // Assert: The query receives both exact local-calendar windows and the comparison slab is present.
+    const [currentPeriod, previousPeriod] = vi.mocked(useMonthlySessionSpend).mock.calls.at(-1) ?? []
+    expect(currentPeriod).toMatchObject({
+      selection: { kind: 'month', month: { year: 2026, month: 6 } },
+      startUtc: new Date(2026, 6, 1),
+      endUtc: new Date(2026, 6, 16),
+    })
+    expect(previousPeriod).toMatchObject({
+      startUtc: new Date(2026, 5, 1),
+      endUtc: new Date(2026, 5, 16),
+      isDayCountEqual: true,
+    })
+    const summary = screen.getByRole('heading', { name: /July 2026 summary/ })
+    const comparisonHeading = screen.getByRole('heading', { name: 'Previous period comparison' })
+    const chart = screen.getByRole('heading', { name: /Monthly spending/ })
+    const providers = screen.getByRole('heading', { name: 'Billing providers' })
+    expect(summary.compareDocumentPosition(comparisonHeading)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(comparisonHeading.compareDocumentPosition(chart)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(chart.compareDocumentPosition(providers)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  })
+
+  it('updates comparison ranges and displayed values when the selected calendar month changes', async () => {
+    // Arrange: Return distinct aggregates for July and June so stale data is detectable.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date(2026, 6, 15, 12))
+    vi.mocked(useMonthlySessionSpend).mockImplementation((selectedPeriod) => {
+      const selectedJuly = selectedPeriod.selection.kind === 'month' && selectedPeriod.selection.month.month === 6
+      const current = { ...monthlyResult, isEmpty: false, sessionCount: 1, totalSessionSpendCents: selectedJuly ? 12_000 : 20_000, billedEnergyKwh: 100, validBilledEnergySessionCount: 1 }
+      const prior = { ...monthlyResult, isEmpty: false, sessionCount: 1, totalSessionSpendCents: selectedJuly ? 9_000 : 11_000, billedEnergyKwh: 90, validBilledEnergySessionCount: 1 }
+      return {
+        result: current,
+        previousResult: prior,
+        providerBreakdown: emptyProviderBreakdown,
+        comparison: { status: 'compared', spending: { status: 'percentage', percentage: 25 }, energy: { status: 'percentage', percentage: 10 }, priceDifferenceEurPerKwh: 0.03 },
+        trend: emptyTrend,
+        isLoading: false,
+        error: null,
+      }
+    })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<AnalyticsPage onAddSession={vi.fn()} />)
+
+    // Assert initial July comparison before selecting June.
+    expect(screen.getAllByText('July 2026').length).toBeGreaterThan(0)
+    expect(screen.getByText('1 Jul – 15 Jul · In progress')).toBeInTheDocument()
+    expect(within(screen.getByRole('table', { name: 'Previous period comparison' })).getByRole('row', { name: /Session spend/ })).toHaveTextContent('Current120,00 €Difference +30,00 €Previous90,00 €')
+
+    // Act: Navigate to the previous calendar month.
+    await user.click(screen.getByRole('button', { name: 'Previous month' }))
+
+    // Assert: Both labels and values follow the newly selected month.
+    expect(screen.getAllByText('June 2026').length).toBeGreaterThan(0)
+    expect(screen.getByText('1 Jun – 30 Jun')).toBeInTheDocument()
+    expect(screen.getByText('May 2026')).toBeInTheDocument()
+    expect(screen.getByText('1 May – 31 May')).toBeInTheDocument()
+    expect(within(screen.getByRole('table', { name: 'Previous period comparison' })).getByRole('row', { name: /Session spend/ })).toHaveTextContent('Current200,00 €Difference +90,00 €Previous110,00 €')
+    expect(within(screen.getByRole('table', { name: 'Previous period comparison' })).queryByText('120,00 €')).not.toBeInTheDocument()
+  })
+
   it('keeps lifetime available during a monthly query failure and recovers', () => {
     // Arrange
-    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, providerBreakdown: emptyProviderBreakdown, trend: emptyTrend, isLoading: false, error: new Error('read failed') })
+    vi.mocked(useMonthlySessionSpend).mockReturnValue({
+      ...emptyMonthlyQuery,
+      error: new Error('read failed'),
+    })
     const { rerender } = render(<AnalyticsPage onAddSession={vi.fn()} />)
     // Act / Assert
     expect(screen.getByText('Unable to load the summary. Please try again.')).toHaveAttribute('role', 'alert')
     expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
-    vi.mocked(useMonthlySessionSpend).mockReturnValue({ result: monthlyResult, providerBreakdown: emptyProviderBreakdown, trend: emptyTrend, isLoading: false, error: null })
+    vi.mocked(useMonthlySessionSpend).mockReturnValue(emptyMonthlyQuery)
     rerender(<AnalyticsPage onAddSession={vi.fn()} />)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(screen.getByText('0 charging sessions')).toBeInTheDocument()

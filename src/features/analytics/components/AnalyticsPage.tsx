@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { createAnalyticsPeriod, getCalendarMonth, type AnalyticsPeriodSelection } from '../model/analyticsPeriods'
+import { createAnalyticsPeriod, createPreviousAnalyticsPeriod, getCalendarMonth, type AnalyticsPeriodSelection } from '../model/analyticsPeriods'
 import { useAnalyticsLayoutMode } from '../hooks/useAnalyticsLayoutMode'
 import { useMonthlySessionSpend } from '../hooks/useMonthlySessionSpend'
 import { useOverallChargingPrice } from '../hooks/useOverallChargingPrice'
@@ -8,6 +8,7 @@ import { MonthlySessionSpendSlab } from './MonthlySessionSpendSlab'
 import { SessionSpendingTrendSlab, type SessionSpendingChartMetric } from './SessionSpendingTrendSlab'
 import { OverallPriceSlab } from './OverallPriceSlab'
 import { BillingProviderBreakdownSlab } from './BillingProviderBreakdownSlab'
+import { PreviousPeriodComparisonSlab } from './PreviousPeriodComparisonSlab'
 
 /** Props for the responsive Analytics route composition. */
 export interface AnalyticsPageProps {
@@ -35,10 +36,19 @@ export function AnalyticsPage({
   const [selection, setSelection] = useState<AnalyticsPeriodSelection>(() => ({ kind: 'month', month: currentMonth }))
   const [chartMetric, setChartMetric] = useState<SessionSpendingChartMetric>('spending')
   const period = useMemo(() => createAnalyticsPeriod(selection, now), [selection, now])
+  const previousPeriod = useMemo(() => createPreviousAnalyticsPeriod(selection, now), [selection, now])
   const showSpendingChart = selection.kind !== 'preset'
     || (selection.preset !== '7-days' && selection.preset !== '30-days')
   const layoutMode = useAnalyticsLayoutMode()
-  const { result: monthlyResult, providerBreakdown, trend, isLoading: isMonthlyLoading, error: monthlyError } = useMonthlySessionSpend(period)
+  const {
+    result: monthlyResult,
+    previousResult,
+    comparison,
+    providerBreakdown,
+    trend,
+    isLoading: isMonthlyLoading,
+    error: monthlyError,
+  } = useMonthlySessionSpend(period, previousPeriod)
   const overallPriceQuery = useOverallChargingPrice(formatLocalDateKey(now))
 
   useEffect(() => {
@@ -94,6 +104,17 @@ export function AnalyticsPage({
           error={monthlyError}
           onAddSession={onAddSession}
         />
+        {!(selection.kind === 'preset' && selection.preset === '7-days') && (
+          <PreviousPeriodComparisonSlab
+            period={period}
+            previousPeriod={previousPeriod}
+            result={monthlyResult}
+            previousResult={previousResult}
+            comparison={comparison}
+            isLoading={isMonthlyLoading}
+            error={monthlyError}
+          />
+        )}
       </section>
       {showSpendingChart && (
         <SessionSpendingTrendSlab

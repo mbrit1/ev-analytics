@@ -4,8 +4,8 @@ import { getSessions } from '../services/sessionService';
 import { useAuth } from '../../auth';
 
 type SettledQuery<T> =
-  | { status: 'success'; data: T }
-  | { status: 'error'; error: unknown };
+  | { userId: string | null; status: 'success'; data: T }
+  | { userId: string | null; status: 'error'; error: unknown };
 
 /** Current local charging-session data and its independent query diagnostics. */
 export interface UseSessionsResult {
@@ -32,24 +32,26 @@ export interface UseSessionsResult {
  */
 export function useSessions(): UseSessionsResult {
   const { user } = useAuth();
+  const userId = user?.id ?? null;
   const sessionQuery = useLiveQuery<SettledQuery<ChargingSession[]>>(async () => {
-    if (!user) return { status: 'success', data: [] };
+    if (!user) return { userId, status: 'success', data: [] };
     try {
-      return { status: 'success', data: await getSessions(user.id) };
+      return { userId, status: 'success', data: await getSessions(user.id) };
     } catch (error) {
-      return { status: 'error', error };
+      return { userId, status: 'error', error: error ?? new Error('Session read failed') };
     }
-  }, [user?.id]);
+  }, [userId]);
   const pendingSyncQuery = useLiveQuery<SettledQuery<Set<string>>>(
     async () => {
       if (!user) {
-        return { status: 'success', data: new Set<string>() };
+        return { userId, status: 'success', data: new Set<string>() };
       }
       try {
         const outbox = await db.sync_outbox.where('table_name').equals('sessions').toArray();
         // Outbox payloads share the source record id, which lets the history view
         // mark only the sessions still awaiting remote sync.
         return {
+          userId,
           status: 'success',
           data: new Set(
             outbox
@@ -58,25 +60,28 @@ export function useSessions(): UseSessionsResult {
           ),
         };
       } catch (error) {
-        return { status: 'error', error };
+        return { userId, status: 'error', error: error ?? new Error('Pending sync read failed') };
       }
     },
-    [user?.id]
+    [userId]
   );
 
-  const error = sessionQuery?.status === 'error' ? sessionQuery.error : null;
-  const pendingSyncError = pendingSyncQuery?.status === 'error'
-    ? pendingSyncQuery.error
+  // A live query can retain its previous value while dependencies switch. Only
+  // expose a settled value once it belongs to the currently authenticated user.
+  const currentSessionQuery = sessionQuery?.userId === userId ? sessionQuery : undefined;
+  const currentPendingSyncQuery = pendingSyncQuery?.userId === userId ? pendingSyncQuery : undefined;
+  const error = currentSessionQuery?.status === 'error' ? currentSessionQuery.error : null;
+  const pendingSyncError = currentPendingSyncQuery?.status === 'error'
+    ? currentPendingSyncQuery.error
     : null;
 
   return {
-    sessions: sessionQuery?.status === 'success' ? sessionQuery.data : [],
-    pendingSyncIds: pendingSyncQuery?.status === 'success'
-      ? pendingSyncQuery.data
+    sessions: currentSessionQuery?.status === 'success' ? currentSessionQuery.data : [],
+    pendingSyncIds: currentPendingSyncQuery?.status === 'success'
+      ? currentPendingSyncQuery.data
       : new Set<string>(),
-    isLoading: error === null
-      && pendingSyncError === null
-      && (sessionQuery === undefined || pendingSyncQuery === undefined),
+    isLoading: currentSessionQuery === undefined
+      || (error === null && pendingSyncError === null && currentPendingSyncQuery === undefined),
     error,
     pendingSyncError,
   };

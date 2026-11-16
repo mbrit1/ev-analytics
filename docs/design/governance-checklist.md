@@ -7,6 +7,7 @@ Use this checklist for every UI-facing change. The default baseline is
 - Surface/background uses sandbox roles (`bg-environment`, `surface-slab`) or their mapped Tailwind tokens (`bg-surface`, etc.).
 - Accent interactions use `accent` token family, not ad-hoc hues.
 - Typography roles are consistent: primary text for value/headline, secondary text for metadata/labels.
+- Use `text-slab-secondary` for secondary labels and notes on `bg-surface`. Maintain at least 4.5:1 for small text. The shared pair is `#6E6E73` on `#FFFFFF` in light mode (5.07:1) and `#8E8E93` on `#1C1C1E` in dark mode (5.22:1).
 
 ## 2) Control consistency
 - Touch targets meet minimum 44px height for interactive controls.
@@ -100,12 +101,7 @@ keep a provider's segment and list indicator the same color, separate adjacent
 segments with a 1px surface-colored divider, and retain text labels and values
 so color is not the sole cue. Hide the bar for a single group or no positive known
 energy. Stack energy beneath the name on mobile; align energy and spend in
-separate columns on desktop. The desktop column labels use an Analytics-local
-accessible text treatment: `#6E6E73` on `#FFFFFF` in light mode (5.07:1),
-and `#8E8E93` on `#1C1C1E` in dark mode (5.22:1). The light value differs
-from the global secondary token to achieve at least 4.5:1 contrast for small
-labels. Consider promoting this treatment to a shared accessible-label token
-when the global foundation is reviewed. It remains a local exception.
+separate columns on desktop. Use the shared slab text role for secondary labels.
 
 At bottom-dock widths, the full Others row opens the **Other billing providers**
 bottom sheet with each member’s billed kWh and spend. Keep long lists scrollable

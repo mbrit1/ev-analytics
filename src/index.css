@@ -6,6 +6,7 @@
   --color-accent: #007AFF;
   --color-primary: #1D1D1F;
   --color-secondary: #86868B;
+  --color-slab-secondary: #6E6E73;
   --color-slab-border: rgba(0, 0, 0, 0.08);
   
   --shadow-slab: 0 10px 30px rgba(0, 0, 0, 0.04);
@@ -42,6 +43,7 @@
       --color-surface: #1C1C1E;
       --color-primary: #F5F5F7;
       --color-secondary: #8E8E93;
+      --color-slab-secondary: #8E8E93;
       --color-slab-border: rgba(255, 255, 255, 0.1);
       --shadow-slab: 0 10px 40px rgba(0, 0, 0, 0.3);
       --bg-environment: #000000;

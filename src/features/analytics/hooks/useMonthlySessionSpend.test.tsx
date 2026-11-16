@@ -2,7 +2,7 @@ import { renderHook } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSessions } from '../../charging-sessions'
 import type { ChargingSession } from '../../charging-sessions'
-import { createAnalyticsPeriod } from '../model/analyticsPeriods'
+import { createAnalyticsPeriod, createPreviousAnalyticsPeriod } from '../model/analyticsPeriods'
 import { useMonthlySessionSpend } from './useMonthlySessionSpend'
 
 vi.mock('../../charging-sessions', () => ({
@@ -50,7 +50,7 @@ describe('useMonthlySessionSpend', () => {
 
     // Act: Render the hook for June.
     const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, new Date(2026, 6, 1))
-    const { result } = renderHook(() => useMonthlySessionSpend(period))
+    const { result } = renderHook(() => useMonthlySessionSpend(period, createPreviousAnalyticsPeriod(period.selection, new Date(2026, 6, 1))))
 
     // Assert: Query state and calculated cents are both exposed.
     expect(result.current.isLoading).toBe(true)
@@ -80,11 +80,11 @@ describe('useMonthlySessionSpend', () => {
 
     // Act: Render June, then select July.
     const { result, rerender } = renderHook(
-      ({ period }) => useMonthlySessionSpend(period),
-      { initialProps: { period: createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, now) } },
+      ({ period, previousPeriod }) => useMonthlySessionSpend(period, previousPeriod),
+      { initialProps: { period: createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, now), previousPeriod: createPreviousAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, now) } },
     )
     expect(result.current.result.totalSessionSpendCents).toBe(1200)
-    rerender({ period: createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 6 } }, now) })
+    rerender({ period: createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 6 } }, now), previousPeriod: createPreviousAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 6 } }, now) })
 
     // Assert: The new period uses the July session only.
     expect(result.current.result.totalSessionSpendCents).toBe(3400)
@@ -109,8 +109,8 @@ describe('useMonthlySessionSpend', () => {
     })
     const now = new Date(2026, 5, 10, 8)
     const { result, rerender } = renderHook(
-      ({ period }) => useMonthlySessionSpend(period),
-      { initialProps: { period: createAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, now) } },
+      ({ period, previousPeriod }) => useMonthlySessionSpend(period, previousPeriod),
+      { initialProps: { period: createAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, now), previousPeriod: createPreviousAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, now) } },
     )
 
     // Act: Widen the selection from seven to thirty calendar days.
@@ -120,7 +120,7 @@ describe('useMonthlySessionSpend', () => {
       startUtc: result.current.trend!.startUtc,
       endUtc: result.current.trend!.endUtc,
     }
-    rerender({ period: createAnalyticsPeriod({ kind: 'preset', preset: '30-days' }, now) })
+    rerender({ period: createAnalyticsPeriod({ kind: 'preset', preset: '30-days' }, now), previousPeriod: createPreviousAnalyticsPeriod({ kind: 'preset', preset: '30-days' }, now) })
 
     // Assert: The earlier session enters the shared selected period.
     expect(result.current.result.totalSessionSpendCents).toBe(4600)
@@ -133,7 +133,7 @@ describe('useMonthlySessionSpend', () => {
     vi.mocked(useSessions).mockReturnValue({ sessions: [], pendingSyncIds: new Set(), isLoading: false, error, pendingSyncError: null })
     // Act
     const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, new Date(2026, 6, 1))
-    const { result } = renderHook(() => useMonthlySessionSpend(period))
+    const { result } = renderHook(() => useMonthlySessionSpend(period, createPreviousAnalyticsPeriod(period.selection, new Date(2026, 6, 1))))
     // Assert
     expect(result.current).toHaveProperty('error', error)
     expect(result.current.result.isEmpty).toBe(true)
