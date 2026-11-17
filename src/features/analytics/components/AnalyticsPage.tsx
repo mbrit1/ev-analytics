@@ -8,7 +8,6 @@ import { MonthlySessionSpendSlab } from './MonthlySessionSpendSlab'
 import { SessionSpendingTrendSlab, type SessionSpendingChartMetric } from './SessionSpendingTrendSlab'
 import { OverallPriceSlab } from './OverallPriceSlab'
 import { BillingProviderBreakdownSlab } from './BillingProviderBreakdownSlab'
-import { PreviousPeriodComparisonSlab } from './PreviousPeriodComparisonSlab'
 
 /** Props for the responsive Analytics route composition. */
 export interface AnalyticsPageProps {
@@ -40,9 +39,6 @@ export function AnalyticsPage({
   const showSpendingChart = selection.kind !== 'preset'
     || (selection.preset !== '7-days' && selection.preset !== '30-days')
   const layoutMode = useAnalyticsLayoutMode()
-  const showComparison = layoutMode === 'sidebar'
-    || selection.kind !== 'preset'
-    || selection.preset !== '7-days'
   const {
     result: monthlyResult,
     previousResult,
@@ -102,22 +98,14 @@ export function AnalyticsPage({
       <section aria-label="Selected-period analytics" className="space-y-4">
         <MonthlySessionSpendSlab
           period={period}
+          previousPeriod={previousPeriod}
           result={monthlyResult}
+          previousResult={previousResult}
+          comparison={comparison}
           isLoading={isMonthlyLoading}
           error={monthlyError}
           onAddSession={onAddSession}
         />
-        {showComparison && (
-          <PreviousPeriodComparisonSlab
-            period={period}
-            previousPeriod={previousPeriod}
-            result={monthlyResult}
-            previousResult={previousResult}
-            comparison={comparison}
-            isLoading={isMonthlyLoading}
-            error={monthlyError}
-          />
-        )}
       </section>
       {showSpendingChart && (
         <SessionSpendingTrendSlab
