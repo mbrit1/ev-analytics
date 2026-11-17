@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSessions } from '../../charging-sessions'
 import type { ChargingSession } from '../../charging-sessions'
 import { createAnalyticsPeriod, createPreviousAnalyticsPeriod } from '../model/analyticsPeriods'
+import { getObservedProviderRateCtPerKwh } from '../model/billingProviderBreakdown'
 import { useMonthlySessionSpend } from './useMonthlySessionSpend'
 
 function previousFor(selection: Parameters<typeof createAnalyticsPeriod>[0], now: Date) {
@@ -63,6 +64,7 @@ describe('useMonthlySessionSpend', () => {
     expect(result.current.providerBreakdown.groups).toEqual([
       expect.objectContaining({ normalizedName: 'provider', name: 'Provider', totalCostCents: 1234, billedEnergyKwh: 18.4 }),
     ])
+    expect(getObservedProviderRateCtPerKwh(result.current.providerBreakdown.groups[0]!)).toBeCloseTo(1234 / 18.4)
   })
 
   it('recalculates when the selected month changes', () => {
@@ -85,12 +87,24 @@ describe('useMonthlySessionSpend', () => {
       { initialProps: { period: createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, now), previousPeriod: previousFor({ kind: 'month', month: { year: 2026, month: 5 } }, now) } },
     )
     expect(result.current.result.totalSessionSpendCents).toBe(1200)
+    expect(getObservedProviderRateCtPerKwh(result.current.providerBreakdown.groups[0]!)).toBe(120)
     rerender({ period: createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 6 } }, now), previousPeriod: previousFor({ kind: 'month', month: { year: 2026, month: 6 } }, now) })
 
     // Assert: The new period uses the July session only.
     expect(result.current.result.totalSessionSpendCents).toBe(3400)
     expect(result.current.result.billedEnergyKwh).toBe(10)
+    expect(getObservedProviderRateCtPerKwh(result.current.providerBreakdown.groups[0]!)).toBe(340)
     expect(result.current.result.isCurrentMonth).toBe(true)
+
+    // Act: A local session edit arrives while the selected period stays July.
+    vi.mocked(useSessions).mockReturnValue({
+      sessions: [buildSession(new Date(2026, 6, 10, 12), 5000)],
+      pendingSyncIds: new Set(), isLoading: false, error: null, pendingSyncError: null,
+    })
+    rerender({ period: createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 6 } }, now), previousPeriod: previousFor({ kind: 'month', month: { year: 2026, month: 6 } }, now) })
+
+    // Assert: Provider rate follows the live local session data.
+    expect(getObservedProviderRateCtPerKwh(result.current.providerBreakdown.groups[0]!)).toBe(500)
   })
 
   it('recalculates when the selected preset changes', () => {

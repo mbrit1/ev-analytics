@@ -1,10 +1,12 @@
-import type { BillingProviderGroup } from './billingProviderBreakdown'
+import { getObservedProviderRateCtPerKwh, type BillingProviderGroup } from './billingProviderBreakdown'
 
 type BillingProviderLayoutMode = 'sidebar' | 'bottom-dock'
 const PROVIDER_COLORS = ['#009E73', '#007AFF', '#E69F00', '#986CC7', '#D55E00', '#007C91', '#5B5FC7', '#6F7F28', '#8F694A'] as const
 const OTHERS_COLOR = '#8E8E93'
 
 export type ProviderColor = string
+/** Sort order for the named provider rows and hidden members. */
+export type BillingProviderSort = 'energy' | 'spending' | 'price'
 
 /** A display group with a stable color and optional collapsed-group members. */
 export interface DisplayBillingProviderGroup extends BillingProviderGroup {
@@ -53,14 +55,46 @@ function addGroupTotals(groups: readonly BillingProviderGroup[]): Omit<BillingPr
 export function groupBillingProviders(
   providerGroups: readonly BillingProviderGroup[],
   layoutMode: BillingProviderLayoutMode,
+  sortBy: BillingProviderSort = 'energy',
 ): GroupedBillingProviders {
   const threshold = layoutMode === 'sidebar' ? 5 : 4
-  const namedLimit = providerGroups.length > threshold
+  const energyOrdered = [...providerGroups].sort((left, right) => {
+    const leftEnergy = left.billedEnergyKwh
+    const rightEnergy = right.billedEnergyKwh
+    if (leftEnergy === null || rightEnergy === null) {
+      return leftEnergy === rightEnergy
+        ? (left.normalizedName < right.normalizedName ? -1 : left.normalizedName > right.normalizedName ? 1 : 0)
+        : leftEnergy === null ? 1 : -1
+    }
+    return rightEnergy - leftEnergy
+      || (left.normalizedName < right.normalizedName ? -1 : left.normalizedName > right.normalizedName ? 1 : 0)
+  })
+  const namedLimit = energyOrdered.length > threshold
     ? (layoutMode === 'sidebar' ? 5 : 4)
-    : providerGroups.length
-  const visible = providerGroups.slice(0, namedLimit)
-  const hidden = providerGroups.slice(namedLimit)
-  const colors = assignProviderColors(providerGroups)
+    : energyOrdered.length
+  const visible = [...energyOrdered.slice(0, namedLimit)]
+  const hidden = [...energyOrdered.slice(namedLimit)]
+  const compareName = (left: BillingProviderGroup, right: BillingProviderGroup) =>
+    left.normalizedName < right.normalizedName ? -1 : left.normalizedName > right.normalizedName ? 1 : 0
+  const compareSortValue = (left: BillingProviderGroup, right: BillingProviderGroup) => {
+    const leftValue = sortBy === 'energy'
+      ? left.billedEnergyKwh
+      : sortBy === 'spending'
+        ? left.totalCostCents
+        : getObservedProviderRateCtPerKwh(left)
+    const rightValue = sortBy === 'energy'
+      ? right.billedEnergyKwh
+      : sortBy === 'spending'
+        ? right.totalCostCents
+        : getObservedProviderRateCtPerKwh(right)
+    if (leftValue === null || rightValue === null) {
+      return leftValue === rightValue ? compareName(left, right) : leftValue === null ? 1 : -1
+    }
+    return (sortBy === 'price' ? leftValue - rightValue : rightValue - leftValue) || compareName(left, right)
+  }
+  visible.sort(compareSortValue)
+  hidden.sort(compareSortValue)
+  const colors = assignProviderColors(energyOrdered)
   const displayGroups: DisplayBillingProviderGroup[] = visible.map((group) => ({
     ...group,
     color: colorForProvider(group.normalizedName),

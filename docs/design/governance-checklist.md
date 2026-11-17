@@ -129,3 +129,20 @@ values and exact ranges readable when dates wrap. Show an in-progress label
 where applicable. Distinguish no sessions, valid zero, and unavailable values;
 disclose measured and total sessions beside a known energy subtotal. Test
 both themes and narrow widths, including clearance above the fixed dock.
+
+
+Issue #300 extends the Analytics-local Billing providers exception with an
+Observed session rate column. Keep desktop numeric columns aligned across
+named, Others and expanded member rows; indent member names only. On mobile,
+show rate below spend and energy below the name, including in the Others sheet.
+Keep recorded spending prominent and make the rate readable with tabular
+numerals. Explain the recorded-spend/billed-energy formula, subscription
+exclusion and retrospective scope. Distinguish a valid free rate from an
+unavailable rate and expose the coverage reason accessibly.
+
+Use a labelled native Sort providers selector with a 44px target and visible
+focus. Default to energy descending; offer spend descending and observed rate
+ascending, unavailable last and normalized-name ties. Preserve energy-based
+named/hidden membership, sort within each set and pin Others last. Disclose
+this restriction beside the selector and match the collapsed bar order to the
+list. Changing sort alone must not dismiss Others or alter stable colors.
