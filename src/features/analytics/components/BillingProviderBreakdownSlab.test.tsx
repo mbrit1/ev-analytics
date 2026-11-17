@@ -47,12 +47,90 @@ describe('BillingProviderBreakdownSlab', () => {
 
     // Assert
     expect(screen.getByText('Billing providers')).toBeInTheDocument()
-    expect(screen.getByText('Billed energy and session spending by provider')).toBeInTheDocument()
+    expect(screen.getByText('Recorded session spending, billed energy and observed rates')).toBeInTheDocument()
     expect(screen.getByText('12,5', { selector: 'p' })).toHaveTextContent('kWh')
     expect(screen.getAllByText('32,50 €')).toHaveLength(1)
     expect(screen.getAllByText(/12,5/)).toHaveLength(3)
     expect(screen.queryByText('Total spend')).not.toBeInTheDocument()
     expect(screen.getByText('Example Charge')).toBeInTheDocument()
+  })
+
+  it('shows observed rates and lets the user choose provider ordering', async () => {
+    // Arrange
+    const user = userEvent.setup()
+    const breakdown = calculateBillingProviderBreakdown([{
+      id: 'session-1', user_id: 'owner', session_mode: 'ad_hoc', provider_id: null, tariff_plan_id: null,
+      plan_selection_id: null, pricing_context: 'ad_hoc', ad_hoc_pricing: { pricePerKwh: 50 },
+      session_timestamp: new Date('2026-07-14T12:00:00Z'), provider_name_snapshot: 'Example Charge',
+      charging_type: 'AC', kwh_billed: 10, total_cost: 3250, applied_session_fee: 0,
+      created_at: new Date('2026-07-14T12:00:00Z'), updated_at: new Date('2026-07-14T12:00:00Z'),
+    }, {
+      id: 'session-2', user_id: 'owner', session_mode: 'ad_hoc', provider_id: null, tariff_plan_id: null,
+      plan_selection_id: null, pricing_context: 'ad_hoc', ad_hoc_pricing: { pricePerKwh: 0 },
+      session_timestamp: new Date('2026-07-14T13:00:00Z'), provider_name_snapshot: 'Free Charge',
+      charging_type: 'AC', kwh_billed: 5, total_cost: 0, applied_session_fee: 0,
+      created_at: new Date('2026-07-14T13:00:00Z'), updated_at: new Date('2026-07-14T13:00:00Z'),
+    }, {
+      id: 'session-3', user_id: 'owner', session_mode: 'ad_hoc', provider_id: null, tariff_plan_id: null,
+      plan_selection_id: null, pricing_context: 'ad_hoc', ad_hoc_pricing: { pricePerKwh: 0 },
+      session_timestamp: new Date('2026-07-14T14:00:00Z'), provider_name_snapshot: 'Incomplete Charge',
+      charging_type: 'AC', kwh_billed: 2, total_cost: Number.NaN, applied_session_fee: 0,
+      created_at: new Date('2026-07-14T14:00:00Z'), updated_at: new Date('2026-07-14T14:00:00Z'),
+    }], period)
+
+    // Act
+    const { rerender } = render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="sidebar" />)
+
+    // Assert
+    expect(screen.getByRole('combobox', { name: 'Sort providers' })).toBeInTheDocument()
+    expect(screen.getAllByText('Observed session rate').length).toBeGreaterThan(0)
+    expect(screen.getByText('Recorded session spend ÷ billed energy. Excludes subscription fees; not a future tariff.')).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: 'Provider totals' })).toHaveTextContent('3,25 €/kWh')
+    expect(screen.getByRole('list', { name: 'Provider totals' })).toHaveTextContent('0,00 €/kWh')
+    expect(screen.getByText('Unavailable rates indicate incomplete recorded cost or billed energy.')).toBeInTheDocument()
+    expect(screen.getAllByText('Unavailable', { selector: 'span' }).length).toBeGreaterThan(0)
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Sort providers' }), 'price')
+    expect(screen.getByRole('combobox', { name: 'Sort providers' })).toHaveValue('price')
+    expect([...screen.getByRole('list', { name: 'Provider totals' }).querySelectorAll(':scope > li')].map((row) => row.textContent?.match(/(Free Charge|Example Charge|Incomplete Charge)/)?.[1])).toEqual([
+      'Free Charge', 'Example Charge', 'Incomplete Charge',
+    ])
+    rerender(<BillingProviderBreakdownSlab breakdown={breakdownFor(['Example Charge', 'Free Charge'])} isLoading={false} layoutMode="sidebar" />)
+    expect(screen.getByRole('combobox', { name: 'Sort providers' })).toHaveValue('price')
+  })
+
+  it('marks the pooled Others observed rate unavailable when a hidden provider has incomplete data', () => {
+    // Arrange: Epsilon has one valid and one energy-missing session in the hidden group.
+    const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon'], 'Epsilon')
+
+    // Act
+    render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="bottom-dock" />)
+
+    // Assert
+    expect(screen.getByRole('button', { name: 'Show 1 other provider' })).toHaveAccessibleDescription(/Observed session rate Unavailable; incomplete cost or energy data/)
+  })
+
+  it('keeps desktop Others expanded when sorting reorders its members', async () => {
+    // Arrange: Energy makes Zeta, Eta, and Theta hidden; spend reorders them.
+    const user = userEvent.setup()
+    const base = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta', 'Theta'])
+    const breakdown = {
+      ...base,
+      groups: base.groups.map((group) => ({
+        ...group,
+        totalCostCents: group.normalizedName === 'eta' ? 100 : group.normalizedName === 'zeta' ? 1000 : group.normalizedName === 'theta' ? 500 : group.totalCostCents,
+      })),
+    }
+
+    // Act: Expand desktop Others and select spending order.
+    render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="sidebar" />)
+    await user.click(screen.getByRole('button', { name: 'Others (3 providers)' }))
+    expect(screen.getByRole('list', { name: 'Other provider totals' })).toBeInTheDocument()
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Sort providers' }), 'spending')
+
+    // Assert: Sorting reorders hidden rows without closing their disclosure.
+    const members = screen.getByRole('list', { name: 'Other provider totals' })
+    expect([...members.querySelectorAll(':scope > li')].map((row) => row.textContent?.match(/(Zeta|Eta|Theta)/)?.[1])).toEqual(['Zeta', 'Theta', 'Eta'])
+    expect(screen.getByRole('button', { name: 'Others (3 providers)' })).toHaveAttribute('aria-expanded', 'true')
   })
 
   it('renders loading, error, empty, free, and unavailable energy states', () => {
@@ -106,9 +184,9 @@ describe('BillingProviderBreakdownSlab', () => {
 
     // Assert
     const headings = screen.getByText('Provider').parentElement!
-    expect([...headings.children].map((heading) => heading.textContent)).toEqual(['Provider', 'Billed energy', 'Session spend'])
+    expect([...headings.children].map((heading) => heading.textContent)).toEqual(['Provider', 'Billed energy', 'Observed session rate', 'Session spend'])
     expect(headings).toHaveAttribute('aria-hidden', 'true')
-    expect(headings).toHaveClass('hidden', 'md:grid', 'text-slab-secondary')
+    expect(headings).toHaveClass('hidden', 'lg:grid', 'text-slab-secondary')
     expect(screen.getByText('Billed energy', { selector: '.sr-only' }).parentElement).toHaveTextContent('Billed energy Unavailable')
     expect(screen.getByText('Alpha')).toBeInTheDocument()
     expect(screen.getAllByText('1,00 €')).toHaveLength(2)
@@ -194,6 +272,7 @@ describe('BillingProviderBreakdownSlab', () => {
     const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta'])
     const { container } = render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="bottom-dock" />)
     const trigger = screen.getByRole('button', { name: 'Show 3 other providers' })
+    expect(trigger).toHaveAccessibleDescription(/Observed session rate 0,50 €\/kWh/)
 
     // Act: Open the complete Others row.
     await user.click(trigger)
@@ -211,6 +290,9 @@ describe('BillingProviderBreakdownSlab', () => {
     expect(within(memberList).getByText('Epsilon')).toBeInTheDocument()
     expect(within(memberList).getByText('Zeta')).toBeInTheDocument()
     expect(within(memberList).getByText('Eta')).toBeInTheDocument()
+    expect(within(memberList).getAllByText('0,33 €/kWh')).toHaveLength(2)
+    expect(within(memberList).getAllByText('0,50 €/kWh')).toHaveLength(2)
+    expect(within(memberList).getAllByText('1,00 €/kWh')).toHaveLength(2)
     expect(dotFor('Epsilon').style.getPropertyValue('--provider-color')).toBe(colorFor('Epsilon'))
     expect(dotFor('Zeta').style.getPropertyValue('--provider-color')).toBe(colorFor('Zeta'))
     expect(screen.getByRole('button', { name: 'Close other billing providers' })).toHaveFocus()
@@ -258,6 +340,48 @@ describe('BillingProviderBreakdownSlab', () => {
     // Assert: The stale member sheet closes when the Others group disappears.
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Others/ })).not.toBeInTheDocument()
+  })
+
+  it.each(['loading', 'error'] as const)('dismisses Others and restores page interaction when provider data becomes %s', async (blockedState) => {
+    // Arrange: Open the Others sheet, which temporarily locks page scrolling and background interaction.
+    const user = userEvent.setup()
+    const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta'])
+    const { container, rerender } = render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="bottom-dock" />)
+    await user.click(screen.getByRole('button', { name: 'Show 2 other providers' }))
+    expect(screen.getByRole('dialog', { name: 'Other billing providers' })).toBeInTheDocument()
+    expect(document.body.style.overflow).toBe('hidden')
+
+    // Act / Assert: The blocked state hides stale rows and releases the modal page lock.
+    if (blockedState === 'loading') {
+      rerender(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading layoutMode="bottom-dock" />)
+    } else {
+      rerender(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} error={new Error('offline')} layoutMode="bottom-dock" />)
+    }
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(document.body.style.overflow).toBe('')
+    expect(container).not.toHaveAttribute('inert')
+    if (blockedState === 'error') expect(screen.getByRole('alert')).toBeInTheDocument()
+  })
+
+  it('keeps focus on an external period control when membership changes close expanded Others', async () => {
+    // Arrange: Expand desktop Others and move focus to the external period control.
+    const user = userEvent.setup()
+    const initial = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta'])
+    const changed = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Theta', 'Iota'])
+    const view = (breakdown: ReturnType<typeof breakdownFor>) => (
+      <><button type="button">Change period</button><BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="sidebar" /></>
+    )
+    const { rerender } = render(view(initial))
+    await user.click(screen.getByRole('button', { name: 'Others (2 providers)' }))
+    const periodControl = screen.getByRole('button', { name: 'Change period' })
+    periodControl.focus()
+
+    // Act: Change selected-period membership while focus remains outside the slab.
+    rerender(view(changed))
+
+    // Assert: The disclosure closes without moving focus away from the period control.
+    expect(screen.queryByRole('list', { name: 'Other provider totals' })).not.toBeInTheDocument()
+    expect(periodControl).toHaveFocus()
   })
 
   it('describes the aggregate energy, coverage, and spend on the concise mobile trigger', () => {

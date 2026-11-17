@@ -363,7 +363,7 @@ comparing case-insensitively, not by current provider name or charging-station
 operator. Renamed snapshots remain separate;
 blank snapshots appear as Unknown provider. The newest snapshot supplies display
 spelling, with the lexically greater session ID breaking equal-timestamp ties.
-Groups rank by known billed kWh descending, then normalized name.
+Groups default to known billed kWh descending, then normalized name.
 
 The slab shows recorded session spend and provider-billed energy, excluding
 subscription fees. Valid positive energy is summed even with partial coverage;
@@ -371,19 +371,34 @@ measured and total session counts disclose gaps, and partial totals are labelled
 “Known billed energy.” No valid energy is unavailable, not zero; the slab explains
 why no provider distribution is shown. Invalid cost makes the affected group and
 overall spend unavailable;
-free sessions remain valid zero spend. Others applies the same rules to its
-members. Loading, query errors and empty periods have distinct states.
+free sessions remain valid zero spend. Observed session rates divide recorded
+session spending by valid billed kWh only when every included session has a
+valid cost and positive billed energy. Incomplete costs or energy make the rate
+unavailable; complete free sessions produce a valid zero rate. These observed
+rates exclude subscription fees and do not predict future tariff prices.
+Others pools member costs and energy before division and applies the same
+complete-coverage rule, rather than averaging member rates. Loading, query
+errors and empty periods have distinct states.
 
 At bottom-dock widths, show up to four named providers and add Others at five
 or more. At sidebar widths, show up to five named providers and add Others at
-six or more. The proportional bar and collapsed list use the same groups.
+six or more. A labelled native selector sorts by billed energy descending
+(default), session spend descending, or observed session rate ascending.
+Unavailable values follow valid values, with normalized names breaking ties.
+Named and hidden membership stays based on billed energy; sorting applies
+within each set, with Others last. The UI explains this restriction so a
+price sort does not imply that hidden providers are globally more expensive.
+The proportional bar and collapsed list use the same groups and order.
 Others opens a bottom sheet at bottom-dock widths and expands inline at sidebar
 widths. Both show the member totals while the bar keeps its collapsed grouping.
 Only positive known energy sizes segments. Hide the bar for one group or when
 there is no positive known total. A fixed palette maps each normalized billing
 name to the same color across periods and layouts. Providers can share a color.
 Others uses neutral gray. Names and values identify the groups independently of
-color. The slab is an Analytics-local pattern.
+color. Desktop aligns energy, observed rate and spending in separate columns;
+mobile stacks rate beneath spending and energy beneath the provider name,
+including in the Others sheet. Sorting alone does not close Others; a layout
+or membership change does. The slab is an Analytics-local pattern.
 
 ### Lifetime Overall Price
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createAnalyticsPeriod } from './analyticsPeriods'
 import { calculateBillingProviderBreakdown } from './billingProviderBreakdown'
-import type { BillingProviderGroup } from './billingProviderBreakdown'
+import { getObservedProviderRateCtPerKwh, type BillingProviderGroup } from './billingProviderBreakdown'
 import { groupBillingProviders } from './billingProviderGrouping'
 
 /** Test suite for responsive provider grouping and stable segment colors. */
@@ -161,6 +161,88 @@ describe('groupBillingProviders', () => {
     expect(extendedColors.get('alpha')).toBe(initialColors.get('alpha'))
     expect(extendedColors.get('beta')).toBe(initialColors.get('beta'))
     expect(extendedColors.get('gamma')).toBe(initialColors.get('gamma'))
+  })
+
+  it('sorts named and hidden providers within energy-based membership and keeps Others last', () => {
+    // Arrange: Energy establishes the first four named providers and hidden membership.
+    const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta'])
+    const spends = new Map([['alpha', 100], ['beta', 500], ['gamma', 300], ['delta', 400], ['epsilon', 200], ['zeta', 600]])
+    const groups = breakdown.groups.map((group) => ({ ...group, totalCostCents: spends.get(group.normalizedName)! }))
+    const energyMembership = groupBillingProviders(groups, 'bottom-dock')
+
+    // Act: Spending sort reorders visible and hidden members independently.
+    const spendingSorted = groupBillingProviders(groups, 'bottom-dock', 'spending')
+
+    // Assert
+    expect(spendingSorted.groups.map(({ name }) => name)).toEqual(['Beta', 'Delta', 'Gamma', 'Alpha', 'Others'])
+    expect(spendingSorted.groups.at(-1)?.members?.map(({ name }) => name)).toEqual(['Zeta', 'Epsilon'])
+    expect(energyMembership.groups.at(-1)?.members?.map(({ name }) => name)).toEqual(['Epsilon', 'Zeta'])
+    expect(spendingSorted.groups.at(-1)?.isOthers).toBe(true)
+    expect(spendingSorted.barGroups).toEqual(spendingSorted.groups)
+  })
+
+  it('sorts observed rates ascending with unavailable values last and normalized-name ties', () => {
+    // Arrange: Equal rates and incomplete measurements span visible and hidden groups.
+    const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta', 'Eta'])
+    const groups = breakdown.groups.map((group) => {
+      const rate = new Map([['alpha', 10], ['beta', 40], ['gamma', 20], ['delta', 30], ['epsilon', 5], ['zeta', 5]]).get(group.normalizedName)
+      return {
+        ...group,
+        totalCostCents: rate === undefined ? null : rate * (group.billedEnergyKwh ?? 0),
+      }
+    })
+
+    // Act
+    const sorted = groupBillingProviders(groups, 'bottom-dock', 'price')
+
+    // Assert
+    expect(sorted.groups.map(({ name }) => name)).toEqual(['Alpha', 'Gamma', 'Delta', 'Beta', 'Others'])
+    expect(sorted.groups.at(-1)?.members?.map(({ name }) => name)).toEqual(['Epsilon', 'Zeta', 'Eta'])
+    expect(getObservedProviderRateCtPerKwh(sorted.groups.at(-1)!)).toBeNull()
+  })
+
+  it('keeps desktop membership energy-based and pools complete Others rates from totals', () => {
+    // Arrange: Hidden Free and Incomplete providers have deliberately unequal rates and energy.
+    const groups: BillingProviderGroup[] = [
+      { normalizedName: 'alpha', name: 'Alpha', sessionCount: 1, validBilledEnergySessionCount: 1, billedEnergyKwh: 100, totalCostCents: 6000 },
+      { normalizedName: 'beta', name: 'Beta', sessionCount: 1, validBilledEnergySessionCount: 1, billedEnergyKwh: 90, totalCostCents: 4500 },
+      { normalizedName: 'gamma', name: 'Gamma', sessionCount: 1, validBilledEnergySessionCount: 1, billedEnergyKwh: 80, totalCostCents: 4000 },
+      { normalizedName: 'delta', name: 'Delta', sessionCount: 1, validBilledEnergySessionCount: 1, billedEnergyKwh: 70, totalCostCents: 3430 },
+      { normalizedName: 'epsilon', name: 'Epsilon', sessionCount: 1, validBilledEnergySessionCount: 1, billedEnergyKwh: 60, totalCostCents: 3600 },
+      { normalizedName: 'free', name: 'Free', sessionCount: 1, validBilledEnergySessionCount: 1, billedEnergyKwh: 5, totalCostCents: 0 },
+      { normalizedName: 'incomplete', name: 'Incomplete', sessionCount: 1, validBilledEnergySessionCount: 1, billedEnergyKwh: 3, totalCostCents: 240 },
+    ]
+    const partialGroups = groups.map((group) => group.normalizedName === 'incomplete'
+      ? { ...group, sessionCount: 2, validBilledEnergySessionCount: 1 }
+      : group)
+
+    // Act: Apply every sort without changing the energy-ranked desktop cutoff.
+    const energy = groupBillingProviders(groups, 'sidebar', 'energy')
+    const spending = groupBillingProviders(groups, 'sidebar', 'spending')
+    const price = groupBillingProviders(groups, 'sidebar', 'price')
+    const partial = groupBillingProviders(partialGroups, 'sidebar', 'price')
+
+    // Assert: Named membership stays the energy leaders; ties and Others placement are deterministic.
+    const namedNames = (result: typeof energy) => result.groups.filter(({ isOthers }) => !isOthers).map(({ name }) => name)
+    expect(namedNames(energy)).toEqual(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon'])
+    expect(namedNames(spending)).toEqual(['Alpha', 'Beta', 'Gamma', 'Epsilon', 'Delta'])
+    expect(namedNames(price)).toEqual(['Delta', 'Beta', 'Gamma', 'Alpha', 'Epsilon'])
+    expect(price.groups.at(-1)).toMatchObject({ name: 'Others', billedEnergyKwh: 8, totalCostCents: 240 })
+    expect(price.groups.at(-1)?.members?.map(({ name }) => name)).toEqual(['Free', 'Incomplete'])
+    expect(getObservedProviderRateCtPerKwh(price.groups.at(-1)!)).toBe(30)
+    expect(getObservedProviderRateCtPerKwh(partial.groups.at(-1)!)).toBeNull()
+    expect(getObservedProviderRateCtPerKwh(price.groups.at(-1)!.members![0]!)).toBe(0)
+    expect(price.groups.at(-1)?.members?.map(({ name }) => name)).toContain('Free')
+
+    // Assert: Bar/list order, colors, and aggregate spend remain consistent through sorting.
+    const colorsFor = (result: typeof energy) => Object.fromEntries(result.providerColors)
+    expect(colorsFor(spending)).toEqual(colorsFor(energy))
+    expect(colorsFor(price)).toEqual(colorsFor(energy))
+    for (const result of [energy, spending, price]) {
+      expect(result.barGroups).toEqual(result.groups)
+      expect(result.groups.at(-1)?.isOthers).toBe(true)
+      expect(result.groups.reduce((sum, group) => sum + (group.totalCostCents ?? 0), 0)).toBe(21770)
+    }
   })
 
   it('handles provider sets larger than the color palette deterministically', () => {

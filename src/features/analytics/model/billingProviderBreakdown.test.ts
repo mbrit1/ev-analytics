@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ChargingSession } from '../../charging-sessions'
 import { createAnalyticsPeriod } from './analyticsPeriods'
-import { calculateBillingProviderBreakdown } from './billingProviderBreakdown'
+import { calculateBillingProviderBreakdown, getObservedProviderRateCtPerKwh } from './billingProviderBreakdown'
 import { calculateMonthlySessionSpend } from './monthlySessionSpend'
 
 function buildSession(
@@ -153,5 +153,26 @@ describe('calculateBillingProviderBreakdown', () => {
     expect(result.validBilledEnergySessionCount).toBe(1)
     expect(result.periodStartUtc).toEqual(period.startUtc)
     expect(result.periodEndUtc).toEqual(period.endUtc)
+  })
+
+  it('derives observed provider rate only with complete valid cost and positive-energy coverage', () => {
+    // Arrange: Free, weighted, incomplete-cost, partial-energy, and zero-energy groups.
+    const sessions = [
+      buildSession('weighted-a', new Date(2026, 5, 1), 'Weighted', { total_cost: 100, kwh_billed: 2 }),
+      buildSession('weighted-b', new Date(2026, 5, 2), 'Weighted', { total_cost: 300, kwh_billed: 3 }),
+      buildSession('free', new Date(2026, 5, 3), 'Free provider', { total_cost: 0, kwh_billed: 4 }),
+      buildSession('bad-cost', new Date(2026, 5, 4), 'Invalid cost', { total_cost: Number.NaN, kwh_billed: 4 }),
+      buildSession('partial-energy-a', new Date(2026, 5, 5), 'Partial energy', { total_cost: 100, kwh_billed: 4 }),
+      buildSession('partial-energy-b', new Date(2026, 5, 6), 'Partial energy', { total_cost: 100, kwh_billed: Number.NaN }),
+      buildSession('zero-energy', new Date(2026, 5, 7), 'Zero energy', { total_cost: 0, kwh_billed: 0 }),
+    ]
+    const groups = calculateBillingProviderBreakdown(sessions, period).groups
+
+    // Act / Assert
+    expect(getObservedProviderRateCtPerKwh(groups.find(({ normalizedName }) => normalizedName === 'weighted')!)).toBe(80)
+    expect(getObservedProviderRateCtPerKwh(groups.find(({ normalizedName }) => normalizedName === 'free provider')!)).toBe(0)
+    expect(getObservedProviderRateCtPerKwh(groups.find(({ normalizedName }) => normalizedName === 'invalid cost')!)).toBeNull()
+    expect(getObservedProviderRateCtPerKwh(groups.find(({ normalizedName }) => normalizedName === 'partial energy')!)).toBeNull()
+    expect(getObservedProviderRateCtPerKwh(groups.find(({ normalizedName }) => normalizedName === 'zero energy')!)).toBeNull()
   })
 })

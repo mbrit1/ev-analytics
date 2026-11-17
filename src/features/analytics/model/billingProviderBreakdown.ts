@@ -25,6 +25,21 @@ export interface BillingProviderBreakdown {
   periodEndUtc: Date
 }
 
+/** Returns recorded cents per billed kWh only when every session has valid cost and energy. */
+export function getObservedProviderRateCtPerKwh(group: BillingProviderGroup): number | null {
+  return group.sessionCount > 0
+    && group.validBilledEnergySessionCount === group.sessionCount
+    && group.billedEnergyKwh !== null
+    && Number.isFinite(group.billedEnergyKwh)
+    && group.billedEnergyKwh > 0
+    && group.totalCostCents !== null
+    && Number.isFinite(group.totalCostCents)
+    && Number.isInteger(group.totalCostCents)
+    && group.totalCostCents >= 0
+    ? group.totalCostCents / group.billedEnergyKwh
+    : null
+}
+
 interface MutableBillingProviderGroup {
   normalizedName: string
   name: string
