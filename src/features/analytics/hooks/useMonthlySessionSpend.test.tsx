@@ -60,9 +60,6 @@ describe('useMonthlySessionSpend', () => {
     expect(result.current.isLoading).toBe(true)
     expect(result.current.result.totalSessionSpendCents).toBe(1234)
     expect(result.current.result.billedEnergyKwh).toBe(18.4)
-    expect(result.current.trend).toMatchObject({ selectedMonth: { year: 2026, month: 5 } })
-    expect(result.current.trend).not.toBeNull()
-    expect(result.current.trend!.buckets.at(-1)?.totalSessionSpendCents).toBe(1234)
     expect(result.current.providerBreakdown.groups).toEqual([
       expect.objectContaining({ normalizedName: 'provider', name: 'Provider', totalCostCents: 1234, billedEnergyKwh: 18.4 }),
     ])
@@ -94,9 +91,6 @@ describe('useMonthlySessionSpend', () => {
     expect(result.current.result.totalSessionSpendCents).toBe(3400)
     expect(result.current.result.billedEnergyKwh).toBe(10)
     expect(result.current.result.isCurrentMonth).toBe(true)
-    expect(result.current.trend).not.toBeNull()
-    expect(result.current.trend!.buckets.at(-1)?.totalSessionSpendCents).toBe(3400)
-    expect(result.current.trend!.buckets.reduce((sum, bucket) => sum + (bucket.totalSessionSpendCents ?? 0), 0)).toBe(4600)
   })
 
   it('recalculates when the selected preset changes', () => {
@@ -119,17 +113,11 @@ describe('useMonthlySessionSpend', () => {
 
     // Act: Widen the selection from seven to thirty calendar days.
     expect(result.current.result.totalSessionSpendCents).toBe(3400)
-    expect(result.current.trend).not.toBeNull()
-    const initialChartBounds = {
-      startUtc: result.current.trend!.startUtc,
-      endUtc: result.current.trend!.endUtc,
-    }
     rerender({ period: createAnalyticsPeriod({ kind: 'preset', preset: '30-days' }, now), previousPeriod: previousFor({ kind: 'preset', preset: '30-days' }, now) })
 
     // Assert: The earlier session enters the shared selected period.
     expect(result.current.result.totalSessionSpendCents).toBe(4600)
     expect(result.current.result.sessionCount).toBe(2)
-    expect(result.current.trend).toMatchObject(initialChartBounds)
   })
   it('exposes session query errors without treating them as an empty result', () => {
     // Arrange
@@ -141,8 +129,6 @@ describe('useMonthlySessionSpend', () => {
     // Assert
     expect(result.current).toHaveProperty('error', error)
     expect(result.current.result.isEmpty).toBe(true)
-    expect(result.current.trend).not.toBeNull()
-    expect(result.current.trend!.buckets).toHaveLength(6)
   })
 
 })

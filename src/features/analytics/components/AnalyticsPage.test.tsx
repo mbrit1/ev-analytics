@@ -5,8 +5,8 @@ import { useAnalyticsLayoutMode } from '../hooks/useAnalyticsLayoutMode'
 import { useMonthlySessionSpend } from '../hooks/useMonthlySessionSpend'
 import { calculateBillingProviderBreakdown } from '../model/billingProviderBreakdown'
 import { calculateMonthlySessionSpend } from '../model/monthlySessionSpend'
+import { comparePreviousPeriod } from '../model/previousPeriodComparison'
 import { createAnalyticsPeriod } from '../model/analyticsPeriods'
-import { calculateSessionSpendingTrend } from '../model/sessionSpendingTrend'
 import type { ChargingSession } from '../../charging-sessions'
 import {
   useOverallChargingPrice,
@@ -36,10 +36,6 @@ const monthlyResult = {
   isCompleteMonth: false,
   isEmpty: true,
 }
-const emptyTrend = calculateSessionSpendingTrend([], createAnalyticsPeriod(
-  { kind: 'month', month: { year: 2026, month: 6 } },
-  new Date(2026, 6, 15, 12),
-))
 const emptyProviderBreakdown = calculateBillingProviderBreakdown([], createAnalyticsPeriod(
   { kind: 'month', month: { year: 2026, month: 6 } },
   new Date(2026, 6, 15, 12),
@@ -56,7 +52,6 @@ const emptyMonthlyQuery = {
   previousResult: monthlyResult,
   comparison: emptyComparison,
   providerBreakdown: emptyProviderBreakdown,
-  trend: emptyTrend,
   isLoading: false,
   error: null,
 }
@@ -108,54 +103,24 @@ describe('AnalyticsPage', () => {
     expect(screen.queryByRole('tablist', { name: 'Analytics view' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Previous month' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /Monthly spending \(EUR\), 1 Feb – 15 Jul 2026/ })).toBeInTheDocument()
-    expect(screen.getByText('1 Feb – 15 Jul 2026 · 6 Months context')).toBeInTheDocument()
-    expect(within(screen.getByRole('region', { name: 'Selected-period analytics' })).queryByRole('heading', { name: /Monthly spending/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Period comparison' })).toBeInTheDocument()
     expect(vi.mocked(useOverallChargingPrice)).toHaveBeenCalledWith('2026-07-15')
   })
 
-  it('keeps the monthly chart context visible when the selected-month summary is empty', () => {
-    // Arrange: The chart carries its selected period while the selected-month summary has no sessions.
+  it('shows only the two exact month-to-date windows even when both are empty', () => {
+    // Arrange
     vi.useFakeTimers()
     vi.setSystemTime(new Date(2026, 6, 15, 12))
-    vi.mocked(useMonthlySessionSpend).mockReturnValue({
-      result: monthlyResult,
-      providerBreakdown: emptyProviderBreakdown,
-      trend: {
-        ...emptyTrend,
-        startUtc: new Date(2026, 1, 1),
-        endUtc: new Date(2026, 6, 16),
-        buckets: Array.from({ length: 6 }, (_, index) => ({
-          startUtc: new Date(2026, index + 1, 1),
-          endUtc: index === 5 ? new Date(2026, 6, 16) : new Date(2026, index + 2, 1),
-          totalSessionSpendCents: 0,
-          billedEnergyKwh: index === 0 ? 10 : null,
-          validBilledEnergySessionCount: index === 0 ? 1 : 0,
-          averageSessionPriceCtPerKwh: index === 0 ? 0 : null,
-          sessionCount: index === 0 ? 1 : 0,
-          unit: 'month' as const,
-          month: { year: 2026, month: index + 1 },
-          isCurrentMonth: index === 5,
-          isPartialMonth: index === 5,
-        })),
-        isEmpty: false,
-      },
-      isLoading: false,
-      error: null,
-      previousResult: monthlyResult,
-      comparison: emptyComparison,
-    })
 
     // Act
     render(<AnalyticsPage onAddSession={vi.fn()} />)
 
-    // Assert: The summary stays selected-month scoped and the chart shows its wider context.
-    expect(screen.getByRole('heading', { name: /July 2026 summary, 1 Jul – 15 Jul 2026/ })).toBeInTheDocument()
-    expect(screen.getByText(/No charging sessions recorded for this month yet/)).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /Monthly spending \(EUR\), 1 Feb – 15 Jul 2026/ })).toBeInTheDocument()
-    expect(screen.getByText('1 Feb – 15 Jul 2026 · 6 Months context')).toBeInTheDocument()
-    expect(within(screen.getByRole('region', { name: 'Selected-period analytics' })).queryByRole('heading', { name: /Monthly spending/ })).not.toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toBeInTheDocument()
+    // Assert
+    const chart = screen.getByRole('region', { name: 'Period comparison' })
+    expect(within(chart).getByRole('region', { name: 'Previous period' })).toHaveTextContent('1 Jun – 15 Jun 2026')
+    expect(within(chart).getByRole('region', { name: 'Selected period' })).toHaveTextContent('1 Jul – 15 Jul 2026')
+    expect(within(chart).getAllByText('No sessions')).toHaveLength(2)
+    expect(within(chart).queryByText(/Months context/)).not.toBeInTheDocument()
   })
 
   it('shows both sections on mobile and keeps lifetime independent of month selection', async () => {
@@ -232,7 +197,6 @@ describe('AnalyticsPage', () => {
       return {
         result: calculateMonthlySessionSpend(sessions, period),
         providerBreakdown: calculateBillingProviderBreakdown(sessions, period),
-        trend: calculateSessionSpendingTrend(sessions, period),
         previousResult: monthlyResult,
         comparison: emptyComparison,
         isLoading: false,
@@ -252,7 +216,7 @@ describe('AnalyticsPage', () => {
     expect(initialProviderHeading.compareDocumentPosition(lifetime)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     expect(lifetime).toHaveTextContent('0,60')
 
-    // Act / Assert: Both short presets hide the chart and keep provider totals before lifetime.
+    // Act / Assert: Both short presets show the chart and keep provider totals before lifetime.
     for (const [label, expectedSpend, previousRange] of [
       ['7 Days', '12,00 €', '2 Jul – 8 Jul 2026'],
       ['30 Days', '17,00 €', '17 May – 15 Jun 2026'],
@@ -264,7 +228,7 @@ describe('AnalyticsPage', () => {
       expect(option).toHaveFocus()
       await user.keyboard('{Enter}')
       expect(ranges).toHaveFocus()
-      expect(screen.queryByRole('heading', { name: /Monthly spending/ })).not.toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'Period comparison' })).toBeInTheDocument()
       expect(screen.getByText(`Previous period · ${previousRange}`)).toBeInTheDocument()
       const providerHeading = screen.getByRole('heading', { name: 'Billing providers' })
       const providerSlab = providerHeading.parentElement?.parentElement
@@ -275,7 +239,7 @@ describe('AnalyticsPage', () => {
     }
   })
 
-  it('preserves the chosen chart metric while a short preset temporarily hides the chart', async () => {
+  it('preserves the chosen chart metric across both short presets', async () => {
     // Arrange
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(new Date(2026, 6, 15, 12))
@@ -284,28 +248,28 @@ describe('AnalyticsPage', () => {
     render(<AnalyticsPage onAddSession={vi.fn()} />)
     expect(screen.getByRole('radio', { name: 'Spending' })).toBeChecked()
 
-    // Act: Select Energy, then visit both summary-only presets and return to Calendar Month.
+    // Act: Select Energy, then visit both short presets and return to Calendar Month.
     await user.click(screen.getByRole('radio', { name: 'Energy' }))
-    expect(screen.getByRole('slider', { name: 'Monthly energy by month' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Selected period' })).toBeInTheDocument()
     for (const label of ['7 Days', '30 Days']) {
       await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
       await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: label }))
-      expect(screen.queryByRole('radio', { name: 'Energy' })).not.toBeInTheDocument()
+      expect(screen.getByRole('radio', { name: 'Energy' })).toBeChecked()
       expect(screen.getByRole('heading', { name: new RegExp(`${label} summary`) })).toBeInTheDocument()
       await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
       await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: 'Calendar Month' }))
       expect(screen.getByRole('radio', { name: 'Energy' })).toBeChecked()
-      expect(screen.getByRole('slider', { name: 'Monthly energy by month' })).toBeInTheDocument()
+      expect(screen.getByRole('region', { name: 'Selected period' })).toBeInTheDocument()
     }
 
-    // Assert: Returning to the chart restores Energy without changing the independent period controls.
+    // Assert: Returning to Calendar Month retains Energy without changing the independent period controls.
     expect(screen.getByRole('radio', { name: 'Energy' })).toBeChecked()
-    expect(screen.getByRole('slider', { name: 'Monthly energy by month' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Selected period' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Previous month' })).toBeInTheDocument()
   })
 
   it('keeps the selected period and summary when changing chart mode, and retains mode across chart periods', async () => {
-    // Arrange: Use real June and July sessions so the summary and trend share period-scoped inputs.
+    // Arrange: Use real June and July sessions so the summary and chart share period-scoped inputs.
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(new Date(2026, 6, 15, 12))
     const sessions: ChargingSession[] = [
@@ -326,13 +290,16 @@ describe('AnalyticsPage', () => {
         updated_at: new Date(2026, 6, 10, 12),
       },
     ]
-    vi.mocked(useMonthlySessionSpend).mockImplementation((period) => {
+    vi.mocked(useMonthlySessionSpend).mockImplementation((period, previousPeriod) => {
+      const result = calculateMonthlySessionSpend(sessions, period)
+      const previousResult = calculateMonthlySessionSpend(sessions, {
+        ...previousPeriod, isCurrentMonth: false, isCompleteMonth: false,
+      })
       return {
-        result: calculateMonthlySessionSpend(sessions, period),
+        result,
         providerBreakdown: calculateBillingProviderBreakdown(sessions, period),
-        trend: calculateSessionSpendingTrend(sessions, period),
-        previousResult: monthlyResult,
-        comparison: emptyComparison,
+        previousResult,
+        comparison: comparePreviousPeriod(result, previousResult, period, previousPeriod),
         isLoading: false,
         error: null,
       }
@@ -348,8 +315,10 @@ describe('AnalyticsPage', () => {
     const selectedSummary = screen.getByRole('region', { name: 'Selected-period analytics' })
     expect(within(selectedSummary).getByText('10')).toBeInTheDocument()
     expect(within(selectedSummary).getByText('1,20')).toBeInTheDocument()
-    const julySpendingChart = screen.getByRole('slider', { name: 'Monthly spending by month' })
-    expect(julySpendingChart).toHaveAttribute('aria-valuetext', expect.stringContaining('12,00 €'))
+    const julySpendingChart = screen.getByRole('region', { name: 'Selected period' })
+    expect(julySpendingChart).toHaveTextContent('12,00 €')
+    expect(screen.getByRole('region', { name: 'Previous period' })).toHaveTextContent('5,00 €')
+    expect(within(selectedSummary).getByText('Previous: 5,00 €')).toBeInTheDocument()
     const julyPeriod = vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0]
     expect(julyPeriod).toMatchObject({
       selection: { kind: 'month', month: { year: 2026, month: 6 } },
@@ -364,8 +333,10 @@ describe('AnalyticsPage', () => {
     expect(screen.getByRole('heading', { name: /July 2026 summary/ })).toHaveAttribute('aria-label', julySummaryName)
     expect(within(selectedSummary).getByText('10')).toBeInTheDocument()
     expect(within(selectedSummary).getByText('1,20')).toBeInTheDocument()
-    const julyEnergyChart = screen.getByRole('slider', { name: 'Monthly energy by month' })
-    expect(julyEnergyChart).toHaveAttribute('aria-valuetext', expect.stringContaining('10 kWh'))
+    const julyEnergyChart = screen.getByRole('region', { name: 'Selected period' })
+    expect(julyEnergyChart).toHaveTextContent('10 kWh')
+    expect(screen.getByRole('region', { name: 'Previous period' })).toHaveTextContent('5 kWh')
+    expect(within(selectedSummary).getByText('Previous: 5 kWh')).toBeInTheDocument()
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0]).toMatchObject({
       selection: { kind: 'month', month: { year: 2026, month: 6 } },
       startUtc: julyPeriod?.startUtc, endUtc: julyPeriod?.endUtc,
@@ -376,11 +347,13 @@ describe('AnalyticsPage', () => {
     // Act: Select Price/kWh while the same current calendar month stays selected.
     await user.click(screen.getByRole('radio', { name: 'Price/kWh' }))
 
-    // Assert: The third metric uses July's monthly value without changing summary or lifetime scope.
+    // Assert: The third metric uses July’s weighted value without changing summary or lifetime scope.
     expect(screen.getByRole('radio', { name: 'Price/kWh' })).toBeChecked()
-    const julyPriceChart = screen.getByRole('slider', { name: 'Monthly average price by month' })
-    expect(julyPriceChart).toHaveAttribute('aria-valuetext', expect.stringContaining('1,20'))
-    expect(screen.getByRole('heading', { name: /Monthly average price \(EUR\/kWh\), 1 Feb – 15 Jul 2026/ })).toBeInTheDocument()
+    const julyPriceChart = screen.getByRole('region', { name: 'Selected period' })
+    expect(julyPriceChart).toHaveTextContent('1,20 €/kWh')
+    expect(screen.getByRole('region', { name: 'Previous period' })).toHaveTextContent('1,00 €/kWh')
+    expect(within(selectedSummary).getByText('Previous: 1,00 €/kWh')).toBeInTheDocument()
+    expect(julyPriceChart).toHaveTextContent('1 Jul – 15 Jul 2026')
     expect(screen.getByRole('heading', { name: /July 2026 summary/ })).toHaveAttribute('aria-label', julySummaryName)
     expect(within(selectedSummary).getByText('10')).toBeInTheDocument()
     expect(within(selectedSummary).getByText('1,20')).toBeInTheDocument()
@@ -397,9 +370,9 @@ describe('AnalyticsPage', () => {
     expect(within(selectedSummary).getByText('15')).toBeInTheDocument()
     expect(within(selectedSummary).getByText('1,13')).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: 'Price/kWh' })).toBeChecked()
-    const threeMonthChart = screen.getByRole('slider', { name: 'Monthly average price by month' })
+    const threeMonthChart = screen.getByRole('region', { name: 'Selected period' })
     expect(threeMonthChart).toBeInTheDocument()
-    expect(threeMonthChart.parentElement?.querySelector('[data-price-eur-per-kwh="1.2"]')).toBeInTheDocument()
+    expect(threeMonthChart).toHaveTextContent('1,13 €/kWh')
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0].selection)
       .toEqual({ kind: 'preset', preset: '3-months' })
     expect(julyPeriod).toMatchObject({ selection: { kind: 'month', month: { year: 2026, month: 6 } } })
@@ -412,10 +385,9 @@ describe('AnalyticsPage', () => {
     // Act: Check the Energy marks remain available across the same 3 Months range.
     await user.click(screen.getByRole('radio', { name: 'Energy' }))
 
-    // Assert: Both sessions' measured energy values remain represented in the chart.
-    const threeMonthEnergyChart = screen.getByRole('slider', { name: 'Monthly energy by month' })
-    expect(threeMonthEnergyChart.parentElement?.querySelector('[data-energy-kwh="10"]')).toBeInTheDocument()
-    expect(threeMonthEnergyChart.parentElement?.querySelector('[data-energy-kwh="5"]')).toBeInTheDocument()
+    // Assert: The chart shows the aggregate energy for both selected sessions.
+    const threeMonthEnergyChart = screen.getByRole('region', { name: 'Selected period' })
+    expect(threeMonthEnergyChart).toHaveTextContent('15 kWh')
 
     // Act: Restore Price/kWh before continuing to Year.
     await user.click(screen.getByRole('radio', { name: 'Price/kWh' }))
@@ -426,9 +398,9 @@ describe('AnalyticsPage', () => {
 
     // Assert: The chart follows Year bounds, the summary follows the selected range, and lifetime remains fixed.
     expect(screen.getByRole('heading', { name: /Year summary, 16 Jul 2025 – 15 Jul 2026/ })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Monthly average price (EUR/kWh), 16 Jul 2025 – 15 Jul 2026' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Selected period' })).toHaveTextContent('16 Jul 2025 – 15 Jul 2026')
     expect(screen.getByRole('radio', { name: 'Price/kWh' })).toBeChecked()
-    expect(screen.getByRole('slider', { name: 'Monthly average price by month' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Selected period' })).toBeInTheDocument()
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0]).toMatchObject({
       selection: { kind: 'preset', preset: 'year' },
       startUtc: new Date(2025, 6, 16), endUtc: new Date(2026, 6, 16),
@@ -441,9 +413,9 @@ describe('AnalyticsPage', () => {
     await user.click(within(screen.getByRole('dialog', { name: 'Other ranges' })).getByRole('button', { name: 'Calendar Month' }))
     await user.click(screen.getByRole('button', { name: 'Previous month' }))
 
-    // Assert: June's summary remains month-scoped while its chart covers six historical calendar months.
+    // Assert: The chart follows June’s historical summary bounds.
     expect(screen.getByRole('heading', { name: /June 2026 summary, 1 Jun – 30 Jun 2026/ })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Monthly average price (EUR/kWh), 1 Jan – 30 Jun 2026' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Selected period' })).toHaveTextContent('1 Jun – 30 Jun 2026')
     expect(screen.getByRole('radio', { name: 'Price/kWh' })).toBeChecked()
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0]).toMatchObject({
       selection: { kind: 'month', month: { year: 2026, month: 5 } },
@@ -462,7 +434,6 @@ describe('AnalyticsPage', () => {
       return {
         result: monthlyResult,
         providerBreakdown: calculateBillingProviderBreakdown([], period),
-        trend: calculateSessionSpendingTrend([], period),
         isLoading: false,
         error: null,
         previousResult: monthlyResult,
@@ -475,8 +446,8 @@ describe('AnalyticsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
     await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: '7 Days' }))
 
-    // Assert: The short preset shows its selected summary without the monthly chart.
-    expect(screen.queryByRole('slider', { name: 'Monthly spending by month' })).not.toBeInTheDocument()
+    // Assert: The short preset shows its selected summary alongside its comparison chart.
+    expect(screen.getByRole('heading', { name: 'Period comparison' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Selected-period analytics' })).toBeInTheDocument()
 
     // Act: Cross both local day and month boundaries while Analytics stays mounted.
@@ -484,8 +455,8 @@ describe('AnalyticsPage', () => {
 
     // Assert: The period refreshes in place and the preset remains selected.
     expect(screen.getByText('7 Days')).toBeInTheDocument()
-    expect(screen.queryByRole('slider', { name: 'Monthly spending by month' })).not.toBeInTheDocument()
-    expect(screen.getByText('26 Jul – 1 Aug 2026 · In progress')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Period comparison' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Selected period' })).toHaveTextContent('26 Jul – 1 Aug 2026 · In progress')
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0].selection)
       .toEqual({ kind: 'preset', preset: '7-days' })
     expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0]).toMatchObject({
@@ -493,7 +464,7 @@ describe('AnalyticsPage', () => {
       endUtc: new Date(2026, 7, 2),
     })
     expect(screen.getByRole('heading', { name: /7 Days summary/ })).toBeInTheDocument()
-    expect(screen.queryByRole('slider', { name: 'Monthly spending by month' })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Period comparison' })).toBeInTheDocument()
 
     // Act: Return to calendar mode after the day and month rollover.
     await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
@@ -513,7 +484,6 @@ describe('AnalyticsPage', () => {
     vi.mocked(useMonthlySessionSpend).mockImplementation((period) => ({
       result: monthlyResult,
       providerBreakdown: calculateBillingProviderBreakdown([], period),
-      trend: calculateSessionSpendingTrend([], period),
       isLoading: false,
       error: null,
       previousResult: monthlyResult,
@@ -538,14 +508,7 @@ describe('AnalyticsPage', () => {
       expect(screen.getAllByText(new RegExp(range.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))).length).toBeGreaterThan(0)
       expect(screen.queryByRole('button', { name: 'Previous month' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Next month' })).not.toBeInTheDocument()
-      if (preset === '7-days' || preset === '30-days') {
-        expect(screen.queryByRole('heading', { name: /Monthly spending/ })).not.toBeInTheDocument()
-        expect(screen.queryByRole('slider', { name: 'Monthly spending by month' })).not.toBeInTheDocument()
-      } else {
-        expect(screen.getByRole('heading', { name: `Monthly spending (EUR), ${range}` })).toBeInTheDocument()
-        expect(screen.getByRole('slider', { name: 'Monthly spending by month' })).toBeInTheDocument()
-        expect(screen.queryByText(/context/)).not.toBeInTheDocument()
-      }
+      expect(screen.getByRole('region', { name: 'Selected period' })).toHaveTextContent(`${range} · In progress`)
       expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0].selection)
         .toEqual({ kind: 'preset', preset })
       expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
@@ -567,14 +530,13 @@ describe('AnalyticsPage', () => {
   it.each([
     ['7 Days', '7-days'],
     ['30 Days', '30-days'],
-  ] as const)('keeps summary and lifetime actions with %s and hides the chart', async (label, preset) => {
+  ] as const)('keeps summary and lifetime actions with %s and shows the chart', async (label, preset) => {
     // Arrange
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(new Date(2026, 6, 15, 12))
     vi.mocked(useMonthlySessionSpend).mockImplementation((period) => ({
       result: monthlyResult,
       providerBreakdown: calculateBillingProviderBreakdown([], period),
-      trend: calculateSessionSpendingTrend([], period),
       isLoading: false,
       error: null,
       previousResult: monthlyResult,
@@ -591,8 +553,8 @@ describe('AnalyticsPage', () => {
     // Assert
     expect(screen.getByRole('heading', { name: new RegExp(`${label} summary`) })).toBeInTheDocument()
     expect(screen.getByText(/No charging sessions recorded for this period yet/)).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: /Monthly spending/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('slider', { name: 'Monthly spending by month' })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Period comparison' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Period comparison' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Overall price' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
     await user.click(screen.getByRole('button', { name: 'Add Session' }))
@@ -728,7 +690,7 @@ describe('AnalyticsPage', () => {
     const summary = screen.getByRole('region', { name: 'Selected-period analytics' })
     expect(within(summary).getByText('Previous period · 1 Jun – 15 Jun 2026')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Previous period comparison' })).not.toBeInTheDocument()
-    const chart = screen.getByRole('heading', { name: /Monthly spending/ })
+    const chart = screen.getByRole('heading', { name: 'Period comparison' })
     const providers = screen.getByRole('heading', { name: 'Billing providers' })
     expect(summary.compareDocumentPosition(chart)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     expect(chart.compareDocumentPosition(providers)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
@@ -747,7 +709,6 @@ describe('AnalyticsPage', () => {
         previousResult: prior,
         providerBreakdown: emptyProviderBreakdown,
         comparison: { status: 'compared', spending: { status: 'percentage', percentage: 25 }, energy: { status: 'percentage', percentage: 10 }, priceDifferenceEurPerKwh: 0.03 },
-        trend: emptyTrend,
         isLoading: false,
         error: null,
       }

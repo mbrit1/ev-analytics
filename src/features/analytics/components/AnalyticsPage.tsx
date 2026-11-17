@@ -5,7 +5,7 @@ import { useMonthlySessionSpend } from '../hooks/useMonthlySessionSpend'
 import { useOverallChargingPrice } from '../hooks/useOverallChargingPrice'
 import { AnalyticsMonthSelector } from './AnalyticsMonthSelector'
 import { MonthlySessionSpendSlab } from './MonthlySessionSpendSlab'
-import { SessionSpendingTrendSlab, type SessionSpendingChartMetric } from './SessionSpendingTrendSlab'
+import { PeriodComparisonSlab, type PeriodComparisonMetric } from './PeriodComparisonSlab'
 import { OverallPriceSlab } from './OverallPriceSlab'
 import { BillingProviderBreakdownSlab } from './BillingProviderBreakdownSlab'
 
@@ -33,18 +33,15 @@ export function AnalyticsPage({
   const currentMonth = getCalendarMonth(now)
   const [selectedMonth, setSelectedMonth] = useState(currentMonth)
   const [selection, setSelection] = useState<AnalyticsPeriodSelection>(() => ({ kind: 'month', month: currentMonth }))
-  const [chartMetric, setChartMetric] = useState<SessionSpendingChartMetric>('spending')
+  const [chartMetric, setChartMetric] = useState<PeriodComparisonMetric>('spending')
   const period = useMemo(() => createAnalyticsPeriod(selection, now), [selection, now])
   const previousPeriod = useMemo(() => createPreviousAnalyticsPeriod(period), [period])
-  const showSpendingChart = selection.kind !== 'preset'
-    || (selection.preset !== '7-days' && selection.preset !== '30-days')
   const layoutMode = useAnalyticsLayoutMode()
   const {
     result: monthlyResult,
     previousResult,
     comparison,
     providerBreakdown,
-    trend,
     isLoading: isMonthlyLoading,
     error: monthlyError,
   } = useMonthlySessionSpend(period, previousPeriod)
@@ -107,16 +104,16 @@ export function AnalyticsPage({
           onAddSession={onAddSession}
         />
       </section>
-      {showSpendingChart && (
-        <SessionSpendingTrendSlab
-          period={period}
-          trend={trend}
-          isLoading={isMonthlyLoading}
-          error={monthlyError}
-          metric={chartMetric}
-          onMetricChange={setChartMetric}
-        />
-      )}
+      <PeriodComparisonSlab
+        period={period}
+        previousPeriod={previousPeriod}
+        result={monthlyResult}
+        previousResult={previousResult}
+        isLoading={isMonthlyLoading}
+        error={monthlyError}
+        metric={chartMetric}
+        onMetricChange={setChartMetric}
+      />
       <BillingProviderBreakdownSlab breakdown={providerBreakdown} isLoading={isMonthlyLoading} error={monthlyError} layoutMode={layoutMode} />
       <section aria-label="Lifetime Overall Price" className="space-y-3">
         <p className="text-xs font-bold uppercase tracking-wider text-secondary">Lifetime · All recorded sessions</p>

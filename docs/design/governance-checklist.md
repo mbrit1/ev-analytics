@@ -114,76 +114,18 @@ layout or membership of Others changes.
 This treatment improves scanning of period spend and energy on narrow screens;
 it is a local exception, not a shared chart or grouping rule.
 
-The Analytics monthly chart is a local example, not a shared chart primitive.
-It uses a labelled native radio group for Spending, Energy and Price/kWh.
-Spending is the default; retain the chosen mode across a temporary 7 Days or
-30 Days selection, where the chart and selector are hidden. Calendar Month
-shows six months of context ending in the selected month; 3 Months and Year use
-clipped local-calendar monthly buckets, including up to four and thirteen
-buckets respectively. Keep summary and lifetime scopes separate from chart
-context, and show the wider Calendar Month dates when applicable.
+The Analytics period comparison is a local example. Use two compact vertical bars on
+a shared zero baseline. Place formatted values above and previous and selected
+period labels and inclusive dates below. Use neutral slab styling for the
+previous bar and the accent token for the selected bar. The text serves as
+the equivalent of the static graphic; the bars do not need focus or tooltips.
+Keep comparison deltas in the Summary.
 
-Place the metric-specific heading and Info button on one row, followed by the
-left-aligned segmented selector, date-range context and selected-month
-explanation when applicable. The selector has one rounded, padded container,
-three equal segments in a horizontal row, and minimum 44px targets. It fills
-the available mobile width and is capped at 420px from the desktop `md`
-breakpoint. Use the environment and primary/secondary typography tokens where
-applicable: the light container resolves to `#F5F5F7`, with a `#1D1D1F`
-active segment, white active text and `#1D1D1F` inactive text. The dark
-container resolves to `#000000`, with a white active segment, `#1D1D1F` active
-text and `#8E8E93` inactive text. Preserve native single-selection semantics,
-arrow-key navigation, the `#007AFF` focus accent and reduced-motion behavior.
-
-Use vertical bars for the additive monthly Spending and Energy totals, sharing
-bar geometry, and independent dots for the weighted Price/kWh rate. Use the
-existing slab, accent and typography tokens, restrained grid lines and
-metric-specific zero-based scales; do not connect, interpolate or accumulate
-monthly values. Spending uses recorded session charges in EUR, excluding
-subscription fees. Energy is provider-billed kWh, not battery-added energy:
-show a known partial subtotal only with measured and total session counts, and
-never turn missing or invalid measurements into zero. A free session with valid
-billed energy can have an Energy bar. Price requires complete valid cost and
-billed energy coverage; an incomplete rate is unavailable, while complete free
-charging can yield a true zero price. Preserve the existing calculation
-contracts and localized European formatting, including tabular numeric values.
-
-For Calendar Month, identify the selected summary month with a softly rounded
-accent background at approximately 7% opacity behind the grid and data, an
-emphasized month/year label and the text explaining its relationship to the
-summary. This tint is contextual, not an interactive button state. Keep the
-independent inspected-month indicator and metric-specific tooltip; inspecting a
-bucket must not change the summary month. Rolling presets without a selected
-summary month have no persistent highlight.
-
-The focusable plot supports pointer and touch inspection and dragging, visible
-keyboard focus, arrow keys and Home/End; the scale gutter is outside the hit
-area. Show the tooltip only during pointer, touch, focus or keyboard inspection,
-and close it on Escape or blur. Keep month/year and the active metric first,
-with covered days and status secondary. At widths that fit, show individual
-labels for the six-month context; use sparse labels when necessary. Show every
-plot-aligned label for up to four buckets, including a rolling 3 Months range
-that spans four months. For denser Year charts use restrained first, middle and
-last labels within the plot column. Keep partial-month asterisks, MTD and year
-labels legible across year boundaries, without shrinking or overlapping text.
-All buckets remain inspectable and available in the equivalent textual table.
-
-Keep the existing approximately 16px section rhythm, plot geometry and slab
-padding. Coverage explanations precede the plot when needed; partial-month and
-MTD notes and the collapsed-by-default View monthly values disclosure follow
-it. Preserve distinct loading, query failure, empty, zero, partial and
-unavailable states without stale values. Accessible headings, inspection text,
-announcements and the table retain metric units, exact covered dates, session
-counts and coverage or unavailability explanations. The disclosure has a
-minimum 44px target and a named, focusable internal table scroller when needed.
-
-The complete chart and disclosure, expanded table including its final row, and
-Lifetime Overall Price slab must scroll above the fixed mobile dock. Internal
-table scrolling must not cause document-level horizontal overflow; respect
-safe-area spacing in iOS Safari/PWA. Browser checks have covered representative
-mobile and desktop layouts in light and dark themes, keyboard inspection and
-dock clearance. Confirmed 200% browser zoom, enlarged system text, physical
-iOS Safari/PWA scrolling and safe-area behavior, and physical touch inspection
-remain outstanding; browser evidence is not physical-device validation. The
-chart has no essential animation. Record spoken screen-reader validation
-separately. This remains an Analytics-local exception, not a global rule.
+Reuse the native Spending, Energy and Price/kWh radios with equal segments,
+44px minimum targets, visible accent focus and arrow-key selection. Fill
+available width on mobile and cap the selector at 420px at desktop widths.
+Respect reduced motion and use shared typography and slab tokens. Keep the
+values and exact ranges readable when dates wrap. Show an in-progress label
+where applicable. Distinguish no sessions, valid zero, and unavailable values;
+disclose measured and total sessions beside a known energy subtotal. Test
+both themes and narrow widths, including clearance above the fixed dock.
