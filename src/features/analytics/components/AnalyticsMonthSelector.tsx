@@ -62,7 +62,7 @@ export function AnalyticsMonthSelector({
   const rangeDescription = (
     <p id={rangeId} className={layoutMode === 'sidebar'
       ? 'min-w-0 basis-64 grow text-xs leading-5 text-slab-secondary'
-      : 'mt-1 text-center text-xs text-secondary'}>
+      : 'mt-1 text-center text-xs text-slab-secondary'}>
       {formatAnalyticsPeriodRange(period)} · {progressLabel}
     </p>
   )

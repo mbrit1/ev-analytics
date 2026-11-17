@@ -1,9 +1,10 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { MonthlySessionSpendResult } from '../model/monthlySessionSpend'
-import { createAnalyticsPeriod } from '../model/analyticsPeriods'
-import { MonthlySessionSpendSlab } from './MonthlySessionSpendSlab'
+import { createAnalyticsPeriod, createPreviousAnalyticsPeriod } from '../model/analyticsPeriods'
+import { comparePreviousPeriod } from '../model/previousPeriodComparison'
+import { MonthlySessionSpendSlab, type MonthlySessionSpendSlabProps } from './MonthlySessionSpendSlab'
 
 const baseResult: MonthlySessionSpendResult = {
   totalSessionSpendCents: 12345,
@@ -20,10 +21,14 @@ const baseResult: MonthlySessionSpendResult = {
 
 /** Verifies summary metrics and distinct empty, loading, error and incomplete states. */
 describe('MonthlySessionSpendSlab', () => {
-  function renderSummary(overrides: Partial<MonthlySessionSpendResult> = {}, extra = {}) {
+  function renderSummary(overrides: Partial<MonthlySessionSpendResult> = {}, extra: Partial<MonthlySessionSpendSlabProps> = {}) {
     const month = overrides.isCurrentMonth === false ? 5 : 6
-    const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month } }, new Date(2026, 6, 31, 12))
-    return render(<MonthlySessionSpendSlab period={period} result={{ ...baseResult, ...overrides }} isLoading={false} onAddSession={vi.fn()} {...extra} />)
+    const period = extra.period ?? createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month } }, new Date(2026, 6, 31, 12))
+    const previousPeriod = createPreviousAnalyticsPeriod(period)
+    const result = { ...baseResult, ...overrides }
+    const previousResult = extra.previousResult ?? { ...baseResult, isEmpty: true, sessionCount: 0, totalSessionSpendCents: 0, billedEnergyKwh: null, averageSessionPriceCtPerKwh: null, validBilledEnergySessionCount: 0 }
+    const comparison = comparePreviousPeriod(result, previousResult, period, previousPeriod)
+    return render(<MonthlySessionSpendSlab period={period} previousPeriod={previousPeriod} result={result} previousResult={previousResult} comparison={comparison} isLoading={false} onAddSession={vi.fn()} {...extra} />)
   }
 
   it('shows three localized metrics and explicit scope', () => {
@@ -41,6 +46,37 @@ describe('MonthlySessionSpendSlab', () => {
     expect(screen.queryByText(/1 Jul|In progress|Month to date/)).not.toBeInTheDocument()
   })
 
+  it('integrates signed absolute and eligible relative changes with each localized metric', () => {
+    // Arrange / Act: Use complete periods with decreasing energy and increasing spend and price.
+    renderSummary({}, { previousResult: { ...baseResult, totalSessionSpendCents: 10_000, billedEnergyKwh: 25, averageSessionPriceCtPerKwh: 400 } })
+    // Assert
+    expect(screen.getByRole('region', { name: 'Session spend' })).toHaveTextContent(/\+23,45 €.*\+23,5%.*100,00 €/)
+    expect(screen.getByRole('region', { name: 'Billed energy' })).toHaveTextContent(/−0,4 kWh.*−1,6%.*25 kWh/)
+    expect(screen.getByRole('region', { name: 'Average session price' })).toHaveTextContent(/\+1,02 €\/kWh.*4,00 €\/kWh/)
+  })
+
+  it('reports a zero baseline without a percentage and withholds incomplete energy and price comparisons', () => {
+    // Arrange / Act: Previous charging was free but its total billed energy is unknown.
+    renderSummary({}, { previousResult: { ...baseResult, totalSessionSpendCents: 0, billedEnergyKwh: 12, validBilledEnergySessionCount: 1, averageSessionPriceCtPerKwh: null } })
+    // Assert
+    const spend = screen.getByRole('region', { name: 'Session spend' })
+    expect(spend).toHaveTextContent(/\+123,45 €.*0,00 €/)
+    expect(spend).not.toHaveTextContent('%')
+    const energy = screen.getByRole('region', { name: 'Billed energy' })
+    expect(energy).toHaveTextContent(/1 of 2 sessions/)
+    expect(energy).not.toHaveTextContent('%')
+    expect(screen.getByRole('region', { name: 'Average session price' })).toHaveTextContent(/unavailable/i)
+  })
+
+  it('states that comparison data is absent once, without inventing a previous value', () => {
+    // Arrange / Act
+    renderSummary()
+    // Assert
+    expect(screen.getByText(/No comparison data/)).toBeInTheDocument()
+    expect(screen.queryByText(/^Previous:/)).not.toBeInTheDocument()
+    expect(within(screen.getByRole('region', { name: 'Session spend' })).getByText('123,45 €')).toBeInTheDocument()
+  })
+
   it('discloses partial energy and unavailable average', () => {
     // Arrange / Act
     renderSummary({ sessionCount: 3, validBilledEnergySessionCount: 1, averageSessionPriceCtPerKwh: null })
@@ -48,6 +84,38 @@ describe('MonthlySessionSpendSlab', () => {
     expect(screen.getByText('Billed energy available for 1 of 3 sessions.')).toBeInTheDocument()
     expect(screen.getByText('Unavailable')).toBeInTheDocument()
     expect(screen.getByText('123,45 €')).toBeInTheDocument()
+  })
+
+  it('identifies both incomplete energy values as known subtotals', () => {
+    // Arrange / Act
+    renderSummary({ validBilledEnergySessionCount: 1, averageSessionPriceCtPerKwh: null }, {
+      previousResult: { ...baseResult, billedEnergyKwh: 12, validBilledEnergySessionCount: 1, averageSessionPriceCtPerKwh: null },
+    })
+    // Assert
+    const billedEnergy = screen.getByRole('region', { name: 'Billed energy' })
+    expect(billedEnergy).toHaveTextContent('Known: 24,6 kWh')
+    expect(billedEnergy).toHaveTextContent('Previous: Known 12 kWh (1 of 2 sessions measured)')
+    expect(billedEnergy).toHaveTextContent('Change unavailable')
+    expect(billedEnergy).not.toHaveTextContent('%')
+  })
+
+  it('labels the previous window when month to date extends before the prior month', () => {
+    // Arrange
+    const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 2 } }, new Date(2026, 2, 31, 12))
+    // Act
+    renderSummary({}, { period, previousResult: baseResult })
+    // Assert
+    expect(screen.getByText('Previous period · 29 Jan – 28 Feb 2026')).toBeInTheDocument()
+    expect(screen.getByText('The previous window extends before the prior month to match 31 calendar days.')).toBeInTheDocument()
+  })
+
+  it('shows both years when the previous window crosses New Year', () => {
+    // Arrange
+    const period = createAnalyticsPeriod({ kind: 'preset', preset: '30-days' }, new Date(2026, 1, 3, 12))
+    // Act
+    renderSummary({}, { period, previousResult: baseResult })
+    // Assert
+    expect(screen.getByText('Previous period · 6 Dec 2025 – 4 Jan 2026')).toBeInTheDocument()
   })
 
   it('shows unavailable cost metrics while retaining valid energy', () => {
