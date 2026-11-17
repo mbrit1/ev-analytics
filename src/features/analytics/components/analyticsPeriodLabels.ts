@@ -11,8 +11,3 @@ export function formatAnalyticsPeriodRange(period: Pick<AnalyticsPeriod, 'startU
     : formatDate.format(period.startUtc)
   return `${start} – ${formatDate.format(lastIncluded)}`
 }
-
-/** Describes a wider chart context using its exact inclusive dates. */
-export function formatTrendContext(start: Date, end: Date, months: 3 | 6 = 3): string {
-  return `${formatAnalyticsPeriodRange({ startUtc: start, endUtc: end })} · ${months} Months context`
-}
