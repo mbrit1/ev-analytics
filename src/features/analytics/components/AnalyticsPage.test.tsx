@@ -213,7 +213,7 @@ describe('AnalyticsPage', () => {
     expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
   })
 
-  it('keeps provider totals and lifetime visible for 7 and 30 Days and shows comparison only for 30 Days', async () => {
+  it('shows exact desktop comparison dates for short presets and keeps provider and lifetime totals visible', async () => {
     // Arrange: June falls outside 7 Days but inside 30 Days; July remains in both periods.
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(new Date(2026, 6, 15, 12))
@@ -256,19 +256,20 @@ describe('AnalyticsPage', () => {
     expect(lifetime).toHaveTextContent('0,60')
 
     // Act / Assert: Both short presets hide the chart and keep provider totals before lifetime.
-    for (const [label, expectedSpend, showsComparison] of [
-      ['7 Days', '12,00 €', false],
-      ['30 Days', '17,00 €', true],
+    for (const [label, expectedSpend, previousRange] of [
+      ['7 Days', '12,00 €', '2 Jul – 8 Jul 2026'],
+      ['30 Days', '17,00 €', '17 May – 15 Jun 2026'],
     ] as const) {
-      await user.click(screen.getByRole('button', { name: /^Other ranges/ }))
-      await user.click(within(screen.getByRole('dialog', { name: 'Other ranges' })).getByRole('button', { name: label }))
+      const ranges = screen.getByRole('button', { name: /^Other ranges/ })
+      await user.click(ranges)
+      const option = within(screen.getByRole('dialog', { name: 'Other ranges' })).getByRole('button', { name: label })
+      if (label === '30 Days') await user.tab()
+      expect(option).toHaveFocus()
+      await user.keyboard('{Enter}')
+      expect(ranges).toHaveFocus()
       expect(screen.queryByRole('heading', { name: /Monthly spending/ })).not.toBeInTheDocument()
-      const comparisonHeading = screen.queryByRole('heading', { name: 'Previous period comparison' })
-      if (showsComparison) {
-        expect(comparisonHeading).toBeInTheDocument()
-      } else {
-        expect(comparisonHeading).not.toBeInTheDocument()
-      }
+      expect(screen.getByRole('table', { name: 'Previous period comparison' }))
+        .toHaveAccessibleDescription(expect.stringContaining(previousRange))
       const providerHeading = screen.getByRole('heading', { name: 'Billing providers' })
       const providerSlab = providerHeading.parentElement?.parentElement
       expect(providerSlab).not.toBeNull()
@@ -770,7 +771,7 @@ describe('AnalyticsPage', () => {
     expect(screen.getAllByText('June 2026').length).toBeGreaterThan(0)
     expect(screen.getByText('1 Jun – 30 Jun')).toBeInTheDocument()
     expect(screen.getByText('May 2026')).toBeInTheDocument()
-    expect(screen.getByText('1 May – 31 May')).toBeInTheDocument()
+    expect(screen.getByText('2 May – 31 May')).toBeInTheDocument()
     expect(within(screen.getByRole('table', { name: 'Previous period comparison' })).getByRole('row', { name: /Session spend/ })).toHaveTextContent('Current200,00 €Difference +90,00 €Previous110,00 €')
     expect(within(screen.getByRole('table', { name: 'Previous period comparison' })).queryByText('120,00 €')).not.toBeInTheDocument()
   })

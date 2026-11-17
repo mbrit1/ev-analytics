@@ -318,9 +318,19 @@ The rules are intentionally narrow:
 - A loaded empty period shows zero spend and session count, with unavailable energy and average price. Loading and session-query errors suppress metric values and have distinct states. Reactive local edits, including unsynchronized writes, update the selected period summary.
 - The page refreshes time-dependent ranges at local midnight. Lifetime Overall Price retains its existing calculation and remains independent of the selected summary period.
 
+### Previous-period comparison
+
+The previous window is derived from the resolved selected period. It covers the same
+number of local calendar days. Rolling ranges and completed calendar months use
+the adjacent preceding window. Month to date normally starts its comparison on the
+first day of the previous month. If that month is too short, the comparison extends
+backward from its end to match the selected day count. The comparison displays
+the inclusive dates and explains this extension when it occurs. Desktop shows the
+comparison for every preset. The mobile 7 Days layout retains its compact summary.
+
 ### Monthly metric chart
 
-The summary and chart derive from the same authenticated, owner-scoped local session stream through `useMonthlySessionSpend`. The summary retains its selected `AnalyticsPeriod`; the chart has independent bounds. No separate remote query or persistence path is added. Local unsynchronized edits, including cost, billed energy, timestamps and deletion, update the affected buckets without widening the summary. Local midnight refreshes current ranges while preserving a historical selection.
+The summary and chart derive from the same authenticated, owner-scoped local session stream through `useMonthlySessionSpend`. The chart receives the shared selected `AnalyticsPeriod`; the legacy calendar-month chart derives a wider display context from it. No separate remote query or persistence path is added. Local unsynchronized edits, including cost, billed energy, timestamps and deletion, update the affected buckets without widening the summary. Local midnight refreshes current ranges while preserving a historical selection.
 
 The page hides the chart for 7 Days and 30 Days, leaving their summaries and lifetime Overall Price available. Calendar Month shows six calendar months ending with the selected month: six complete months for a historical selection, or five complete months and the current month through tomorrow's exclusive local midnight. The selected month has a subtle accent-tinted background independent of the inspected bucket and matches the summary; the earlier months are context, not part of that summary. 3 Months and Year use their selected rolling bounds, clipped to local-calendar month boundaries, and can contain four and thirteen buckets respectively. Exact inclusive chart dates are exposed in the accessible heading and table; the wider Calendar Month context is also labelled visibly. Local-calendar arithmetic preserves boundaries across daylight-saving changes.
 
