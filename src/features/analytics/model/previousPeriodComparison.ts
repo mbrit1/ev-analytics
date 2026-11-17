@@ -1,4 +1,4 @@
-import type { AnalyticsPeriod, PreviousAnalyticsPeriod } from './analyticsPeriods'
+import { countCalendarDays, type AnalyticsPeriod, type PreviousAnalyticsPeriod } from './analyticsPeriods'
 import type { MonthlySessionSpendResult } from './monthlySessionSpend'
 
 /** Availability or signed percentage state for one compared metric. */
@@ -49,16 +49,18 @@ export function comparePreviousPeriod(
     return { status: 'no-comparison-data', spending: { status: 'unavailable' }, energy: { status: 'unavailable' }, priceDifferenceEurPerKwh: null }
   }
 
-  const unequalCurrentMonthToDate = currentPeriod.isInProgress && !previousPeriod.isDayCountEqual
+  const currentDayCount = countCalendarDays(currentPeriod.startUtc, currentPeriod.endUtc)
+  const previousDayCount = countCalendarDays(previousPeriod.startUtc, previousPeriod.endUtc)
+  const unequalDayCount = currentDayCount !== previousDayCount
   const spending = current.isEmpty || current.totalSessionSpendCents === null || previous.totalSessionSpendCents === null
     ? { status: 'unavailable' } as const
-    : unequalCurrentMonthToDate
+    : unequalDayCount
       ? { status: 'unequal-day-count' } as const
       : percentageChange(current.totalSessionSpendCents, previous.totalSessionSpendCents)
 
   const energy = !hasCompleteEnergy(current) || !hasCompleteEnergy(previous)
     ? { status: 'unavailable' } as const
-    : unequalCurrentMonthToDate
+    : unequalDayCount
       ? { status: 'unequal-day-count' } as const
       : percentageChange(current.billedEnergyKwh!, previous.billedEnergyKwh!)
 

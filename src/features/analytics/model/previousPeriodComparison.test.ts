@@ -4,6 +4,10 @@ import { createAnalyticsPeriod, createPreviousAnalyticsPeriod } from './analytic
 import { calculateMonthlySessionSpend } from './monthlySessionSpend'
 import { comparePreviousPeriod } from './previousPeriodComparison'
 
+function previousFor(selection: Parameters<typeof createAnalyticsPeriod>[0], now: Date) {
+  return createPreviousAnalyticsPeriod(createAnalyticsPeriod(selection, now))
+}
+
 function session(id: string, timestamp: Date, cost: number, kwh = 10, deleted = false): ChargingSession {
   return {
     id, user_id: 'user-1', session_timestamp: timestamp, session_mode: 'plan', provider_id: 'provider-1',
@@ -22,7 +26,7 @@ describe('comparePreviousPeriod', () => {
   const now = new Date(2026, 5, 15, 12)
   const selection = { kind: 'month' as const, month: { year: 2026, month: 5 } }
   const currentPeriod = createAnalyticsPeriod(selection, now)
-  const previousPeriod = createPreviousAnalyticsPeriod(selection, now)
+  const previousPeriod = createPreviousAnalyticsPeriod(currentPeriod)
 
   it('reports previous empty globally and never treats empty current data as free', () => {
     // Arrange: Previous aggregate has no sessions, current has one session.
@@ -77,29 +81,62 @@ describe('comparePreviousPeriod', () => {
     expect(independentMetrics.energy.status).toBe('unavailable')
   })
 
-  it('suppresses only unequal current-month-to-date percentages', () => {
-    // Arrange: 30 days of March compare with 28 prior days in non-leap 2026.
+  it('compares equal current-month-to-date windows after prior-month backfill', () => {
+    // Arrange: 30 days of March backfill beyond February in non-leap 2026.
     const selection = { kind: 'month' as const, month: { year: 2026, month: 2 } }
     const currentPeriod = createAnalyticsPeriod(selection, new Date(2026, 2, 30, 12))
-    const previousPeriod = createPreviousAnalyticsPeriod(selection, new Date(2026, 2, 30, 12))
+    const previousPeriod = createPreviousAnalyticsPeriod(currentPeriod)
     const current = aggregate([session('c', currentPeriod.startUtc, 100)], currentPeriod.startUtc, currentPeriod.endUtc, false)
     const previous = aggregate([session('p', previousPeriod.startUtc, 100)], previousPeriod.startUtc, previousPeriod.endUtc)
-    // Act: Compare unequal MTD windows.
+    // Act: Compare equal MTD windows.
     const result = comparePreviousPeriod(current, previous, currentPeriod, previousPeriod)
-    // Assert: Percentages suppress but price remains available.
-    expect(result.spending.status).toBe('unequal-day-count')
-    expect(result.energy.status).toBe('unequal-day-count')
+    // Assert: Percentage metrics remain comparable and price remains available.
+    expect(result.spending).toEqual({ status: 'percentage', percentage: 0 })
+    expect(result.energy).toEqual({ status: 'percentage', percentage: 0 })
     expect(result.priceDifferenceEurPerKwh).toBe(0)
     const cappedUnavailableCurrent = aggregate([session('capped-bad', currentPeriod.startUtc, 100, Number.NaN)], currentPeriod.startUtc, currentPeriod.endUtc, false)
     const cappedResult = comparePreviousPeriod(cappedUnavailableCurrent, previous, currentPeriod, previousPeriod)
-    expect(cappedResult.spending.status).toBe('unequal-day-count')
+    expect(cappedResult.spending).toEqual({ status: 'percentage', percentage: 0 })
     expect(cappedResult.energy.status).toBe('unavailable')
     const feb = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 1 } }, now)
-    const janPrevious = createPreviousAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 1 } }, now)
+    const janPrevious = previousFor({ kind: 'month', month: { year: 2026, month: 1 } }, now)
     const febSpend = aggregate([session('feb', feb.startUtc, 200)], feb.startUtc, feb.endUtc)
     const janSpend = aggregate([session('jan', janPrevious.startUtc, 100)], janPrevious.startUtc, janPrevious.endUtc)
     // Assert: Completed months compare despite different month lengths.
     expect(comparePreviousPeriod(febSpend, janSpend, feb, janPrevious).spending).toEqual({ status: 'percentage', percentage: 100 })
+  })
+
+  it('suppresses historical percentages when the supplied windows have unequal day counts', () => {
+    // Arrange: February has 28 selected days, while the supplied previous range has 31.
+    const historicalPeriod = createAnalyticsPeriod(
+      { kind: 'month', month: { year: 2026, month: 1 } },
+      new Date(2027, 0, 1),
+    )
+    const unequalPreviousPeriod = {
+      ...createPreviousAnalyticsPeriod(historicalPeriod),
+      startUtc: new Date(2025, 11, 1),
+      endUtc: new Date(2026, 0, 1),
+      dayCount: 31,
+      isDayCountEqual: false,
+    }
+    const current = aggregate(
+      [session('historical-current', historicalPeriod.startUtc, 200, 10)],
+      historicalPeriod.startUtc,
+      historicalPeriod.endUtc,
+    )
+    const previous = aggregate(
+      [session('historical-previous', unequalPreviousPeriod.startUtc, 100, 10)],
+      unequalPreviousPeriod.startUtc,
+      unequalPreviousPeriod.endUtc,
+    )
+
+    // Act: Compare aggregates whose actual local-day windows differ.
+    const result = comparePreviousPeriod(current, previous, historicalPeriod, unequalPreviousPeriod)
+
+    // Assert: Percentage metrics are suppressed while the absolute price remains available.
+    expect(result.spending).toEqual({ status: 'unequal-day-count' })
+    expect(result.energy).toEqual({ status: 'unequal-day-count' })
+    expect(result.priceDifferenceEurPerKwh).toBe(0.1)
   })
 
   it('uses aggregate boundary/deletion filtering and exact weighted price arithmetic', () => {
@@ -121,7 +158,7 @@ describe('comparePreviousPeriod', () => {
     // Arrange: The selected 7-day preset and its prior window contain different energy and rates.
     const preset = { kind: 'preset' as const, preset: '7-days' as const }
     const presetCurrentPeriod = createAnalyticsPeriod(preset, now)
-    const presetPreviousPeriod = createPreviousAnalyticsPeriod(preset, now)
+    const presetPreviousPeriod = createPreviousAnalyticsPeriod(presetCurrentPeriod)
     const current = aggregate([session('preset-current', presetCurrentPeriod.startUtc, 101, 7)], presetCurrentPeriod.startUtc, presetCurrentPeriod.endUtc, false)
     const previous = aggregate([session('preset-previous', presetPreviousPeriod.startUtc, 100, 5)], presetPreviousPeriod.startUtc, presetPreviousPeriod.endUtc, false)
     // Act: Compare preset aggregates.

@@ -1,7 +1,7 @@
-import { useSyncExternalStore } from 'react'
+import { useId, useSyncExternalStore } from 'react'
 import { Slab } from '../../../shared/ui'
 import { formatCurrency, formatKwh, formatMonthLabel } from '../../../shared/lib'
-import type { AnalyticsPeriod, PreviousAnalyticsPeriod } from '../model/analyticsPeriods'
+import { countCalendarDays, type AnalyticsPeriod, type PreviousAnalyticsPeriod } from '../model/analyticsPeriods'
 import type { MonthlySessionSpendResult } from '../model/monthlySessionSpend'
 import type { MetricChange, NoComparisonData, PreviousPeriodComparison } from '../model/previousPeriodComparison'
 import { formatAnalyticsPeriodRange } from './analyticsPeriodLabels'
@@ -21,12 +21,6 @@ function periodLabel(period: AnalyticsPeriod): string {
   return period.selection.kind === 'month'
     ? formatMonthLabel(period.selection.month.year, period.selection.month.month)
     : ({ '7-days': '7 Days', '30-days': '30 Days', '3-months': '3 Months', year: 'Year' }[period.selection.preset])
-}
-
-function previousLabel(period: PreviousAnalyticsPeriod): string {
-  return period.monthLabel
-    ? formatMonthLabel(period.monthLabel.year, period.monthLabel.month)
-    : 'Previous period'
 }
 
 function compactMonthRange(start: Date, end: Date): string {
@@ -63,12 +57,6 @@ function comparisonDifference(change: MetricChange, current: number | null, prev
   return `Difference ${signedDifference(current - previous, formatter, precision)}`
 }
 
-function periodDayCount(period: Pick<AnalyticsPeriod, 'startUtc' | 'endUtc'>): number {
-  const startDay = Date.UTC(period.startUtc.getFullYear(), period.startUtc.getMonth(), period.startUtc.getDate())
-  const endDay = Date.UTC(period.endUtc.getFullYear(), period.endUtc.getMonth(), period.endUtc.getDate())
-  return Math.round((endDay - startDay) / 86_400_000)
-}
-
 function valueForPeriod(result: MonthlySessionSpendResult, value: number | null, formatter: (value: number) => string): string {
   if (result.isEmpty) return 'No sessions'
   return value === null ? 'Unavailable' : formatter(value)
@@ -82,10 +70,6 @@ function energyValue(result: MonthlySessionSpendResult) {
 
 function formatPrice(value: number): string {
   return `${new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value / 100)} €/kWh`
-}
-
-function isCalendarMonth(period: AnalyticsPeriod): boolean {
-  return period.selection.kind === 'month'
 }
 
 const metricLabelColor = 'text-slab-secondary dark:text-[color-mix(in_srgb,var(--color-slab-secondary)_85%,var(--color-primary))]'
@@ -110,8 +94,9 @@ function isMobileComparison() {
 /** Shows neutral, period-scoped changes in session spend, billed energy and weighted price. */
 export function PreviousPeriodComparisonSlab({ period, previousPeriod, result, previousResult, comparison, isLoading, error = null }: PreviousPeriodComparisonSlabProps) {
   const desktop = useSyncExternalStore(subscribeToDesktopComparison, isDesktopComparison, isMobileComparison)
+  const rangeId = useId()
   const unequalNote = !previousPeriod.isDayCountEqual
-    ? `The ranges contain different numbers of days: current period ${periodDayCount(period)} days; previous period ${previousPeriod.dayCount} days.${period.isInProgress ? ' Percentage changes are unavailable for unequal ranges.' : ''}`
+    ? `The ranges contain different numbers of days: current period ${countCalendarDays(period.startUtc, period.endUtc)} days; previous period ${previousPeriod.dayCount} days. Percentage changes are unavailable for unequal ranges.`
     : null
   const rows = [
     { label: 'Session spend', current: valueForPeriod(result, result.totalSessionSpendCents, formatCurrency), previous: valueForPeriod(previousResult, previousResult.totalSessionSpendCents, formatCurrency), change: formatChange(comparison.spending), difference: comparisonDifference(comparison.spending, result.totalSessionSpendCents, previousResult.totalSessionSpendCents, formatCurrency) },
@@ -129,7 +114,7 @@ export function PreviousPeriodComparisonSlab({ period, previousPeriod, result, p
       <div className="min-w-0 space-y-2">
         <h2 className="text-base font-semibold text-primary">Previous period comparison</h2>
         <p className="text-sm font-medium text-slab-secondary">Recorded charging activity</p>
-        <div className="grid min-w-0 grid-cols-2 divide-x divide-slab-border rounded-xl bg-secondary/5 p-3">
+        <div id={rangeId} className="grid min-w-0 grid-cols-2 divide-x divide-slab-border rounded-xl bg-secondary/5 p-3">
           <div className="min-w-0 pr-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-slab-secondary">Current period</p>
             <p className="mt-1 break-words text-sm font-medium text-primary">{periodLabel(period)}</p>
@@ -137,18 +122,28 @@ export function PreviousPeriodComparisonSlab({ period, previousPeriod, result, p
           </div>
           <div className="min-w-0 pl-3">
             <p className="text-xs font-semibold uppercase tracking-wide text-slab-secondary">Previous period</p>
-            <p className="mt-1 break-words text-sm font-medium text-primary">{previousLabel(previousPeriod)}</p>
+            {previousPeriod.monthLabel && (
+              <p className="mt-1 break-words text-sm font-medium text-primary">
+                {formatMonthLabel(previousPeriod.monthLabel.year, previousPeriod.monthLabel.month)}
+              </p>
+            )}
             <p className="mt-1 break-words text-xs text-slab-secondary">{previousRange}</p>
           </div>
         </div>
-        {period.isInProgress && isCalendarMonth(period) && previousPeriod.isDayCountEqual && <p className="text-xs text-slab-secondary">Compared across {periodDayCount(period)} matching calendar days.</p>}
+        {period.isInProgress && period.selection.kind === 'month' && previousPeriod.isDayCountEqual && (
+          <p className="text-xs text-slab-secondary">
+            {previousPeriod.isMonthToDateFallback
+              ? `The previous window extends before the prior month to match ${previousPeriod.dayCount} calendar days.`
+              : `Compared across ${previousPeriod.dayCount} matching calendar days.`}
+          </p>
+        )}
         {unequalNote && <p className="text-xs text-slab-secondary">{unequalNote}</p>}
       </div>
       {error !== null ? <p role="alert" className="text-sm text-primary">Unable to load the previous period comparison. Please try again.</p>
         : isLoading ? <div role="status"><span className="sr-only">Loading comparison</span><div aria-hidden="true" className="h-20 animate-pulse rounded-xl bg-secondary/10 motion-reduce:animate-none" /></div>
         : <>
           {comparison.status === 'no-comparison-data' && <p className="text-sm text-slab-secondary">No comparison data</p>}
-          <table className="w-full border-separate border-spacing-0 text-left text-sm text-primary" aria-label="Previous period comparison">
+          <table className="w-full border-separate border-spacing-0 text-left text-sm text-primary" aria-label="Previous period comparison" aria-describedby={rangeId}>
             <thead className="sr-only">
               <tr><th scope="col">Metric</th><th scope="col">Current</th><th scope="col">Previous</th>{desktop && <th scope="col">Change</th>}</tr>
             </thead>

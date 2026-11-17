@@ -3,9 +3,14 @@ import {
   createAnalyticsPeriod,
   createMonthPeriod,
   createPreviousAnalyticsPeriod,
+  countCalendarDays,
   getCalendarMonth,
   shiftCalendarMonth,
 } from './analyticsPeriods'
+
+function previousFor(selection: Parameters<typeof createAnalyticsPeriod>[0], now: Date) {
+  return createPreviousAnalyticsPeriod(createAnalyticsPeriod(selection, now))
+}
 
 /**
  * Test suite for analytics calendar-month periods.
@@ -177,6 +182,27 @@ describe('analyticsPeriods', () => {
 /** Tests comparison-window reconstruction from an analytics period selection. */
 describe('createPreviousAnalyticsPeriod', () => {
   it.each([
+    [{ year: 2026, month: 1 }, 28],
+    [{ year: 2024, month: 1 }, 29],
+    [{ year: 2026, month: 3 }, 30],
+    [{ year: 2026, month: 0 }, 31],
+  ] as const)('uses an equal local-day window before historical month %j', (month, days) => {
+    // Arrange: Select a completed month after its calendar month has passed.
+    const now = new Date(2027, 0, 15, 12)
+    const selected = createAnalyticsPeriod({ kind: 'month', month }, now)
+
+    // Act: Build the immediately preceding comparison window.
+    const previous = createPreviousAnalyticsPeriod(selected)
+
+    // Assert: Previous days end at the selected start and match its actual day count.
+    expect(previous.endUtc).toEqual(selected.startUtc)
+    expect(previous.dayCount).toBe(days)
+    expect(previous.isDayCountEqual).toBe(true)
+    expect(countCalendarDays(previous.startUtc, previous.endUtc)).toBe(days)
+    expect(previous.monthLabel).toEqual(getCalendarMonth(previous.startUtc))
+  })
+
+  it.each([
     ['7-days', 7, new Date(2026, 5, 2)],
     ['30-days', 30, new Date(2026, 3, 17)],
     ['3-months', 92, new Date(2025, 11, 14)],
@@ -187,7 +213,7 @@ describe('createPreviousAnalyticsPeriod', () => {
 
     // Act: Build selected and previous windows.
     const current = createAnalyticsPeriod({ kind: 'preset', preset }, now)
-    const previous = createPreviousAnalyticsPeriod({ kind: 'preset', preset }, now)
+    const previous = createPreviousAnalyticsPeriod(current)
 
     // Assert: Boundaries are adjacent and the prior start matches the day count.
     expect(previous.endUtc).toEqual(current.startUtc)
@@ -196,33 +222,35 @@ describe('createPreviousAnalyticsPeriod', () => {
     expect(previous.isInProgress).toBe(true)
   })
 
-  it('uses matching prior-month days for current month-to-date and caps at month end', () => {
-    // Arrange: March has fewer days than the current month-to-date day number.
+  it('backfills current month-to-date when the prior month is too short', () => {
+    // Arrange: February has fewer days than the selected March month-to-date range.
     const now = new Date(2026, 2, 30, 12)
+    const selected = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 2 } }, now)
 
-    // Act: Build March's capped February comparison.
-    const comparison = createPreviousAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 2 } }, now)
+    // Act: Build March's equal-length fallback comparison.
+    const comparison = createPreviousAnalyticsPeriod(selected)
 
-    // Assert: The unequal range ends at February's final day and is in progress.
-    expect(comparison.startUtc).toEqual(new Date(2026, 1, 1))
-    expect(comparison.endUtc).toEqual(new Date(2026, 2, 1))
-    expect(comparison.dayCount).toBe(28)
-    expect(comparison.isDayCountEqual).toBe(false)
-    expect(comparison.monthLabel).toEqual({ year: 2026, month: 1 })
+    // Assert: The range backfills to January and ends at the selected month start.
+    expect(comparison.startUtc).toEqual(new Date(2026, 0, 30))
+    expect(comparison.endUtc).toEqual(selected.startUtc)
+    expect(comparison.dayCount).toBe(30)
+    expect(comparison.isDayCountEqual).toBe(true)
+    expect(comparison.monthLabel).toBeUndefined()
+    expect(comparison.isMonthToDateFallback).toBe(true)
     expect(comparison.isInProgress).toBe(true)
   })
 
-  it('uses the whole preceding month for completed calendar months with label metadata', () => {
+  it('uses equal local-day count before completed calendar months', () => {
     // Arrange: Select a completed leap-year March.
-    const comparison = createPreviousAnalyticsPeriod(
+    const comparison = previousFor(
       { kind: 'month', month: { year: 2024, month: 2 } },
       new Date(2026, 0, 10),
     )
-    expect(comparison.startUtc).toEqual(new Date(2024, 1, 1))
+    expect(comparison.startUtc).toEqual(new Date(2024, 0, 30))
     expect(comparison.endUtc).toEqual(new Date(2024, 2, 1))
-    expect(comparison.dayCount).toBe(29)
-    expect(comparison.monthLabel).toEqual({ year: 2024, month: 1 })
-    expect(comparison.isDayCountEqual).toBe(false)
+    expect(comparison.dayCount).toBe(31)
+    expect(comparison.monthLabel).toBeUndefined()
+    expect(comparison.isDayCountEqual).toBe(true)
     expect(comparison.isInProgress).toBe(false)
   })
 
@@ -231,7 +259,7 @@ describe('createPreviousAnalyticsPeriod', () => {
     process.env.TZ = 'Europe/Berlin'
     const now = new Date(2026, 0, 3, 12)
     const current = createAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, now)
-    const previous = createPreviousAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, now)
+    const previous = previousFor({ kind: 'preset', preset: '7-days' }, now)
     expect(previous.endUtc).toEqual(current.startUtc)
     expect(previous.startUtc).toEqual(new Date(2025, 11, 21))
     expect(previous.dayCount).toBe(7)
@@ -242,7 +270,7 @@ describe('createPreviousAnalyticsPeriod', () => {
     process.env.TZ = 'Europe/Berlin'
     const now = new Date(2024, 2, 1, 12)
     const current = createAnalyticsPeriod({ kind: 'preset', preset: 'year' }, now)
-    const previous = createPreviousAnalyticsPeriod({ kind: 'preset', preset: 'year' }, now)
+    const previous = previousFor({ kind: 'preset', preset: 'year' }, now)
     expect(previous.endUtc).toEqual(current.startUtc)
     expect(previous.dayCount).toBe(366)
     expect(previous.startUtc).toEqual(new Date(2022, 2, 1))
@@ -258,7 +286,7 @@ describe('createPreviousAnalyticsPeriod', () => {
 
     // Act: Build adjacent seven-day windows.
     const current = createAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, now)
-    const previous = createPreviousAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, now)
+    const previous = previousFor({ kind: 'preset', preset: '7-days' }, now)
 
     // Assert: Only the current range crosses the transition's offset change.
     expect(current.startUtc.toISOString()).toBe(currentStart)
@@ -276,7 +304,7 @@ describe('createPreviousAnalyticsPeriod', () => {
     const now = new Date(`${day}T12:00:00`)
 
     // Act: Build the selected window and its immediately preceding comparison.
-    const previous = createPreviousAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, now)
+    const previous = previousFor({ kind: 'preset', preset: '7-days' }, now)
 
     // Assert: Previous bounds are local midnight and span seven dates.
     expect(previous.startUtc.toISOString()).toBe(expectedStart)
@@ -292,7 +320,7 @@ describe('createPreviousAnalyticsPeriod', () => {
     const now = new Date(2026, 3, 15, 12)
 
     // Act: Build the previous-month comparison.
-    const comparison = createPreviousAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 3 } }, now)
+    const comparison = previousFor({ kind: 'month', month: { year: 2026, month: 3 } }, now)
 
     // Assert: Both periods contain 15 local days and carry March label metadata.
     expect(comparison.startUtc).toEqual(new Date(2026, 2, 1))
@@ -302,4 +330,5 @@ describe('createPreviousAnalyticsPeriod', () => {
     expect(comparison.monthLabel).toEqual({ year: 2026, month: 2 })
     expect(comparison.isInProgress).toBe(true)
   })
+
 })

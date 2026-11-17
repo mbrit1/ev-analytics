@@ -39,6 +39,8 @@ export interface PreviousAnalyticsPeriod {
   isInProgress: boolean
   /** Prior calendar month for calendar-month comparisons. */
   monthLabel?: CalendarMonth
+  /** True when current month-to-date days had to be backfilled across a short prior month. */
+  isMonthToDateFallback?: boolean
 }
 
 /** Returns the local calendar month containing the supplied instant. */
@@ -118,46 +120,51 @@ export function createAnalyticsPeriod(
   }
 }
 
-function countCalendarDays(start: Date, end: Date): number {
+/** Counts local calendar dates in an inclusive-start/exclusive-end interval. */
+export function countCalendarDays(start: Date, end: Date): number {
   const startDay = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate())
   const endDay = Date.UTC(end.getFullYear(), end.getMonth(), end.getDate())
   return Math.round((endDay - startDay) / 86_400_000)
 }
 
 /**
- * Derives the comparison window immediately preceding a selected period.
- * Presets use an equal count of local calendar days. Completed months compare
- * with the full prior month; current month-to-date compares matching day
- * numbers, capped at the prior month's final day.
+ * Derives an equal-local-day comparison window immediately before a selection.
+ * Current month-to-date uses matching dates in the prior month when possible,
+ * then backfills from the selection start if that month is too short.
  */
-export function createPreviousAnalyticsPeriod(
-  selection: AnalyticsPeriodSelection,
-  now = new Date(),
-): PreviousAnalyticsPeriod {
-  const selected = createAnalyticsPeriod(selection, now)
-  let startUtc: Date
-  let endUtc: Date
+export function createPreviousAnalyticsPeriod(selected: AnalyticsPeriod): PreviousAnalyticsPeriod {
+  const selectedDayCount = countCalendarDays(selected.startUtc, selected.endUtc)
+  let endUtc = new Date(selected.startUtc)
+  let startUtc = new Date(
+    endUtc.getFullYear(),
+    endUtc.getMonth(),
+    endUtc.getDate() - selectedDayCount,
+  )
   let monthLabel: CalendarMonth | undefined
+  let isMonthToDateFallback = false
 
-  if (selection.kind === 'preset') {
-    const dayCount = countCalendarDays(selected.startUtc, selected.endUtc)
-    endUtc = new Date(selected.startUtc)
-    startUtc = new Date(endUtc)
-    startUtc.setDate(startUtc.getDate() - dayCount)
-  } else if (selected.isCurrentMonth) {
-    monthLabel = shiftCalendarMonth(selection.month, -1)
-    startUtc = new Date(monthLabel.year, monthLabel.month, 1)
-    const priorMonthLastDay = new Date(monthLabel.year, monthLabel.month + 1, 0).getDate()
-    const currentDayCount = countCalendarDays(selected.startUtc, selected.endUtc)
-    endUtc = new Date(monthLabel.year, monthLabel.month, Math.min(currentDayCount + 1, priorMonthLastDay + 1))
-  } else {
-    monthLabel = shiftCalendarMonth(selection.month, -1)
-    startUtc = new Date(monthLabel.year, monthLabel.month, 1)
-    endUtc = new Date(monthLabel.year, monthLabel.month + 1, 1)
+  if (selected.selection.kind === 'month' && selected.isCurrentMonth) {
+    const priorMonth = shiftCalendarMonth(selected.selection.month, -1)
+    const priorMonthDays = new Date(priorMonth.year, priorMonth.month + 1, 0).getDate()
+
+    if (selectedDayCount <= priorMonthDays) {
+      startUtc = new Date(priorMonth.year, priorMonth.month, 1)
+      endUtc = new Date(priorMonth.year, priorMonth.month, selectedDayCount + 1)
+      monthLabel = priorMonth
+    } else {
+      isMonthToDateFallback = true
+    }
+  } else if (selected.selection.kind === 'month') {
+    const lastIncludedDay = new Date(endUtc.getFullYear(), endUtc.getMonth(), endUtc.getDate() - 1)
+    if (
+      startUtc.getFullYear() === lastIncludedDay.getFullYear()
+      && startUtc.getMonth() === lastIncludedDay.getMonth()
+    ) {
+      monthLabel = getCalendarMonth(startUtc)
+    }
   }
 
   const dayCount = countCalendarDays(startUtc, endUtc)
-  const selectedDayCount = countCalendarDays(selected.startUtc, selected.endUtc)
   return {
     startUtc,
     endUtc,
@@ -165,5 +172,6 @@ export function createPreviousAnalyticsPeriod(
     isDayCountEqual: dayCount === selectedDayCount,
     isInProgress: selected.isInProgress,
     ...(monthLabel ? { monthLabel } : {}),
+    ...(isMonthToDateFallback ? { isMonthToDateFallback: true } : {}),
   }
 }

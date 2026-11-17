@@ -50,7 +50,7 @@ describe('mock comparison seed', () => {
     // Act: Aggregate seeded sessions in each current and immediately preceding window.
     const comparisons = modes.map((selection) => {
       const currentPeriod = createAnalyticsPeriod(selection, fixedNow)
-      const previousPeriod = createPreviousAnalyticsPeriod(selection, fixedNow)
+      const previousPeriod = createPreviousAnalyticsPeriod(currentPeriod)
       const current = calculateMonthlySessionSpend(sessions, currentPeriod)
       const previous = calculateMonthlySessionSpend(sessions, {
         startUtc: previousPeriod.startUtc,

@@ -36,10 +36,13 @@ export function AnalyticsPage({
   const [selection, setSelection] = useState<AnalyticsPeriodSelection>(() => ({ kind: 'month', month: currentMonth }))
   const [chartMetric, setChartMetric] = useState<SessionSpendingChartMetric>('spending')
   const period = useMemo(() => createAnalyticsPeriod(selection, now), [selection, now])
-  const previousPeriod = useMemo(() => createPreviousAnalyticsPeriod(selection, now), [selection, now])
+  const previousPeriod = useMemo(() => createPreviousAnalyticsPeriod(period), [period])
   const showSpendingChart = selection.kind !== 'preset'
     || (selection.preset !== '7-days' && selection.preset !== '30-days')
   const layoutMode = useAnalyticsLayoutMode()
+  const showComparison = layoutMode === 'sidebar'
+    || selection.kind !== 'preset'
+    || selection.preset !== '7-days'
   const {
     result: monthlyResult,
     previousResult,
@@ -104,7 +107,7 @@ export function AnalyticsPage({
           error={monthlyError}
           onAddSession={onAddSession}
         />
-        {!(selection.kind === 'preset' && selection.preset === '7-days') && (
+        {showComparison && (
           <PreviousPeriodComparisonSlab
             period={period}
             previousPeriod={previousPeriod}

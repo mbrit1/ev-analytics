@@ -4,6 +4,10 @@ import { db, type ChargingSession } from '../../../infra/db'
 import { createAnalyticsPeriod, createPreviousAnalyticsPeriod } from '../model/analyticsPeriods'
 import { useMonthlySessionSpend } from './useMonthlySessionSpend'
 
+function previousFor(selection: Parameters<typeof createAnalyticsPeriod>[0], now: Date) {
+  return createPreviousAnalyticsPeriod(createAnalyticsPeriod(selection, now))
+}
+
 vi.mock('../../auth', () => ({ useAuth: () => ({ user: { id: 'analytics-owner' } }) }))
 
 function createSession(
@@ -54,7 +58,7 @@ describe('selected-period summary local reactivity', () => {
     await db.sessions.bulkPut([selected, otherOwner, priorMonth])
     const now = new Date(2026, 6, 1)
     const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, now)
-    const previousPeriod = createPreviousAnalyticsPeriod(period.selection, now)
+    const previousPeriod = createPreviousAnalyticsPeriod(period)
     const { result } = renderHook(() => useMonthlySessionSpend(period, previousPeriod))
     await waitFor(() => expect(result.current.providerBreakdown.groups).toEqual([
       expect.objectContaining({ normalizedName: 'old provider', sessionCount: 1, totalCostCents: 1200 }),
@@ -94,7 +98,7 @@ describe('selected-period summary local reactivity', () => {
     const now = new Date(2026, 5, 10, 8)
     const { result, rerender } = renderHook(
       ({ period, previousPeriod }) => useMonthlySessionSpend(period, previousPeriod),
-      { initialProps: { period: createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, monthPeriodNow), previousPeriod: createPreviousAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, monthPeriodNow) } },
+      { initialProps: { period: createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, monthPeriodNow), previousPeriod: previousFor({ kind: 'month', month: { year: 2026, month: 5 } }, monthPeriodNow) } },
     )
     await waitFor(() => expect(result.current.result.totalSessionSpendCents).toBe(1500))
     expect(result.current.trend).not.toBeNull()
@@ -117,7 +121,7 @@ describe('selected-period summary local reactivity', () => {
     expect(await db.sync_outbox.count()).toBe(1)
 
     // Act: Narrow to seven days, then widen to thirty after the local edit.
-    rerender({ period: createAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, now), previousPeriod: createPreviousAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, now) })
+    rerender({ period: createAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, now), previousPeriod: previousFor({ kind: 'preset', preset: '7-days' }, now) })
     await waitFor(() => expect(result.current.result).toMatchObject({ totalSessionSpendCents: 2400, billedEnergyKwh: 20, sessionCount: 1 }))
     expect(result.current.trend).not.toBeNull()
     const editedSession = { ...session, total_cost: 2800, kwh_billed: 25 }
@@ -151,7 +155,7 @@ describe('selected-period summary local reactivity', () => {
     await act(async () => { await db.sessions.update(session.id, { deleted_at: timestamp }) })
     await waitFor(() => expect(result.current.result).toMatchObject({ totalSessionSpendCents: 0, isEmpty: true, averageSessionPriceCtPerKwh: null }))
     expect(result.current.trend).not.toBeNull()
-    rerender({ period: createAnalyticsPeriod({ kind: 'preset', preset: '30-days' }, now), previousPeriod: createPreviousAnalyticsPeriod({ kind: 'preset', preset: '30-days' }, now) })
+    rerender({ period: createAnalyticsPeriod({ kind: 'preset', preset: '30-days' }, now), previousPeriod: previousFor({ kind: 'preset', preset: '30-days' }, now) })
     await waitFor(() => expect(result.current.result).toMatchObject({ totalSessionSpendCents: 500, billedEnergyKwh: 5, sessionCount: 1 }))
     expect(result.current.trend).not.toBeNull()
   })
@@ -163,7 +167,7 @@ describe('selected-period summary local reactivity', () => {
     const context = createSession('short-context', 'analytics-owner', new Date(2026, 3, 12, 10), 300)
     await db.sessions.bulkAdd([selected, context])
     const period = createAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, now)
-    const { result } = renderHook(() => useMonthlySessionSpend(period, createPreviousAnalyticsPeriod(period.selection, now)))
+    const { result } = renderHook(() => useMonthlySessionSpend(period, createPreviousAnalyticsPeriod(period)))
     await waitFor(() => expect(result.current.result.totalSessionSpendCents).toBe(1200))
     const selectedSummary = result.current.result
 
@@ -203,7 +207,7 @@ describe('selected-period summary local reactivity', () => {
     await db.sessions.bulkPut([selected, context])
     const now = new Date(2026, 6, 1)
     const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, now)
-    const previousPeriod = createPreviousAnalyticsPeriod(period.selection, now)
+    const previousPeriod = createPreviousAnalyticsPeriod(period)
     const { result } = renderHook(() => useMonthlySessionSpend(period, previousPeriod))
     await waitFor(() => expect(result.current.result.totalSessionSpendCents).toBe(1200))
     await waitFor(() => expect(result.current.trend!.buckets).toHaveLength(6))
@@ -228,7 +232,7 @@ describe('selected-period summary local reactivity', () => {
     const selected = createSession('selected', 'analytics-owner', selectedTimestamp, 1200)
     await db.sessions.add(selected)
     const selectedPeriod = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, new Date(2026, 6, 1))
-    const { result } = renderHook(() => useMonthlySessionSpend(selectedPeriod, createPreviousAnalyticsPeriod(selectedPeriod.selection, new Date(2026, 6, 1))))
+    const { result } = renderHook(() => useMonthlySessionSpend(selectedPeriod, createPreviousAnalyticsPeriod(selectedPeriod)))
     await waitFor(() => expect(result.current.result.totalSessionSpendCents).toBe(1200))
     const selectedSummary = result.current.result
 
@@ -312,7 +316,7 @@ describe('selected-period summary local reactivity', () => {
     const invalidContext = createSession('invalid-context', 'analytics-owner', new Date(2026, 3, 10), Number.NaN)
     await db.sessions.bulkAdd([selected, invalidContext])
     const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, now)
-    const { result } = renderHook(() => useMonthlySessionSpend(period, createPreviousAnalyticsPeriod(period.selection, now)))
+    const { result } = renderHook(() => useMonthlySessionSpend(period, createPreviousAnalyticsPeriod(period)))
     await waitFor(() => expect(result.current.result.totalSessionSpendCents).toBe(1000))
 
     // Assert: Invalid context affects only its own bucket.
@@ -343,7 +347,7 @@ describe('selected-period summary local reactivity', () => {
     await db.sessions.bulkAdd([selected, previous, otherOwner, deleted])
     const selection = { kind: 'month', month: { year: 2026, month: 5 } } as const
     const period = createAnalyticsPeriod(selection, now)
-    const { result } = renderHook(() => useMonthlySessionSpend(period, createPreviousAnalyticsPeriod(selection, now)))
+    const { result } = renderHook(() => useMonthlySessionSpend(period, createPreviousAnalyticsPeriod(period)))
     await waitFor(() => expect(result.current.previousResult?.totalSessionSpendCents).toBe(500))
     expect(result.current.comparison).toMatchObject({ status: 'compared', spending: { status: 'percentage', percentage: 100 } })
 
@@ -374,13 +378,13 @@ describe('selected-period summary local reactivity', () => {
     const julySelection = { kind: 'month', month: { year: 2026, month: 6 } } as const
     const { result, rerender } = renderHook(
       ({ period, previousPeriod }) => useMonthlySessionSpend(period, previousPeriod),
-      { initialProps: { period: createAnalyticsPeriod(juneSelection, now), previousPeriod: createPreviousAnalyticsPeriod(juneSelection, now) } },
+      { initialProps: { period: createAnalyticsPeriod(juneSelection, now), previousPeriod: previousFor(juneSelection, now) } },
     )
     await waitFor(() => expect(result.current.result.totalSessionSpendCents).toBe(2000))
     await waitFor(() => expect(result.current.previousResult?.totalSessionSpendCents).toBe(1000))
 
     // Act: Change the calendar selection and both derived bounds.
-    rerender({ period: createAnalyticsPeriod(julySelection, now), previousPeriod: createPreviousAnalyticsPeriod(julySelection, now) })
+    rerender({ period: createAnalyticsPeriod(julySelection, now), previousPeriod: previousFor(julySelection, now) })
 
     // Assert: Current and previous aggregates move together and the comparison updates.
     await waitFor(() => expect(result.current.result.totalSessionSpendCents).toBe(3000))
@@ -398,7 +402,7 @@ describe('selected-period summary local reactivity', () => {
     const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, now)
 
     // Act: Render a month with no sessions while nearby historical months have records.
-    const { result } = renderHook(() => useMonthlySessionSpend(period, createPreviousAnalyticsPeriod(period.selection, now)))
+    const { result } = renderHook(() => useMonthlySessionSpend(period, createPreviousAnalyticsPeriod(period)))
     await waitFor(() => expect(result.current.result.isEmpty).toBe(true))
 
     // Assert: Empty summary and selected bucket remain zero; historical recorded amounts are preserved.
@@ -442,12 +446,12 @@ describe('selected-period summary local reactivity', () => {
     const initialPeriod = createAnalyticsPeriod({ kind: 'preset', preset: '3-months' }, now)
     const { result, rerender } = renderHook(
       ({ period, previousPeriod }) => useMonthlySessionSpend(period, previousPeriod),
-      { initialProps: { period: initialPeriod, previousPeriod: createPreviousAnalyticsPeriod(initialPeriod.selection, now) } },
+      { initialProps: { period: initialPeriod, previousPeriod: createPreviousAnalyticsPeriod(initialPeriod) } },
     )
 
     // Act and Assert: Both rolling chart ranges match the expected summary and aggregate.
     for (const preset of ['3-months', 'year'] as const) {
-      if (preset === 'year') rerender({ period: createAnalyticsPeriod({ kind: 'preset', preset }, now), previousPeriod: createPreviousAnalyticsPeriod({ kind: 'preset', preset }, now) })
+      if (preset === 'year') rerender({ period: createAnalyticsPeriod({ kind: 'preset', preset }, now), previousPeriod: previousFor({ kind: 'preset', preset }, now) })
       const expected = preset === '3-months'
         ? { sessionCount: 3, totalSessionSpendCents: 4500 }
         : { sessionCount: 5, totalSessionSpendCents: 7000 }
@@ -471,7 +475,7 @@ describe('selected-period summary local reactivity', () => {
     await db.sessions.bulkPut([selected, context, otherOwner])
     const now = new Date(2026, 4, 1)
     const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 3 } }, now)
-    const previousPeriod = createPreviousAnalyticsPeriod(period.selection, now)
+    const previousPeriod = createPreviousAnalyticsPeriod(period)
     const { result } = renderHook(() => useMonthlySessionSpend(period, previousPeriod))
     await waitFor(() => expect(result.current.result).toMatchObject({ totalSessionSpendCents: 500, billedEnergyKwh: 5, averageSessionPriceCtPerKwh: 100 }))
     const selectedSummary = result.current.result

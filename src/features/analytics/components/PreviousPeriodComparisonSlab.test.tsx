@@ -6,7 +6,7 @@ import { PreviousPeriodComparisonSlab } from './PreviousPeriodComparisonSlab'
 
 const now = new Date(2026, 6, 15, 12)
 const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 6 } }, now)
-const previousPeriod = createPreviousAnalyticsPeriod(period.selection, now)
+const previousPeriod = createPreviousAnalyticsPeriod(period)
 const current: MonthlySessionSpendResult = { totalSessionSpendCents: 12500, billedEnergyKwh: 250, averageSessionPriceCtPerKwh: 50, sessionCount: 3, validBilledEnergySessionCount: 3, periodStartUtc: period.startUtc, periodEndUtc: period.endUtc, isCurrentMonth: true, isCompleteMonth: false, isEmpty: false }
 const previous: MonthlySessionSpendResult = { ...current, totalSessionSpendCents: 10000, billedEnergyKwh: 200, averageSessionPriceCtPerKwh: 45, periodStartUtc: previousPeriod.startUtc, periodEndUtc: previousPeriod.endUtc }
 const compared = { status: 'compared', spending: { status: 'percentage', percentage: 25 }, energy: { status: 'percentage', percentage: 25 }, priceDifferenceEurPerKwh: 0.05 } as const
@@ -75,24 +75,27 @@ describe('PreviousPeriodComparisonSlab', () => {
     expect(screen.getByText(/Percentage change is unavailable when the previous value is zero/)).toBeInTheDocument()
     expect(screen.getByRole('row', { name: /Weighted session price/ })).toHaveTextContent('0,00 €/kWh')
   })
-  it('shows unequal day counts for in-progress and completed months while retaining their comparison states', () => {
-    // Arrange / Act
-    const march = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 2 } }, new Date(2026, 2, 31, 12))
-    const february = createPreviousAnalyticsPeriod(march.selection, new Date(2026, 2, 31, 12))
-    const { rerender } = render(<PreviousPeriodComparisonSlab period={march} previousPeriod={february} result={current} previousResult={previous} comparison={{ ...compared, spending: { status: 'unequal-day-count' }, energy: { status: 'unequal-day-count' } }} isLoading={false} />)
-    // Assert
-    expect(screen.getByText(/current period 31 days; previous period 28 days/)).toHaveTextContent('Percentage changes are unavailable')
-    expect(screen.getAllByText('Period lengths differ')).toHaveLength(2)
-    const completed = createAnalyticsPeriod(march.selection, new Date(2026, 3, 10, 12))
-    const prior = createPreviousAnalyticsPeriod(march.selection, new Date(2026, 3, 10, 12))
-    rerender(<PreviousPeriodComparisonSlab period={completed} previousPeriod={prior} result={current} previousResult={previous} comparison={compared} isLoading={false} />)
-    expect(screen.getByText(/current period 31 days; previous period 28 days/)).not.toHaveTextContent('Percentage changes are unavailable')
+  it('labels an equal-length month-to-date fallback that spans two prior months', () => {
+    // Arrange: March 31 requires three dates before February.
+    const now = new Date(2026, 2, 31, 12)
+    const march = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 2 } }, now)
+    const prior = createPreviousAnalyticsPeriod(march)
+
+    // Act
+    render(<PreviousPeriodComparisonSlab period={march} previousPeriod={prior} result={current} previousResult={previous} comparison={compared} isLoading={false} />)
+
+    // Assert: The exact bounds and explanation also describe the comparison table.
+    const range = '29 Jan – 28 Feb 2026'
+    expect(screen.getByText(range)).toBeInTheDocument()
+    expect(screen.getByText('The previous window extends before the prior month to match 31 calendar days.')).toBeInTheDocument()
+    expect(screen.getByRole('table', { name: 'Previous period comparison' }))
+      .toHaveAccessibleDescription(expect.stringContaining(range))
     expect(screen.getAllByText('+25%')).toHaveLength(2)
   })
   it('retains preset labels and full cross-year ranges for rolling periods', () => {
     // Arrange: Build a rolling period that crosses a calendar year boundary.
     const rolling = createAnalyticsPeriod({ kind: 'preset', preset: '30-days' }, new Date(2026, 0, 10, 12))
-    const rollingPrevious = createPreviousAnalyticsPeriod(rolling.selection, new Date(2026, 0, 10, 12))
+    const rollingPrevious = createPreviousAnalyticsPeriod(rolling)
     // Act
     render(<PreviousPeriodComparisonSlab period={rolling} previousPeriod={rollingPrevious} result={current} previousResult={previous} comparison={compared} isLoading={false} />)
     // Assert: The preset labels remain while both exact ranges retain their year context.
