@@ -75,7 +75,7 @@ export function AnalyticsPage({
   )
   return (
     <section
-      className="mx-auto w-full max-w-3xl space-y-5 pb-8 md:space-y-6"
+      className="@container mx-auto w-full min-w-0 space-y-5 pb-8 md:space-y-6"
       aria-labelledby="analytics-heading"
     >
       <h1 id="analytics-heading" className="text-xl font-bold tracking-tight text-primary md:text-2xl">
@@ -104,19 +104,25 @@ export function AnalyticsPage({
           onAddSession={onAddSession}
         />
       </section>
-      <PeriodComparisonSlab
-        period={period}
-        previousPeriod={previousPeriod}
-        result={monthlyResult}
-        previousResult={previousResult}
-        isLoading={isMonthlyLoading}
-        error={monthlyError}
-        metric={chartMetric}
-        onMetricChange={setChartMetric}
-      />
-      <BillingProviderBreakdownSlab breakdown={providerBreakdown} isLoading={isMonthlyLoading} error={monthlyError} layoutMode={layoutMode} />
+      <div className="grid min-w-0 gap-6 @min-[68rem]:grid-cols-[minmax(0,0.9fr)_minmax(0,1.6fr)] @min-[68rem]:items-start">
+        <div className="min-w-0">
+          <PeriodComparisonSlab
+            period={period}
+            previousPeriod={previousPeriod}
+            result={monthlyResult}
+            previousResult={previousResult}
+            isLoading={isMonthlyLoading}
+            error={monthlyError}
+            metric={chartMetric}
+            onMetricChange={setChartMetric}
+          />
+        </div>
+        <div className="min-w-0">
+          <BillingProviderBreakdownSlab breakdown={providerBreakdown} isLoading={isMonthlyLoading} error={monthlyError} layoutMode={layoutMode} />
+        </div>
+      </div>
       <section aria-label="Lifetime Overall Price" className="space-y-3">
-        <p className="text-xs font-bold uppercase tracking-wider text-secondary">Lifetime · All recorded sessions</p>
+        <p className="text-xs font-bold uppercase tracking-wider text-slab-secondary">Lifetime · All recorded sessions</p>
         {overallContent}
       </section>
     </section>

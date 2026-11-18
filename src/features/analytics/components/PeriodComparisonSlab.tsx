@@ -89,7 +89,7 @@ export function PeriodComparisonSlab({ period, previousPeriod, result, previousR
             return (
               <section key={labels[index]} aria-labelledby={headingId} className="row-span-3 grid min-w-0 grid-rows-subgrid">
                 <p className="self-end px-1 text-sm font-semibold wrap-anywhere text-primary tabular-nums">{text}</p>
-                <div aria-hidden="true" className={maximum > 0 ? 'flex h-18 items-end justify-center border-b border-slab-border' : 'h-0'}>
+                <div aria-hidden="true" className={maximum > 0 ? 'flex h-18 items-end justify-center border-b border-slab-border @min-[68rem]:h-36' : 'h-0'}>
                   {amount !== null && amount > 0 && (
                     <div className={`w-3/5 max-w-24 rounded-t-lg ${color}`} style={{ height: `${amount / maximum * 100}%` }} />
                   )}

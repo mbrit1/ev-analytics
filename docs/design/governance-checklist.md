@@ -79,6 +79,14 @@ focus containment, Escape/backdrop/Cancel dismissal, safe-area padding and focus
 Use existing slab and typography tokens, keep metric weights consistent, and stack
 values when available width is insufficient.
 
+When Analytics content has at least 68rem available, place the period comparison
+and Billing providers slabs in a two-column grid (0.9fr / 1.6fr); stack them
+below that container width. The lifetime Overall Price slab uses a local
+container breakpoint: keep its existing stacked mobile layout, then place the
+effective price, billed energy and included spend in a compact row at 48rem of
+slab content. Align all three labels above their values, retaining the Overall price information control beside its label and the fixed-cost note below its value. Keep the lifetime scope label outside the slab and use the shared
+slab secondary text role for its small labels and notes.
+
 The Billing providers slab is an Analytics-local exception. Show the
 selected-period billed kWh beside the distribution label above the proportional
 bar. Emphasize session spend in each provider row. It remains visible for short periods and sits
@@ -119,7 +127,7 @@ a shared zero baseline. Place formatted values above and previous and selected
 period labels and inclusive dates below. Use neutral slab styling for the
 previous bar and the accent token for the selected bar. The text serves as
 the equivalent of the static graphic; the bars do not need focus or tooltips.
-Keep comparison deltas in the Summary.
+Keep comparison deltas in the Summary. Increase the actual plotting track from 72px to 144px only at the existing 68rem side-by-side container breakpoint; keep compact tracks in stacked layouts and preserve proportional bar geometry.
 
 Reuse the native Spending, Energy and Price/kWh radios with equal segments,
 44px minimum targets, visible accent focus and arrow-key selection. Fill
@@ -136,13 +144,11 @@ Observed session rate column. Keep desktop numeric columns aligned across
 named, Others and expanded member rows; indent member names only. On mobile,
 show rate below spend and energy below the name, including in the Others sheet.
 Keep recorded spending prominent and make the rate readable with tabular
-numerals. Explain the recorded-spend/billed-energy formula, subscription
-exclusion and retrospective scope. Distinguish a valid free rate from an
+numerals. Use heading information with the established desktop popover/mobile sheet to explain the recorded-spend/billed-energy formula, subscription exclusion, retrospective scope and incomplete-coverage unavailability. Keep active data-quality warnings and measured/total coverage directly visible. Distinguish a valid free rate from an
 unavailable rate and expose the coverage reason accessibly.
 
-Use a labelled native Sort providers selector with a 44px target and visible
-focus. Default to energy descending; offer spend descending and observed rate
+Use a labelled native Sort providers selector in the header with responsive wrapping, a 44px target and visible focus. Default to energy descending; offer spend descending and observed rate
 ascending, unavailable last and normalized-name ties. Preserve energy-based
-named/hidden membership, sort within each set and pin Others last. Disclose
-this restriction beside the selector and match the collapsed bar order to the
-list. Changing sort alone must not dismiss Others or alter stable colors.
+named/hidden membership, sort within each set and pin Others last. When Others exists, disclose
+this restriction beside the selector and explain that expanding Others reveals
+the remaining providers. Match the collapsed bar order to the list. Changing sort alone must not dismiss Others or alter stable colors.

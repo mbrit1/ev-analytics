@@ -47,7 +47,6 @@ describe('BillingProviderBreakdownSlab', () => {
 
     // Assert
     expect(screen.getByText('Billing providers')).toBeInTheDocument()
-    expect(screen.getByText('Recorded session spending, billed energy and observed rates')).toBeInTheDocument()
     expect(screen.getByText('12,5', { selector: 'p' })).toHaveTextContent('kWh')
     expect(screen.getAllByText('32,50 €')).toHaveLength(1)
     expect(screen.getAllByText(/12,5/)).toHaveLength(3)
@@ -84,10 +83,16 @@ describe('BillingProviderBreakdownSlab', () => {
     // Assert
     expect(screen.getByRole('combobox', { name: 'Sort providers' })).toBeInTheDocument()
     expect(screen.getAllByText('Observed session rate').length).toBeGreaterThan(0)
-    expect(screen.getByText('Recorded session spend ÷ billed energy. Excludes subscription fees; not a future tariff.')).toBeInTheDocument()
+    const methodologyTrigger = screen.getByRole('button', { name: 'How provider rates are calculated' })
+    expect(screen.queryByText(/Observed provider rate divides/)).not.toBeInTheDocument()
+    await user.click(methodologyTrigger)
+    const methodology = screen.getByRole('region', { name: 'How provider rates are calculated' })
+    expect(methodology).toHaveTextContent('Observed provider rate divides recorded session spend by billed energy')
+    expect(methodology).toHaveTextContent('Rates are unavailable when recorded cost or billed energy is incomplete.')
+    await user.keyboard('{Escape}')
     expect(screen.getByRole('list', { name: 'Provider totals' })).toHaveTextContent('3,25 €/kWh')
     expect(screen.getByRole('list', { name: 'Provider totals' })).toHaveTextContent('0,00 €/kWh')
-    expect(screen.getByText('Unavailable rates indicate incomplete recorded cost or billed energy.')).toBeInTheDocument()
+    expect(screen.queryByText('Unavailable rates indicate incomplete recorded cost or billed energy.')).not.toBeInTheDocument()
     expect(screen.getAllByText('Unavailable', { selector: 'span' }).length).toBeGreaterThan(0)
     await user.selectOptions(screen.getByRole('combobox', { name: 'Sort providers' }), 'price')
     expect(screen.getByRole('combobox', { name: 'Sort providers' })).toHaveValue('price')
@@ -190,6 +195,37 @@ describe('BillingProviderBreakdownSlab', () => {
     expect(screen.getByText('Billed energy', { selector: '.sr-only' }).parentElement).toHaveTextContent('Billed energy Unavailable')
     expect(screen.getByText('Alpha')).toBeInTheDocument()
     expect(screen.getAllByText('1,00 €')).toHaveLength(2)
+  })
+
+  it.each([
+    ['sidebar', 'region'],
+    ['bottom-dock', 'dialog'],
+  ] as const)('keeps provider methodology hidden until opened in %s layout', async (layoutMode, surfaceRole) => {
+    // Arrange: Render a populated provider breakdown in the requested layout.
+    const user = userEvent.setup()
+    render(<BillingProviderBreakdownSlab breakdown={breakdownFor(['Alpha', 'Beta'])} isLoading={false} layoutMode={layoutMode} />)
+    const trigger = screen.getByRole('button', { name: 'How provider rates are calculated' })
+
+    // Act: Open the methodology from the stable slab heading.
+    expect(screen.queryByText(/Observed provider rate divides/)).not.toBeInTheDocument()
+    await user.click(trigger)
+
+    // Assert: The adaptive surface explains the historical formula and restores heading focus.
+    const surface = screen.getByRole(surfaceRole, { name: 'How provider rates are calculated' })
+    expect(surface).toHaveTextContent('Observed provider rate divides recorded session spend by billed energy')
+    expect(surface).toHaveTextContent('It excludes subscription fees and describes recorded sessions, not a future tariff.')
+    await user.keyboard('{Escape}')
+    expect(trigger).toHaveFocus()
+  })
+
+  it('shows the grouping note only when the collapsed Others group is present', () => {
+    // Arrange: Compare a short provider list with one that requires Others.
+    const { rerender } = render(<BillingProviderBreakdownSlab breakdown={breakdownFor(['Alpha', 'Beta'])} isLoading={false} />)
+
+    // Assert: The note is conditional on a real collapsed group.
+    expect(screen.queryByText(/expand Others to see the remaining providers/)).not.toBeInTheDocument()
+    rerender(<BillingProviderBreakdownSlab breakdown={breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta'])} isLoading={false} />)
+    expect(screen.getByText('Top providers by billed energy. Sorting changes their order; expand Others to see the remaining providers.')).toBeInTheDocument()
   })
 
   it('uses the same fixed palette color for each provider bar segment and row dot', () => {

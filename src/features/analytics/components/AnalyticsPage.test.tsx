@@ -208,11 +208,10 @@ describe('AnalyticsPage', () => {
 
     // Assert: July is initially selected, and provider totals follow its period.
     const initialProviderHeading = screen.getByRole('heading', { name: 'Billing providers' })
-    const initialProviderSlab = initialProviderHeading.parentElement?.parentElement
+    const initialProviderTotals = screen.getByRole('list', { name: 'Provider totals' })
     const lifetime = screen.getByRole('region', { name: 'Lifetime Overall Price' })
     const lifetimeSnapshot = lifetime.textContent
-    expect(initialProviderSlab).not.toBeNull()
-    expect(within(initialProviderSlab as HTMLElement).getAllByText('12,00 €').length).toBeGreaterThan(0)
+    expect(within(initialProviderTotals).getAllByText('12,00 €').length).toBeGreaterThan(0)
     expect(initialProviderHeading.compareDocumentPosition(lifetime)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
     expect(lifetime).toHaveTextContent('0,60')
 
@@ -231,9 +230,8 @@ describe('AnalyticsPage', () => {
       expect(screen.getByRole('heading', { name: 'Period comparison' })).toBeInTheDocument()
       expect(screen.getByText(`Previous period · ${previousRange}`)).toBeInTheDocument()
       const providerHeading = screen.getByRole('heading', { name: 'Billing providers' })
-      const providerSlab = providerHeading.parentElement?.parentElement
-      expect(providerSlab).not.toBeNull()
-      expect(within(providerSlab as HTMLElement).getAllByText(expectedSpend).length).toBeGreaterThan(0)
+      const providerTotals = screen.getByRole('list', { name: 'Provider totals' })
+      expect(within(providerTotals).getAllByText(expectedSpend).length).toBeGreaterThan(0)
       expect(providerHeading.compareDocumentPosition(lifetime)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
       expect(lifetime.textContent).toBe(lifetimeSnapshot)
     }

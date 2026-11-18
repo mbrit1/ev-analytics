@@ -119,6 +119,31 @@ describe('OverallPriceSlab', () => {
     expect(screen.getByText('Higher-precision price: 51,2 ct/kWh')).toBeInTheDocument()
   })
 
+  it('keeps an open disclosure mounted while the result refreshes', async () => {
+    // Arrange: Open the disclosure for a ready result, then retain its root for refreshes.
+    const user = userEvent.setup()
+    const props = {
+      layoutMode: 'bottom-dock' as const,
+      onAddSession: vi.fn(),
+      onReviewTariffs: vi.fn(),
+    }
+    const { rerender } = render(<OverallPriceSlab result={readyResult} {...props} />)
+    await user.click(screen.getByRole('button', { name: 'How Overall Price is calculated' }))
+
+    // Act: Refresh through loading and then a new ready result.
+    rerender(<OverallPriceSlab result={readyResult} isLoading {...props} />)
+
+    // Assert: The same disclosure stays open, but stale precision is hidden.
+    expect(screen.getByRole('dialog', { name: 'How Overall Price is calculated' })).toBeInTheDocument()
+    expect(screen.queryByText('Higher-precision price: 51,2 ct/kWh')).not.toBeInTheDocument()
+
+    rerender(<OverallPriceSlab result={readyResult} {...props} />)
+
+    // Assert: The open disclosure updates to the fresh ready rate.
+    expect(screen.getByRole('dialog', { name: 'How Overall Price is calculated' })).toBeInTheDocument()
+    expect(screen.getByText('Higher-precision price: 51,2 ct/kWh')).toBeInTheDocument()
+  })
+
   it('renders the empty state and invokes the supplied add-session action', async () => {
     // Arrange: Render an empty lifetime result.
     const { onAddSession, user } = renderSlab({ status: 'empty' })
