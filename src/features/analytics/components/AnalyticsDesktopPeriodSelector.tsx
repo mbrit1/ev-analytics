@@ -101,7 +101,7 @@ export function AnalyticsDesktopPeriodSelector({
   }
 
   return (
-    <div ref={rootRef} role="group" aria-label="Analytics period" aria-describedby={rangeDescriptionId} className="relative mx-auto w-full max-w-3xl">
+    <div ref={rootRef} role="group" aria-label="Analytics period" aria-describedby={rangeDescriptionId} className="relative w-full min-w-0">
       <div className="flex w-full items-center gap-2 rounded-xl border border-slab-border bg-surface px-2 py-1.5 shadow-slab">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3">
           {selection.kind === 'month' ? (

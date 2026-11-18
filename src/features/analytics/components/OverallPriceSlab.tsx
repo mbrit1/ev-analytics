@@ -48,116 +48,123 @@ export function OverallPriceSlab({
   onReviewTariffs,
   layoutMode,
 }: OverallPriceSlabProps) {
-  const slabClasses = 'mx-auto w-full space-y-4 p-5 md:space-y-5 md:p-8 min-[900px]:!max-w-[760px] min-[900px]:space-y-7 min-[900px]:!rounded-[32px] min-[900px]:!p-12 min-[900px]:!px-13'
+  const slabClasses = 'mx-auto w-full @container space-y-4 p-5 md:space-y-5 md:p-8 @min-[48rem]:p-6 motion-reduce:transition-none'
+  const heading = (
+    <div className="flex items-center gap-1">
+      <h2 className="whitespace-nowrap text-xs font-bold uppercase tracking-wider text-slab-secondary md:text-sm md:normal-case md:tracking-normal">
+        Overall price
+      </h2>
+      <OverallPriceInfoDisclosure
+        layoutMode={layoutMode}
+        overallPriceCtPerKwh={!isLoading && result.status === 'ready'
+          ? result.overallPriceCtPerKwh
+          : undefined}
+      />
+    </div>
+  )
 
   return (
     <Slab padding="none" className={slabClasses} aria-busy={isLoading}>
-      <div className="flex items-center gap-1">
-        <h2 className="whitespace-nowrap text-xs font-bold uppercase tracking-wider text-secondary md:text-sm md:normal-case md:tracking-normal">
-          Overall price
-        </h2>
-        <OverallPriceInfoDisclosure
-          layoutMode={layoutMode}
-          overallPriceCtPerKwh={!isLoading && result.status === 'ready'
-            ? result.overallPriceCtPerKwh
-            : undefined}
-        />
-      </div>
-      {isLoading ? (
-        <div role="status" className="h-12 w-40 animate-pulse rounded-xl bg-secondary/10 motion-reduce:animate-none">
-          <span className="sr-only">Loading Overall Price</span>
-        </div>
-      ) : result.status === 'ready' ? (
-        <div className="space-y-6 min-[900px]:space-y-8">
-          <div className="space-y-3 min-[900px]:space-y-4">
-            <p
-              className="analytics-metric-value inline-flex items-baseline gap-1 min-[900px]:gap-2 whitespace-nowrap text-[2.75rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[3.5rem] min-[900px]:!text-[clamp(4rem,5vw,5.25rem)] min-[900px]:font-extrabold min-[900px]:leading-[0.95] min-[900px]:tracking-[-0.055em]"
+      <div className={!isLoading && result.status === 'ready'
+        ? 'space-y-4 md:space-y-5 @min-[48rem]:grid @min-[48rem]:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)] @min-[48rem]:grid-rows-[44px_auto] @min-[48rem]:items-stretch @min-[48rem]:gap-x-4 @min-[48rem]:gap-y-2 @min-[48rem]:space-y-0'
+        : 'space-y-4 md:space-y-5'}>
+        {heading}
+        {isLoading ? (
+          <div role="status" className="h-12 w-40 animate-pulse rounded-xl bg-secondary/10 motion-reduce:animate-none">
+            <span className="sr-only">Loading Overall Price</span>
+          </div>
+        ) : result.status === 'ready' ? (
+          <div className="space-y-6 @min-[48rem]:contents @min-[48rem]:space-y-0">
+            <div className="space-y-3 @min-[48rem]:col-start-1 @min-[48rem]:row-start-2">
+              <p
+                className="analytics-metric-value inline-flex items-baseline gap-1 whitespace-nowrap text-[2.75rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[3.5rem] @min-[48rem]:!text-[2.5rem] @min-[48rem]:gap-2"
+              >
+                <span aria-hidden="true" className="tabular-nums">{formatCtPerKwhAsEuroAmount(result.overallPriceCtPerKwh, 'de-DE')}</span>
+                <span aria-hidden="true" className="text-[0.625em] font-bold leading-none">€/kWh</span>
+                <span className="sr-only">
+                  Overall price: {formatCtPerKwhAsEuroAmount(result.overallPriceCtPerKwh, 'de-DE')} euros per kilowatt-hour
+                </span>
+              </p>
+              <p className="text-sm leading-5 text-slab-secondary md:text-base md:leading-6">
+                Effective price including applicable fixed costs
+              </p>
+            </div>
+            <div className="grid gap-5 border-t border-slab-border/70 pt-5 @min-[48rem]:col-start-2 @min-[48rem]:col-span-2 @min-[48rem]:row-span-2 @min-[48rem]:grid-cols-2 @min-[48rem]:grid-rows-subgrid @min-[48rem]:border-l @min-[48rem]:border-t-0 @min-[48rem]:gap-y-2 @min-[48rem]:py-0 @min-[48rem]:pl-5">
+              <div className="space-y-2 @min-[48rem]:space-y-0 @min-[48rem]:row-span-2 @min-[48rem]:grid @min-[48rem]:grid-rows-subgrid">
+                <h3 className="text-sm font-semibold text-slab-secondary md:text-[0.9375rem] @min-[48rem]:row-start-1 @min-[48rem]:flex @min-[48rem]:items-center">
+                  Billed energy
+                </h3>
+                <p
+                  className="analytics-metric-value inline-flex items-baseline gap-1 whitespace-nowrap text-[2rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[2.5rem] @min-[48rem]:row-start-2 @min-[48rem]:self-start @min-[48rem]:!text-[1.875rem]"
+                  aria-label={`Billed energy: ${formatKwh(result.billedEnergyKwh)} kilowatt-hours`}
+                >
+                  {formatKwh(result.billedEnergyKwh)} <span className="text-lg leading-none md:text-xl">kWh</span>
+                </p>
+              </div>
+              <div className="space-y-2 @min-[48rem]:space-y-0 @min-[48rem]:row-span-2 @min-[48rem]:grid @min-[48rem]:grid-rows-subgrid">
+                <h3 className="text-sm font-semibold text-slab-secondary md:text-[0.9375rem] @min-[48rem]:row-start-1 @min-[48rem]:flex @min-[48rem]:items-center">
+                  Included spend
+                </h3>
+                <p
+                  className="analytics-metric-value whitespace-nowrap text-[2rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[2.5rem] @min-[48rem]:row-start-2 @min-[48rem]:self-start @min-[48rem]:!text-[1.875rem]"
+                  aria-label={`Included spend: ${formatCurrency(result.includedSpendCents)}`}
+                >
+                  {formatCurrency(result.includedSpendCents)}
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : result.status === 'empty' ? (
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <p className="text-lg font-semibold text-primary">No price available</p>
+              <p className="text-sm leading-5 text-slab-secondary">
+                Add a charging session to calculate your overall energy price.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onAddSession}
+              className="min-h-[44px] rounded-xl bg-accent px-4 py-2 font-bold text-white shadow-md shadow-accent/20 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-reduce:transition-none"
             >
-              <span aria-hidden="true" className="tabular-nums">{formatCtPerKwhAsEuroAmount(result.overallPriceCtPerKwh, 'de-DE')}</span>
-              <span aria-hidden="true" className="text-[0.625em] font-bold leading-none">€/kWh</span>
-              <span className="sr-only">
-                Overall price: {formatCtPerKwhAsEuroAmount(result.overallPriceCtPerKwh, 'de-DE')} euros per kilowatt-hour
-              </span>
-            </p>
-            <p className="text-sm leading-5 text-secondary md:text-base md:leading-6">
-              Effective price including applicable fixed costs
-            </p>
+              Add Session
+            </button>
           </div>
-          <div className="grid gap-5 border-t border-slab-border/70 pt-5 min-[900px]:grid-cols-2 min-[900px]:gap-8 min-[900px]:pt-8">
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-secondary md:text-[0.9375rem]">
-                Billed energy
-              </h3>
-              <p
-                className="analytics-metric-value inline-flex items-baseline gap-1 whitespace-nowrap text-[2rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[2.5rem] min-[900px]:text-[clamp(2.625rem,3.6vw,3.5rem)] min-[900px]:font-extrabold min-[900px]:tracking-[-0.045em]"
-                aria-label={`Billed energy: ${formatKwh(result.billedEnergyKwh)} kilowatt-hours`}
-              >
-                {formatKwh(result.billedEnergyKwh)} <span className="text-lg leading-none md:text-xl">kWh</span>
+        ) : result.reason === 'overlapping_paid_tariffs' ? (
+          <div className="space-y-4">
+            <div className="space-y-1">
+              <p className="text-lg font-semibold text-primary">Overall price unavailable</p>
+              <p className="text-sm leading-5 text-slab-secondary">
+                {formatConflictDescription(result.conflicts[0])}
+              </p>
+              {result.conflicts.length > 1 && (
+                <p className="text-sm font-semibold leading-5 text-slab-secondary">
+                  and {result.conflicts.length - 1} more
+                </p>
+              )}
+              <p className="text-sm leading-5 text-slab-secondary">
+                Update their active dates to calculate Overall Price.
               </p>
             </div>
-            <div className="space-y-2">
-              <h3 className="text-sm font-semibold text-secondary md:text-[0.9375rem]">
-                Included spend
-              </h3>
-              <p
-                className="analytics-metric-value whitespace-nowrap text-[2rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[2.5rem] min-[900px]:text-[clamp(2.625rem,3.6vw,3.5rem)] min-[900px]:font-extrabold min-[900px]:tracking-[-0.045em]"
-                aria-label={`Included spend: ${formatCurrency(result.includedSpendCents)}`}
-              >
-                {formatCurrency(result.includedSpendCents)}
-              </p>
-            </div>
+            <button
+              type="button"
+              onClick={onReviewTariffs}
+              className="min-h-[44px] rounded-xl bg-accent px-4 py-2 font-bold text-white shadow-md shadow-accent/20 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-reduce:transition-none"
+            >
+              Review tariffs
+            </button>
           </div>
-        </div>
-      ) : result.status === 'empty' ? (
-        <div className="space-y-4">
-          <div className="space-y-1">
-            <p className="text-lg font-semibold text-primary">No price available</p>
-            <p className="text-sm leading-5 text-secondary">
-              Add a charging session to calculate your overall energy price.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onAddSession}
-            className="min-h-[44px] rounded-xl bg-accent px-4 py-2 font-bold text-white shadow-md shadow-accent/20 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-reduce:transition-none"
-          >
-            Add Session
-          </button>
-        </div>
-      ) : result.reason === 'overlapping_paid_tariffs' ? (
-        <div className="space-y-4">
+        ) : (
           <div className="space-y-1">
             <p className="text-lg font-semibold text-primary">Overall price unavailable</p>
-            <p className="text-sm leading-5 text-secondary">
-              {formatConflictDescription(result.conflicts[0])}
-            </p>
-            {result.conflicts.length > 1 && (
-              <p className="text-sm font-semibold leading-5 text-secondary">
-                and {result.conflicts.length - 1} more
-              </p>
-            )}
-            <p className="text-sm leading-5 text-secondary">
-              Update their active dates to calculate Overall Price.
+            <p className="text-sm leading-5 text-slab-secondary">
+              {result.reason === 'invalid_billed_energy'
+                ? 'One or more charging sessions has invalid provider-billed energy.'
+                : 'Tariff history for one or more charging sessions is incomplete.'}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onReviewTariffs}
-            className="min-h-[44px] rounded-xl bg-accent px-4 py-2 font-bold text-white shadow-md shadow-accent/20 transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-reduce:transition-none"
-          >
-            Review tariffs
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-1">
-          <p className="text-lg font-semibold text-primary">Overall price unavailable</p>
-          <p className="text-sm leading-5 text-secondary">
-            {result.reason === 'invalid_billed_energy'
-              ? 'One or more charging sessions has invalid provider-billed energy.'
-              : 'Tariff history for one or more charging sessions is incomplete.'}
-          </p>
-        </div>
-      )}
+        )}
+      </div>
     </Slab>
   )
 }

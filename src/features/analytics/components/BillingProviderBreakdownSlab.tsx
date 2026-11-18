@@ -6,6 +6,7 @@ import { formatCurrency, formatKwh } from '../../../shared/lib'
 import type { AnalyticsLayoutMode } from '../hooks/useAnalyticsLayoutMode'
 import { groupBillingProviders, type BillingProviderSort, type ProviderColor } from '../model/billingProviderGrouping'
 import { getObservedProviderRateCtPerKwh, type BillingProviderBreakdown, type BillingProviderGroup } from '../model/billingProviderBreakdown'
+import { AnalyticsInfoDisclosure } from './AnalyticsInfoDisclosure'
 
 /** Props for the selected-period provider breakdown. */
 export interface BillingProviderBreakdownSlabProps {
@@ -160,8 +161,32 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
   return (
     <Slab padding="none" className="w-full space-y-5 p-5 md:p-8" aria-busy={isLoading && error === null}>
       <div className="space-y-1">
-        <h2 ref={headingRef} tabIndex={-1} className="text-sm font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">Billing providers</h2>
-        <p className="text-xs text-slab-secondary">Recorded session spending, billed energy and observed rates</p>
+        <div className="flex min-w-0 flex-wrap items-center gap-1">
+          <div className="flex shrink-0 items-center gap-1">
+          <h2 ref={headingRef} tabIndex={-1} className="text-sm font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">Billing providers</h2>
+          <AnalyticsInfoDisclosure
+            layoutMode={layoutMode}
+            heading="How provider rates are calculated"
+            explanation="Observed provider rate divides recorded session spend by billed energy. It excludes subscription fees and describes recorded sessions, not a future tariff. Rates are unavailable when recorded cost or billed energy is incomplete."
+            closeLabel="Close provider rate information"
+            dismissLabel="Dismiss provider rate information"
+            triggerKey="provider-rates"
+          />
+          </div>
+          {!isLoading && error === null && breakdown.sessionCount > 0 && <label className="ml-auto flex min-h-[44px] max-w-full flex-wrap items-center gap-2 text-sm text-primary">
+            <span>Sort providers</span>
+            <select
+              aria-label="Sort providers"
+              value={sortBy}
+              onChange={(event) => setSortBy(event.target.value as BillingProviderSort)}
+              className="min-h-[44px] max-w-full scroll-mt-24 rounded-lg border border-slab-border bg-surface px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+            >
+              <option value="energy">Billed energy, highest first</option>
+              <option value="spending">Session spend, highest first</option>
+              <option value="price">Observed rate, lowest first</option>
+            </select>
+          </label>}
+        </div>
       </div>
       {error !== null ? (
         <p role="alert" className="text-sm text-primary">Unable to load billing providers. Please try again.</p>
@@ -174,25 +199,8 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
         <p className="text-sm text-slab-secondary">No charging sessions recorded for this period.</p>
       ) : (
         <div className="space-y-5">
-          <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0 space-y-1">
-              <p className="text-xs text-slab-secondary">Recorded session spend ÷ billed energy. Excludes subscription fees; not a future tariff.</p>
-              <p className="text-xs text-slab-secondary">Unavailable rates indicate incomplete recorded cost or billed energy.</p>
-              <p className="text-xs text-slab-secondary">Top providers by billed energy; sorting applies within each group.</p>
-            </div>
-            <label className="flex min-h-[44px] max-w-full flex-wrap items-center gap-2 text-sm text-primary">
-              <span>Sort providers</span>
-              <select
-                aria-label="Sort providers"
-                value={sortBy}
-                onChange={(event) => setSortBy(event.target.value as BillingProviderSort)}
-                className="min-h-[44px] max-w-full scroll-mt-24 rounded-lg border border-slab-border bg-surface px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
-              >
-                <option value="energy">Billed energy, highest first</option>
-                <option value="spending">Session spend, highest first</option>
-                <option value="price">Observed rate, lowest first</option>
-              </select>
-            </label>
+          <div className="space-y-1">
+            {othersGroup && <p className="text-xs text-slab-secondary">Top providers by billed energy. Sorting changes their order; expand Others to see the remaining providers.</p>}
           </div>
           <div className="space-y-1">
             <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">

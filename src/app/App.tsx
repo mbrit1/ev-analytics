@@ -522,7 +522,7 @@ function App() {
           >
             <div
               className={activeTab === 'analytics'
-                ? 'mx-auto w-full max-w-2xl min-[900px]:!max-w-[760px]'
+                ? 'mx-auto w-full min-w-0'
                 : 'mx-auto max-w-2xl'}
             >
               {logoutError && (
