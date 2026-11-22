@@ -99,6 +99,7 @@ export function AnalyticsPage({
           result={monthlyResult}
           previousResult={previousResult}
           comparison={comparison}
+          layoutMode={layoutMode}
           isLoading={isMonthlyLoading}
           error={monthlyError}
           onAddSession={onAddSession}

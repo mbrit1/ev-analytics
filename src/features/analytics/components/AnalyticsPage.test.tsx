@@ -100,6 +100,8 @@ describe('AnalyticsPage', () => {
     expect(overallHeading.compareDocumentPosition(monthlyHeading))
       .toBe(Node.DOCUMENT_POSITION_PRECEDING)
     expect(monthlyHeading).toHaveTextContent('Summary')
+    expect(within(screen.getByRole('region', { name: 'Selected-period analytics' })).getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent))
+      .toEqual(['Session spend', 'Billed energy', 'Average session price'])
     expect(screen.queryByRole('tablist', { name: 'Analytics view' })).not.toBeInTheDocument()
     expect(screen.queryByRole('tabpanel')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Previous month' })).toBeInTheDocument()
@@ -132,6 +134,11 @@ describe('AnalyticsPage', () => {
     render(<AnalyticsPage onAddSession={vi.fn()} />)
     // Act
     await user.click(screen.getByRole('button', { name: 'Previous month' }))
+    const summary = within(screen.getByRole('region', { name: 'Selected-period analytics' }))
+    expect(summary.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent))
+      .toEqual(['Average session price', 'Session spend', 'Billed energy'])
+    expect(screen.getByRole('heading', { name: 'Period comparison' })).toBeVisible()
+
     // Assert
     expect(screen.queryByRole('tab')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /June 2026 summary/ })).toBeInTheDocument()
@@ -593,6 +600,25 @@ describe('AnalyticsPage', () => {
       expect(screen.getByRole('button', { name: 'How Overall Price is calculated' }))
         .toHaveFocus()
     })
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(document.body.style.overflow).toBe('')
+  })
+
+  it('moves focus to the Summary heading when the mobile information action disappears', async () => {
+    // Arrange
+    vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
+    const user = userEvent.setup()
+    const { rerender } = render(<AnalyticsPage onAddSession={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: 'How Charging Summary is calculated' }))
+    expect(screen.getByRole('button', { name: 'Close Charging Summary information' })).toHaveFocus()
+
+    // Act
+    vi.mocked(useAnalyticsLayoutMode).mockReturnValue('sidebar')
+    rerender(<AnalyticsPage onAddSession={vi.fn()} />)
+
+    // Assert
+    const summary = within(screen.getByRole('region', { name: 'Selected-period analytics' }))
+    await waitFor(() => expect(summary.getByRole('heading', { level: 2 })).toHaveFocus())
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(document.body.style.overflow).toBe('')
   })
