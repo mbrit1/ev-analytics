@@ -1,9 +1,11 @@
-import { useId } from 'react'
+import { useId, useRef } from 'react'
 import { Slab } from '../../../shared/ui'
 import { formatCurrency, formatKwh, formatMonthLabel, formatCtPerKwhAsEuroAmount } from '../../../shared/lib'
 import type { AnalyticsPeriod, AnalyticsPeriodPreset, PreviousAnalyticsPeriod } from '../model/analyticsPeriods'
 import type { MonthlySessionSpendResult } from '../model/monthlySessionSpend'
 import type { MetricChange, NoComparisonData, PreviousPeriodComparison } from '../model/previousPeriodComparison'
+import type { AnalyticsLayoutMode } from '../hooks/useAnalyticsLayoutMode'
+import { AnalyticsInfoDisclosure } from './AnalyticsInfoDisclosure'
 import { formatAnalyticsPeriodRange } from './analyticsPeriodLabels'
 
 /** Selected-period summary state and the established session-entry action. */
@@ -13,6 +15,8 @@ export interface MonthlySessionSpendSlabProps {
   result: MonthlySessionSpendResult
   previousResult: MonthlySessionSpendResult
   comparison: PreviousPeriodComparison | NoComparisonData
+  /** Selects the Summary composition used by the app shell. */
+  layoutMode: AnalyticsLayoutMode
   isLoading: boolean
   error?: unknown | null
   onAddSession: () => void
@@ -24,6 +28,8 @@ const PRESET_LABELS: Record<AnalyticsPeriodPreset, string> = {
   '3-months': '3 Months',
   year: 'Year',
 }
+
+const ZERO_SPENDING_BASELINE_NOTE = 'Percentage change is unavailable when previous spending is zero.'
 
 const percentFormatter = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 })
 const energy = (kwh: number) => `${formatKwh(kwh)} kWh`
@@ -50,7 +56,9 @@ function energyCoverage(result: MonthlySessionSpendResult) {
 }
 
 /** Presents recorded spending, billed energy and their complete-coverage weighted price. */
-export function MonthlySessionSpendSlab({ period, previousPeriod, result, previousResult, comparison, isLoading, error = null, onAddSession }: MonthlySessionSpendSlabProps) {
+export function MonthlySessionSpendSlab({ period, previousPeriod, result, previousResult, comparison, layoutMode, isLoading, error = null, onAddSession }: MonthlySessionSpendSlabProps) {
+  const isMobile = layoutMode === 'bottom-dock'
+  const showResults = error === null && !isLoading
   const selection = period.selection
   const monthLabel = selection.kind === 'month'
     ? formatMonthLabel(selection.month.year, selection.month.month)
@@ -63,6 +71,7 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
   const unavailableClass = 'text-base font-semibold text-primary'
   const previousLabel = `Previous period · ${formatAnalyticsPeriodRange(previousPeriod)}`
   const id = useId()
+  const headingRef = useRef<HTMLHeadingElement>(null)
   const currentCoverage = energyCoverage(result)
   const previousCoverage = energyCoverage(previousResult)
   const previousEnergy = previousResult.billedEnergyKwh === null
@@ -71,13 +80,14 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
   const compared = comparison.status === 'compared'
   const zeroBaseline = compared && (comparison.spending.status === 'up-from-zero'
     || (comparison.spending.status === 'no-change' && previousResult.totalSessionSpendCents === 0))
-  const metrics = [
+  const [spendingMetric, energyMetric, priceMetric] = [
     {
       label: 'Session spend',
       value: result.totalSessionSpendCents === null ? null : formatCurrency(result.totalSessionSpendCents),
       change: additiveChange(comparison.spending, result.totalSessionSpendCents, previousResult.totalSessionSpendCents, formatCurrency),
       previous: previousResult.totalSessionSpendCents === null ? 'Unavailable (invalid recorded cost)' : formatCurrency(previousResult.totalSessionSpendCents),
-      note: result.totalSessionSpendCents === null ? 'One or more sessions has an invalid recorded cost.' : 'Recorded session charges. Excludes subscription fees.',
+      warning: result.totalSessionSpendCents === null ? 'One or more sessions has an invalid recorded cost.' : null,
+      methodology: 'Recorded session charges. Excludes subscription fees.',
     },
     {
       label: 'Billed energy',
@@ -87,25 +97,50 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
       </>,
       change: additiveChange(comparison.energy, result.billedEnergyKwh, previousResult.billedEnergyKwh, energy, 0.005),
       previous: previousCoverage ? `${previousEnergy} (${previousCoverage} measured)` : previousEnergy,
-      note: currentCoverage ? `Billed energy available for ${currentCoverage}.` : 'Energy billed by providers, not battery-added energy.',
+      warning: currentCoverage ? `Billed energy available for ${currentCoverage}.` : null,
+      methodology: 'Energy billed by providers, not battery-added energy.',
     },
     {
       label: 'Average session price',
       value: result.averageSessionPriceCtPerKwh === null ? null : <>{formatCtPerKwhAsEuroAmount(result.averageSessionPriceCtPerKwh, 'de-DE')} <span className="text-base font-medium">€/kWh</span></>,
       change: comparison.priceDifferenceEurPerKwh === null ? 'Change unavailable' : signed(comparison.priceDifferenceEurPerKwh * 100, price, 0.5),
       previous: previousResult.averageSessionPriceCtPerKwh === null ? 'Unavailable' : price(previousResult.averageSessionPriceCtPerKwh),
-      note: result.averageSessionPriceCtPerKwh === null || (compared && previousResult.averageSessionPriceCtPerKwh === null)
+      warning: result.averageSessionPriceCtPerKwh === null || (compared && previousResult.averageSessionPriceCtPerKwh === null)
         ? 'Requires valid cost and billed energy for every session.'
-        : 'Session spend divided by billed energy.',
+        : null,
+      methodology: 'Session spend divided by billed energy.',
     },
   ]
 
+  const metrics = isMobile
+    ? [priceMetric, spendingMetric, energyMetric]
+    : [spendingMetric, energyMetric, priceMetric]
+
   return (
-    <Slab padding="none" className="w-full space-y-4 p-5 md:p-8" aria-busy={isLoading && error === null}>
-      <div className="space-y-1">
-        <h2 aria-label={accessibleScope} className="text-sm font-semibold text-primary">
-          Summary
-        </h2>
+    <Slab padding="none" className={isMobile ? '@container/charging-summary w-full space-y-3 p-5 wrap-anywhere motion-reduce:transition-none' : 'w-full space-y-4 p-5 md:p-8'} aria-busy={isLoading && error === null}>
+      <div className={isMobile ? 'flex items-start justify-between gap-2' : 'space-y-1'}>
+        <div className="min-w-0 space-y-1">
+          <h2
+            ref={headingRef}
+            tabIndex={isMobile ? undefined : -1}
+            aria-label={isMobile ? `Charging Summary · ${accessibleScope}` : accessibleScope}
+            className="text-sm font-semibold text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent/60"
+          >
+            {isMobile ? 'Charging Summary' : 'Summary'}
+          </h2>
+          {isMobile && showResults && <p className="text-sm text-slab-secondary">{previousLabel}</p>}
+        </div>
+        {isMobile && (
+          <AnalyticsInfoDisclosure
+            layoutMode={layoutMode}
+            heading="How Charging Summary is calculated"
+            explanation="Average session price is session spending divided by valid billed energy. Session spend uses recorded session charges, excluding fixed subscription fees. Billed energy is the energy providers bill for, not the energy added to the vehicle battery."
+            closeLabel="Close Charging Summary information"
+            dismissLabel="Dismiss Charging Summary information"
+            triggerKey="charging-summary"
+            unmountFocusFallback={headingRef}
+          />
+        )}
       </div>
       {error !== null ? (
         <p role="alert" className="text-sm text-primary">Unable to load the summary. Please try again.</p>
@@ -116,20 +151,29 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
         </div>
       ) : (
         <>
-          <div className="space-y-1 text-sm text-slab-secondary">
-            <p>{previousLabel}</p>
-            {previousPeriod.isMonthToDateFallback && (
-              <p className="text-xs">The previous window extends before the prior month to match {previousPeriod.dayCount} calendar days.</p>
-            )}
-            {!compared && <p>No comparison data · No sessions in the previous period.</p>}
-          </div>
-          <div className="grid gap-4 lg:grid-cols-3 lg:gap-6">
+          {(!isMobile || previousPeriod.isMonthToDateFallback || !compared) && (
+            <div className="space-y-1 text-sm text-slab-secondary">
+              {!isMobile && <p>{previousLabel}</p>}
+              {previousPeriod.isMonthToDateFallback && (
+                <p className="text-xs">The previous window extends before the prior month to match {previousPeriod.dayCount} calendar days.</p>
+              )}
+              {!compared && <p>No comparison data · No sessions in the previous period.</p>}
+            </div>
+          )}
+          <div className={isMobile ? 'grid gap-4 @min-[18rem]/charging-summary:grid-cols-2' : 'grid gap-4 lg:grid-cols-3 lg:gap-6'}>
             {metrics.map((metric, index) => {
               const headingId = `${id}-${index}`
+              const isHero = isMobile && metric === priceMetric
+              const metricClass = isMobile
+                ? `min-w-0 space-y-1 ${isHero ? 'col-span-full' : ''}`
+                : 'min-w-0 space-y-1 border-t border-slab-border pt-4 first:border-t-0 first:pt-0 lg:border-t-0 lg:pt-0'
+              const mobileValueClass = isHero ? 'text-[2.75rem] leading-none' : 'text-2xl leading-tight'
+              const metricValueClass = isMobile ? `font-bold tracking-tight text-primary tabular-nums ${mobileValueClass}` : valueClass
+              const note = metric.warning ?? (isMobile ? null : metric.methodology)
               return (
-                <section key={metric.label} aria-labelledby={headingId} className="min-w-0 space-y-1 border-t border-slab-border pt-4 first:border-t-0 first:pt-0 lg:border-t-0 lg:pt-0">
+                <section key={metric.label} aria-labelledby={headingId} className={metricClass}>
                   <h3 id={headingId} className="text-sm font-medium text-slab-secondary">{metric.label}</h3>
-                  <p className={metric.value === null ? unavailableClass : valueClass}>{metric.value ?? 'Unavailable'}</p>
+                  <p className={metric.value === null ? unavailableClass : metricValueClass}>{metric.value ?? 'Unavailable'}</p>
                   {compared && (
                     <>
                       <p className="text-sm font-medium text-slab-secondary tabular-nums">
@@ -138,7 +182,10 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
                       <p className="text-xs leading-5 text-slab-secondary tabular-nums">Previous: {metric.previous}</p>
                     </>
                   )}
-                  <p className="text-xs leading-5 text-slab-secondary">{metric.note}</p>
+                  {note && <p className="text-xs leading-5 text-slab-secondary">{note}</p>}
+                  {isMobile && metric === spendingMetric && zeroBaseline && (
+                    <p className="text-xs leading-5 text-slab-secondary">{ZERO_SPENDING_BASELINE_NOTE}</p>
+                  )}
                 </section>
               )
             })}
@@ -147,7 +194,7 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
             <p className="text-sm text-slab-secondary">
               {result.sessionCount} {result.sessionCount === 1 ? 'charging session' : 'charging sessions'}
             </p>
-            {zeroBaseline && <p className="text-xs text-slab-secondary">Percentage change is unavailable when previous spending is zero.</p>}
+            {!isMobile && zeroBaseline && <p className="text-xs text-slab-secondary">{ZERO_SPENDING_BASELINE_NOTE}</p>}
             {result.isEmpty && (
               <>
                 <p className="text-sm text-slab-secondary">No charging sessions recorded for this {selection.kind === 'month' ? 'month' : 'period'}{period.isInProgress ? ' yet' : ''}. Billed energy and average price are unavailable.</p>

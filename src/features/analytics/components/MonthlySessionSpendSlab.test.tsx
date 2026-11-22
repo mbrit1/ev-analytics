@@ -20,7 +20,7 @@ const baseResult: MonthlySessionSpendResult = {
 }
 
 /** Verifies summary metrics and distinct empty, loading, error and incomplete states. */
-describe('MonthlySessionSpendSlab', () => {
+describe.each(['sidebar', 'bottom-dock'] as const)('MonthlySessionSpendSlab (%s)', (layoutMode) => {
   function renderSummary(overrides: Partial<MonthlySessionSpendResult> = {}, extra: Partial<MonthlySessionSpendSlabProps> = {}) {
     const month = overrides.isCurrentMonth === false ? 5 : 6
     const period = extra.period ?? createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month } }, new Date(2026, 6, 31, 12))
@@ -28,7 +28,7 @@ describe('MonthlySessionSpendSlab', () => {
     const result = { ...baseResult, ...overrides }
     const previousResult = extra.previousResult ?? { ...baseResult, isEmpty: true, sessionCount: 0, totalSessionSpendCents: 0, billedEnergyKwh: null, averageSessionPriceCtPerKwh: null, validBilledEnergySessionCount: 0 }
     const comparison = comparePreviousPeriod(result, previousResult, period, previousPeriod)
-    return render(<MonthlySessionSpendSlab period={period} previousPeriod={previousPeriod} result={result} previousResult={previousResult} comparison={comparison} isLoading={false} onAddSession={vi.fn()} {...extra} />)
+    return render(<MonthlySessionSpendSlab period={period} previousPeriod={previousPeriod} result={result} previousResult={previousResult} comparison={comparison} layoutMode={layoutMode} isLoading={false} onAddSession={vi.fn()} {...extra} />)
   }
 
   it('shows three localized metrics and explicit scope', () => {
@@ -39,11 +39,40 @@ describe('MonthlySessionSpendSlab', () => {
     expect(screen.getByText(/24,6/)).toBeInTheDocument()
     expect(screen.getByText(/5,02/)).toBeInTheDocument()
     expect(screen.getByText('Average session price')).toBeInTheDocument()
-    expect(screen.getByText(/Excludes subscription fees/)).toBeInTheDocument()
     const summaryHeading = screen.getByRole('heading', { name: /July 2026 summary, 1 Jul – 31 Jul 2026, Month to date, in progress/ })
     expect(summaryHeading).toHaveTextContent('Summary')
     expect(summaryHeading).not.toHaveTextContent('1 Jul')
     expect(screen.queryByText(/1 Jul|In progress|Month to date/)).not.toBeInTheDocument()
+  })
+
+  it('keeps methodology inline on the sidebar and in a dismissible sheet on mobile', async () => {
+    // Arrange
+    const user = userEvent.setup()
+    renderSummary()
+    const inlineNotes = [
+      'Session spend divided by billed energy.',
+      'Recorded session charges. Excludes subscription fees.',
+      'Energy billed by providers, not battery-added energy.',
+    ]
+    const heading = 'How Charging Summary is calculated'
+
+    // Act / Assert
+    if (layoutMode === 'sidebar') {
+      for (const note of inlineNotes) expect(screen.getByText(note)).toBeVisible()
+      expect(screen.queryByRole('button', { name: heading })).not.toBeInTheDocument()
+      return
+    }
+
+    for (const note of inlineNotes) expect(screen.queryByText(note)).not.toBeInTheDocument()
+    const trigger = screen.getByRole('button', { name: heading })
+    await user.click(trigger)
+    const sheet = within(screen.getByRole('dialog', { name: heading }))
+    const close = sheet.getByRole('button', { name: 'Close Charging Summary information' })
+    expect(close).toHaveFocus()
+    expect(sheet.getByText(/divided by valid billed energy.*excluding fixed subscription fees.*vehicle battery/)).toBeVisible()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: heading })).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
   })
 
   it('integrates signed absolute and eligible relative changes with each localized metric', () => {
@@ -81,8 +110,8 @@ describe('MonthlySessionSpendSlab', () => {
     // Arrange / Act
     renderSummary({ sessionCount: 3, validBilledEnergySessionCount: 1, averageSessionPriceCtPerKwh: null })
     // Assert
-    expect(screen.getByText('Billed energy available for 1 of 3 sessions.')).toBeInTheDocument()
-    expect(screen.getByText('Unavailable')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Billed energy' })).toHaveTextContent('Billed energy available for 1 of 3 sessions.')
+    expect(screen.getByRole('region', { name: 'Average session price' })).toHaveTextContent(/Unavailable.*Requires valid cost and billed energy for every session/)
     expect(screen.getByText('123,45 €')).toBeInTheDocument()
   })
 

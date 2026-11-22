@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { Info, X } from 'lucide-react'
 import type { AnalyticsLayoutMode } from '../hooks/useAnalyticsLayoutMode'
@@ -24,12 +24,14 @@ export interface AnalyticsInfoDisclosureProps {
   dismissLabel: string
   /** Stable key used to restore focus if the open disclosure unmounts. */
   triggerKey: string
+  /** Focus target when the open disclosure unmounts without a replacement trigger. */
+  unmountFocusFallback?: RefObject<HTMLElement | null>
   /** Optional calculation detail below the disclosure heading. */
   additionalContent?: ReactNode
 }
 
 /** Explains an Analytics calculation without leaving the current screen. */
-export function AnalyticsInfoDisclosure({ layoutMode, heading, explanation, closeLabel, dismissLabel, triggerKey, additionalContent }: AnalyticsInfoDisclosureProps) {
+export function AnalyticsInfoDisclosure({ layoutMode, heading, explanation, closeLabel, dismissLabel, triggerKey, unmountFocusFallback, additionalContent }: AnalyticsInfoDisclosureProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [sidebarPosition, setSidebarPosition] = useState<SidebarPosition>({ left: 16, top: 16 })
   const disclosureId = useId()
@@ -173,11 +175,12 @@ export function AnalyticsInfoDisclosure({ layoutMode, heading, explanation, clos
     }
 
     queueMicrotask(() => {
-      Array.from(document.querySelectorAll<HTMLButtonElement>('[data-analytics-info-trigger]'))
+      const replacement = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-analytics-info-trigger]'))
         .find((trigger) => trigger.dataset.analyticsInfoTrigger === triggerKey)
-        ?.focus()
+      const focusTarget = replacement ?? unmountFocusFallback?.current
+      focusTarget?.focus()
     })
-  }, [triggerKey])
+  }, [triggerKey, unmountFocusFallback])
 
   useLayoutEffect(() => {
     if (!isOpen || layoutMode !== 'sidebar') {
