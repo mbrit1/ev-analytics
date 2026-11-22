@@ -1,4 +1,4 @@
-import { useId, useRef } from 'react'
+import { useId } from 'react'
 import { Slab } from '../../../shared/ui'
 import { formatCurrency, formatKwh, formatMonthLabel, formatCtPerKwhAsEuroAmount } from '../../../shared/lib'
 import type { AnalyticsPeriod, AnalyticsPeriodPreset, PreviousAnalyticsPeriod } from '../model/analyticsPeriods'
@@ -71,7 +71,6 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
   const unavailableClass = 'text-base font-semibold text-primary'
   const previousLabel = `Previous period · ${formatAnalyticsPeriodRange(previousPeriod)}`
   const id = useId()
-  const headingRef = useRef<HTMLHeadingElement>(null)
   const currentCoverage = energyCoverage(result)
   const previousCoverage = energyCoverage(previousResult)
   const previousEnergy = previousResult.billedEnergyKwh === null
@@ -87,7 +86,6 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
       change: additiveChange(comparison.spending, result.totalSessionSpendCents, previousResult.totalSessionSpendCents, formatCurrency),
       previous: previousResult.totalSessionSpendCents === null ? 'Unavailable (invalid recorded cost)' : formatCurrency(previousResult.totalSessionSpendCents),
       warning: result.totalSessionSpendCents === null ? 'One or more sessions has an invalid recorded cost.' : null,
-      methodology: 'Recorded session charges. Excludes subscription fees.',
     },
     {
       label: 'Billed energy',
@@ -98,7 +96,6 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
       change: additiveChange(comparison.energy, result.billedEnergyKwh, previousResult.billedEnergyKwh, energy, 0.005),
       previous: previousCoverage ? `${previousEnergy} (${previousCoverage} measured)` : previousEnergy,
       warning: currentCoverage ? `Billed energy available for ${currentCoverage}.` : null,
-      methodology: 'Energy billed by providers, not battery-added energy.',
     },
     {
       label: 'Average session price',
@@ -108,7 +105,6 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
       warning: result.averageSessionPriceCtPerKwh === null || (compared && previousResult.averageSessionPriceCtPerKwh === null)
         ? 'Requires valid cost and billed energy for every session.'
         : null,
-      methodology: 'Session spend divided by billed energy.',
     },
   ]
 
@@ -118,11 +114,9 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
 
   return (
     <Slab padding="none" className={isMobile ? '@container/charging-summary w-full space-y-3 p-5 wrap-anywhere motion-reduce:transition-none' : 'w-full space-y-4 p-5 md:p-8'} aria-busy={isLoading && error === null}>
-      <div className={isMobile ? 'flex items-start justify-between gap-2' : 'space-y-1'}>
+      <div className={isMobile ? 'flex items-start justify-between gap-2' : 'relative pr-11'}>
         <div className="min-w-0 space-y-1">
           <h2
-            ref={headingRef}
-            tabIndex={isMobile ? undefined : -1}
             aria-label={isMobile ? `Charging Summary · ${accessibleScope}` : accessibleScope}
             className="text-sm font-semibold text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent/60"
           >
@@ -130,7 +124,7 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
           </h2>
           {isMobile && showResults && <p className="text-sm text-slab-secondary">{previousLabel}</p>}
         </div>
-        {isMobile && (
+        <div className={isMobile ? 'contents' : 'absolute -top-3 right-0'}>
           <AnalyticsInfoDisclosure
             layoutMode={layoutMode}
             heading="How Charging Summary is calculated"
@@ -138,9 +132,8 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
             closeLabel="Close Charging Summary information"
             dismissLabel="Dismiss Charging Summary information"
             triggerKey="charging-summary"
-            unmountFocusFallback={headingRef}
           />
-        )}
+        </div>
       </div>
       {error !== null ? (
         <p role="alert" className="text-sm text-primary">Unable to load the summary. Please try again.</p>
@@ -169,7 +162,6 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
                 : 'min-w-0 space-y-1 border-t border-slab-border pt-4 first:border-t-0 first:pt-0 lg:border-t-0 lg:pt-0'
               const mobileValueClass = isHero ? 'text-[2.75rem] leading-none' : 'text-2xl leading-tight'
               const metricValueClass = isMobile ? `font-bold tracking-tight text-primary tabular-nums ${mobileValueClass}` : valueClass
-              const note = metric.warning ?? (isMobile ? null : metric.methodology)
               return (
                 <section key={metric.label} aria-labelledby={headingId} className={metricClass}>
                   <h3 id={headingId} className="text-sm font-medium text-slab-secondary">{metric.label}</h3>
@@ -182,7 +174,7 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
                       <p className="text-xs leading-5 text-slab-secondary tabular-nums">Previous: {metric.previous}</p>
                     </>
                   )}
-                  {note && <p className="text-xs leading-5 text-slab-secondary">{note}</p>}
+                  {metric.warning && <p className="text-xs leading-5 text-slab-secondary">{metric.warning}</p>}
                   {isMobile && metric === spendingMetric && zeroBaseline && (
                     <p className="text-xs leading-5 text-slab-secondary">{ZERO_SPENDING_BASELINE_NOTE}</p>
                   )}
