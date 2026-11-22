@@ -604,7 +604,7 @@ describe('AnalyticsPage', () => {
     expect(document.body.style.overflow).toBe('')
   })
 
-  it('moves focus to the Summary heading when the mobile information action disappears', async () => {
+  it('restores focus to the Summary information action when the mobile sheet closes at the breakpoint', async () => {
     // Arrange
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
     const user = userEvent.setup()
@@ -618,7 +618,7 @@ describe('AnalyticsPage', () => {
 
     // Assert
     const summary = within(screen.getByRole('region', { name: 'Selected-period analytics' }))
-    await waitFor(() => expect(summary.getByRole('heading', { level: 2 })).toHaveFocus())
+    await waitFor(() => expect(summary.getByRole('button', { name: 'How Charging Summary is calculated' })).toHaveFocus())
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(document.body.style.overflow).toBe('')
   })

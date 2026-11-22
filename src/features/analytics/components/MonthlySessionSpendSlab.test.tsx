@@ -45,34 +45,54 @@ describe.each(['sidebar', 'bottom-dock'] as const)('MonthlySessionSpendSlab (%s)
     expect(screen.queryByText(/1 Jul|In progress|Month to date/)).not.toBeInTheDocument()
   })
 
-  it('keeps methodology inline on the sidebar and in a dismissible sheet on mobile', async () => {
+  it('keeps the metric order and reveals methodology on demand', async () => {
     // Arrange
     const user = userEvent.setup()
     renderSummary()
-    const inlineNotes = [
-      'Session spend divided by billed energy.',
-      'Recorded session charges. Excludes subscription fees.',
-      'Energy billed by providers, not battery-added energy.',
-    ]
     const heading = 'How Charging Summary is calculated'
+    const methodology = /divided by valid billed energy.*excluding fixed subscription fees.*vehicle battery/
+    const surfaceRole = layoutMode === 'sidebar' ? 'region' : 'dialog'
+    const metrics = ['Session spend', 'Billed energy', 'Average session price']
+
+    // Assert
+    expect(screen.getAllByRole('heading', { level: 3 }).map((element) => element.textContent))
+      .toEqual(layoutMode === 'sidebar' ? metrics : [metrics[2], metrics[0], metrics[1]])
+    expect(screen.queryByText('Session spend divided by billed energy.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Recorded session charges. Excludes subscription fees.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Energy billed by providers, not battery-added energy.')).not.toBeInTheDocument()
+    expect(screen.queryByText(methodology)).not.toBeInTheDocument()
+
+    // Act
+    const trigger = screen.getByRole('button', { name: heading, expanded: false })
+    trigger.focus()
+    await user.keyboard('{Enter}')
+
+    // Assert
+    const surface = screen.getByRole(surfaceRole, { name: heading })
+    const close = within(surface).getByRole('button', { name: 'Close Charging Summary information' })
+    expect(trigger).toHaveAttribute('aria-controls', surface.id)
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    if (layoutMode === 'bottom-dock') {
+      expect(surface).toHaveAttribute('aria-modal', 'true')
+      expect(close).toHaveFocus()
+    }
+    expect(within(surface).getByText(methodology)).toBeVisible()
 
     // Act / Assert
-    if (layoutMode === 'sidebar') {
-      for (const note of inlineNotes) expect(screen.getByText(note)).toBeVisible()
-      expect(screen.queryByRole('button', { name: heading })).not.toBeInTheDocument()
-      return
-    }
-
-    for (const note of inlineNotes) expect(screen.queryByText(note)).not.toBeInTheDocument()
-    const trigger = screen.getByRole('button', { name: heading })
-    await user.click(trigger)
-    const sheet = within(screen.getByRole('dialog', { name: heading }))
-    const close = sheet.getByRole('button', { name: 'Close Charging Summary information' })
-    expect(close).toHaveFocus()
-    expect(sheet.getByText(/divided by valid billed energy.*excluding fixed subscription fees.*vehicle battery/)).toBeVisible()
     await user.keyboard('{Escape}')
-    expect(screen.queryByRole('dialog', { name: heading })).not.toBeInTheDocument()
+    expect(screen.queryByRole(surfaceRole, { name: heading })).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
+
+    await user.click(trigger)
+    await user.click(screen.getByRole('button', { name: 'Close Charging Summary information' }))
+    expect(screen.queryByRole(surfaceRole, { name: heading })).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+
+    if (layoutMode === 'sidebar') {
+      await user.click(trigger)
+      await user.click(screen.getByRole('heading', { level: 2 }))
+      expect(screen.queryByRole(surfaceRole, { name: heading })).not.toBeInTheDocument()
+    }
   })
 
   it('integrates signed absolute and eligible relative changes with each localized metric', () => {

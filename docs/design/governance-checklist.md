@@ -49,6 +49,7 @@ Use this checklist for every UI-facing change. The default baseline is
 - Partial measurement coverage is disclosed beside the affected value; do not present a known subtotal as a complete total. Metric-specific calculation rules stay in the owning specification.
 - Suppress stale metric values during blocking loading or query failure. Keep these states distinct from loaded-empty data.
 - The period selector shows one quiet inclusive date range and progress line with an accessible description on its control group. Desktop places the range beside the selected month or preset label, wrapping it beneath the selection before squeezing 44px controls; mobile keeps it beneath the controls. The visible summary title stays concise while its accessible name retains the selected period, exact dates and progress state. Lifetime metrics remain separately labelled so the selected period does not imply a different scope.
+- The sidebar Charging Summary keeps its three equally weighted metrics and puts routine methodology in the existing information popover. Keep data-quality notes beside their values. This is an Analytics-local presentation refinement.
 - Numeric alignment uses `tabular-nums` where it materially improves scanning, not as a blanket layout rule.
 
 ## 8) Deviation policy (required note in handoff)
