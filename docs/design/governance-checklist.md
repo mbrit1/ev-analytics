@@ -141,8 +141,11 @@ both themes and narrow widths, including clearance above the fixed dock.
 
 
 On bottom-dock layouts, the Charging Summary footer includes an initially
-collapsed Compare periods disclosure beside the session count. Leave the
-Summary values, deltas and previous-period context visible when collapsed.
+collapsed Compare periods disclosure beside the session count. Keep the
+current Summary values, valid deltas, a concise comparison caption, and inline
+data-quality warnings visible when collapsed. Reveal exact previous values and
+both date ranges inside the comparison. Place the existing methodology sheet
+action below the chart and keep it available when values cannot be plotted.
 Use the same metrics and coverage language with horizontal tracks, Previous
 before Selected, on a shared zero baseline and scale. Initialize mobile to
 Price/kWh to match its price-first Summary, and keep the desktop Spending

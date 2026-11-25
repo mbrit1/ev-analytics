@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
-import { Info, X } from 'lucide-react'
+import { ChevronRight, Info, X } from 'lucide-react'
 import type { AnalyticsLayoutMode } from '../hooks/useAnalyticsLayoutMode'
 
 const VIEWPORT_GUTTER = 16
@@ -24,6 +24,8 @@ export interface AnalyticsInfoDisclosureProps {
   dismissLabel: string
   /** Stable key used to restore focus if the open disclosure unmounts. */
   triggerKey: string
+  /** Optional visible label for a full-width action row. */
+  triggerText?: string
   /** Focus target when the open disclosure unmounts without a replacement trigger. */
   unmountFocusFallback?: RefObject<HTMLElement | null>
   /** Optional calculation detail below the disclosure heading. */
@@ -31,7 +33,7 @@ export interface AnalyticsInfoDisclosureProps {
 }
 
 /** Explains an Analytics calculation without leaving the current screen. */
-export function AnalyticsInfoDisclosure({ layoutMode, heading, explanation, closeLabel, dismissLabel, triggerKey, unmountFocusFallback, additionalContent }: AnalyticsInfoDisclosureProps) {
+export function AnalyticsInfoDisclosure({ layoutMode, heading, explanation, closeLabel, dismissLabel, triggerKey, triggerText, unmountFocusFallback, additionalContent }: AnalyticsInfoDisclosureProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [sidebarPosition, setSidebarPosition] = useState<SidebarPosition>({ left: 16, top: 16 })
   const disclosureId = useId()
@@ -292,18 +294,27 @@ export function AnalyticsInfoDisclosure({ layoutMode, heading, explanation, clos
 
   return (
     <>
-      <div className="inline-flex shrink-0">
+      <div className={triggerText ? 'border-t border-slab-border pt-1' : 'inline-flex shrink-0'}>
         <button
           ref={triggerRef}
           data-analytics-info-trigger={triggerKey}
           type="button"
-          aria-label={heading}
+          aria-label={triggerText ? undefined : heading}
           aria-expanded={isOpen}
           aria-controls={disclosureId}
           onClick={() => setIsOpen((current) => !current)}
-          className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-secondary transition-colors hover:bg-secondary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-reduce:transition-none"
+          className={`inline-flex min-w-[44px] items-center rounded-xl ${triggerText
+            ? 'min-h-[48px] w-full gap-[10px] px-[8px] py-2 text-left text-sm font-medium text-primary'
+            : 'min-h-[44px] justify-center text-secondary'
+          } transition-colors hover:bg-secondary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-reduce:transition-none`}
         >
-          <Info aria-hidden="true" className="size-5" />
+          {triggerText ? (
+            <>
+              <Info aria-hidden="true" className="size-[16px] shrink-0 text-slab-secondary" />
+              <span className="min-w-0 flex-1 wrap-anywhere">{triggerText}</span>
+              <ChevronRight aria-hidden="true" className="size-[16px] shrink-0 text-slab-secondary" />
+            </>
+          ) : <Info aria-hidden="true" className="size-5" />}
         </button>
       </div>
       {portalHost !== null && createPortal(portalContent, portalHost)}

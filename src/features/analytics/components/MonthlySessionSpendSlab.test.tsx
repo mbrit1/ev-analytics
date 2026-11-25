@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import type { MonthlySessionSpendResult } from '../model/monthlySessionSpend'
@@ -24,7 +24,7 @@ describe.each(['sidebar', 'bottom-dock'] as const)('MonthlySessionSpendSlab (%s)
   function renderSummary(overrides: Partial<MonthlySessionSpendResult> = {}, extra: Partial<MonthlySessionSpendSlabProps> = {}) {
     const month = overrides.isCurrentMonth === false ? 5 : 6
     const period = extra.period ?? createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month } }, new Date(2026, 6, 31, 12))
-    const previousPeriod = createPreviousAnalyticsPeriod(period)
+    const previousPeriod = extra.previousPeriod ?? createPreviousAnalyticsPeriod(period)
     const result = { ...baseResult, ...overrides }
     const previousResult = extra.previousResult ?? { ...baseResult, isEmpty: true, sessionCount: 0, totalSessionSpendCents: 0, billedEnergyKwh: null, averageSessionPriceCtPerKwh: null, validBilledEnergySessionCount: 0 }
     const comparison = comparePreviousPeriod(result, previousResult, period, previousPeriod)
@@ -63,7 +63,17 @@ describe.each(['sidebar', 'bottom-dock'] as const)('MonthlySessionSpendSlab (%s)
     expect(screen.queryByText(methodology)).not.toBeInTheDocument()
 
     // Act
-    const trigger = screen.getByRole('button', { name: heading, expanded: false })
+    if (layoutMode === 'bottom-dock') {
+      expect(screen.queryByRole('button', { name: /How .*calculated/ })).not.toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Compare periods' }))
+      expect(screen.getByRole('region', { name: 'Previous period' })).toHaveTextContent('No sessions')
+      expect(screen.getByRole('region', { name: 'Selected period' }).querySelector('[aria-hidden="true"]')).toBeNull()
+      expect(screen.getByRole('button', { name: 'How these metrics are calculated' })).toBeVisible()
+      expect(screen.queryByRole('button', { name: heading })).not.toBeInTheDocument()
+    }
+    const trigger = layoutMode === 'sidebar'
+      ? screen.getByRole('button', { name: heading, expanded: false })
+      : screen.getByRole('button', { name: 'How these metrics are calculated' })
     trigger.focus()
     await user.keyboard('{Enter}')
 
@@ -74,6 +84,10 @@ describe.each(['sidebar', 'bottom-dock'] as const)('MonthlySessionSpendSlab (%s)
     expect(trigger).toHaveAttribute('aria-expanded', 'true')
     if (layoutMode === 'bottom-dock') {
       expect(surface).toHaveAttribute('aria-modal', 'true')
+      expect(close).toHaveFocus()
+      await user.tab()
+      expect(close).toHaveFocus()
+      await user.tab({ shift: true })
       expect(close).toHaveFocus()
     }
     expect(within(surface).getByText(methodology)).toBeVisible()
@@ -92,6 +106,21 @@ describe.each(['sidebar', 'bottom-dock'] as const)('MonthlySessionSpendSlab (%s)
       await user.click(trigger)
       await user.click(screen.getByRole('heading', { level: 2 }))
       expect(screen.queryByRole(surfaceRole, { name: heading })).not.toBeInTheDocument()
+    } else {
+      const compare = screen.getByRole('button', { name: 'Compare periods' })
+      await user.click(trigger)
+      await user.click(screen.getByRole('button', { name: 'Dismiss Charging Summary information' }))
+      expect(trigger).toHaveFocus()
+      await user.click(compare)
+      expect(compare).toHaveFocus()
+      expect(trigger).not.toBeInTheDocument()
+      await user.click(compare)
+      await user.click(screen.getByRole('button', { name: 'How these metrics are calculated' }))
+      // Simulate a disclosure closing programmatically while the background is inert.
+      fireEvent.click(compare)
+      await waitFor(() => expect(compare).toHaveFocus())
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(document.body.style.overflow).toBe('')
     }
   })
 
@@ -99,9 +128,40 @@ describe.each(['sidebar', 'bottom-dock'] as const)('MonthlySessionSpendSlab (%s)
     // Arrange / Act: Use complete periods with decreasing energy and increasing spend and price.
     renderSummary({}, { previousResult: { ...baseResult, totalSessionSpendCents: 10_000, billedEnergyKwh: 25, averageSessionPriceCtPerKwh: 400 } })
     // Assert
-    expect(screen.getByRole('region', { name: 'Session spend' })).toHaveTextContent(/\+23,45 €.*\+23,5%.*100,00 €/)
-    expect(screen.getByRole('region', { name: 'Billed energy' })).toHaveTextContent(/−0,4 kWh.*−1,6%.*25 kWh/)
-    expect(screen.getByRole('region', { name: 'Average session price' })).toHaveTextContent(/\+1,02 €\/kWh.*4,00 €\/kWh/)
+    expect(screen.getByRole('region', { name: 'Session spend' })).toHaveTextContent(/\+23,45 €.*\+23,5%/)
+    expect(screen.getByRole('region', { name: 'Billed energy' })).toHaveTextContent(/−0,4 kWh.*−1,6%/)
+    expect(screen.getByRole('region', { name: 'Average session price' })).toHaveTextContent(/\+1,02 €\/kWh/)
+    if (layoutMode === 'sidebar') {
+      expect(screen.getAllByText(/^Previous:/).map((row) => row.textContent))
+        .toEqual(['Previous: 100,00 €', 'Previous: 25 kWh', 'Previous: 4,00 €/kWh'])
+    }
+  })
+
+  it.runIf(layoutMode === 'bottom-dock')('keeps collapsed state number-first and reveals both periods on demand', async () => {
+    // Arrange / Act
+    const user = userEvent.setup()
+    renderSummary({}, { previousResult: { ...baseResult, totalSessionSpendCents: 10_000, billedEnergyKwh: 25, averageSessionPriceCtPerKwh: 400 } })
+    // Assert
+    expect(screen.queryByText(/^Previous period ·/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Previous:/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /How Charging Summary is calculated/ })).not.toBeInTheDocument()
+    expect(screen.getByText('vs previous period')).toBeInTheDocument()
+    expect(screen.getByText('2 charging sessions')).toBeInTheDocument()
+    expect(screen.getByText(/\+23,45 €.*\+23,5%/)).toBeInTheDocument()
+    const compare = screen.getByRole('button', { name: 'Compare periods' })
+    expect(compare).toHaveAttribute('aria-expanded', 'false')
+    await user.click(compare)
+    expect(compare).toHaveAttribute('aria-expanded', 'true')
+    const chart = screen.getByRole('region', { name: 'Period comparison' })
+    expect(document.getElementById(compare.getAttribute('aria-controls')!)).toContainElement(chart)
+    expect(within(chart).getAllByRole('heading', { level: 4 }).map((heading) => heading.textContent))
+      .toEqual(['Previous period', 'Selected period'])
+    expect(within(chart).getByRole('region', { name: 'Previous period' })).toHaveTextContent(/4,00 €\/kWh.*31 May – 30 Jun 2026/)
+    expect(within(chart).getByRole('region', { name: 'Selected period' })).toHaveTextContent(/5,02 €\/kWh.*1 Jul – 31 Jul 2026 · In progress/)
+    await user.click(within(chart).getByRole('radio', { name: 'Spending' }))
+    expect(within(chart).getByRole('region', { name: 'Previous period' })).toHaveTextContent('100,00 €')
+    await user.click(within(chart).getByRole('radio', { name: 'Energy' }))
+    expect(within(chart).getByRole('region', { name: 'Previous period' })).toHaveTextContent('25 kWh')
   })
 
   it('reports a zero baseline without a percentage and withholds incomplete energy and price comparisons', () => {
@@ -109,7 +169,8 @@ describe.each(['sidebar', 'bottom-dock'] as const)('MonthlySessionSpendSlab (%s)
     renderSummary({}, { previousResult: { ...baseResult, totalSessionSpendCents: 0, billedEnergyKwh: 12, validBilledEnergySessionCount: 1, averageSessionPriceCtPerKwh: null } })
     // Assert
     const spend = screen.getByRole('region', { name: 'Session spend' })
-    expect(spend).toHaveTextContent(/\+123,45 €.*0,00 €/)
+    expect(spend).toHaveTextContent('+123,45 €')
+    expect(screen.getByText('Percentage change is unavailable when previous spending is zero.')).toBeVisible()
     expect(spend).not.toHaveTextContent('%')
     const energy = screen.getByRole('region', { name: 'Billed energy' })
     expect(energy).toHaveTextContent(/1 of 2 sessions/)
@@ -124,6 +185,33 @@ describe.each(['sidebar', 'bottom-dock'] as const)('MonthlySessionSpendSlab (%s)
     expect(screen.getByText(/No comparison data/)).toBeInTheDocument()
     expect(screen.queryByText(/^Previous:/)).not.toBeInTheDocument()
     expect(within(screen.getByRole('region', { name: 'Session spend' })).getByText('123,45 €')).toBeInTheDocument()
+  })
+
+  it('retains missing energy and previous invalid cost qualifications beside the totals', () => {
+    // Arrange / Act
+    renderSummary({ billedEnergyKwh: null, validBilledEnergySessionCount: 0, averageSessionPriceCtPerKwh: null }, {
+      previousResult: { ...baseResult, totalSessionSpendCents: null, averageSessionPriceCtPerKwh: null },
+    })
+
+    // Assert
+    const energy = screen.getByRole('region', { name: 'Billed energy' })
+    expect(energy).toHaveTextContent(/Unavailable.*Billed energy available for 0 of 2 sessions/)
+    expect(screen.getByRole('region', { name: 'Session spend' })).toHaveTextContent(/Change unavailable.*invalid recorded cost/)
+    expect(screen.queryByText('vs previous period')).not.toBeInTheDocument()
+  })
+
+  it('retains unequal-day-count qualifications while suppressing additive deltas', () => {
+    // Arrange / Act
+    const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 6 } }, new Date(2026, 7, 10, 12))
+    const previousPeriod = { ...createPreviousAnalyticsPeriod(period), startUtc: new Date(2026, 5, 1), dayCount: 30, isDayCountEqual: false }
+    renderSummary({}, { period, previousPeriod, previousResult: baseResult })
+
+    // Assert
+    for (const label of ['Session spend', 'Billed energy']) {
+      const metric = screen.getByRole('region', { name: label })
+      expect(metric).toHaveTextContent('Period lengths differ')
+      expect(metric).not.toHaveTextContent('%')
+    }
   })
 
   it('discloses partial energy and unavailable average', () => {
@@ -143,7 +231,9 @@ describe.each(['sidebar', 'bottom-dock'] as const)('MonthlySessionSpendSlab (%s)
     // Assert
     const billedEnergy = screen.getByRole('region', { name: 'Billed energy' })
     expect(billedEnergy).toHaveTextContent('Known: 24,6 kWh')
-    expect(billedEnergy).toHaveTextContent('Previous: Known 12 kWh (1 of 2 sessions measured)')
+    expect(billedEnergy).toHaveTextContent(layoutMode === 'sidebar'
+      ? 'Previous: Known 12 kWh (1 of 2 sessions measured)'
+      : 'Previous period: billed energy available for 1 of 2 sessions.')
     expect(billedEnergy).toHaveTextContent('Change unavailable')
     expect(billedEnergy).not.toHaveTextContent('%')
   })
@@ -154,17 +244,24 @@ describe.each(['sidebar', 'bottom-dock'] as const)('MonthlySessionSpendSlab (%s)
     // Act
     renderSummary({}, { period, previousResult: baseResult })
     // Assert
-    expect(screen.getByText('Previous period · 29 Jan – 28 Feb 2026')).toBeInTheDocument()
+    if (layoutMode === 'sidebar') {
+      expect(screen.getByText('Previous period · 29 Jan – 28 Feb 2026')).toBeInTheDocument()
+    }
     expect(screen.getByText('The previous window extends before the prior month to match 31 calendar days.')).toBeInTheDocument()
   })
 
-  it('shows both years when the previous window crosses New Year', () => {
+  it('shows both years when the previous window crosses New Year', async () => {
     // Arrange
     const period = createAnalyticsPeriod({ kind: 'preset', preset: '30-days' }, new Date(2026, 1, 3, 12))
     // Act
     renderSummary({}, { period, previousResult: baseResult })
     // Assert
-    expect(screen.getByText('Previous period · 6 Dec 2025 – 4 Jan 2026')).toBeInTheDocument()
+    if (layoutMode === 'bottom-dock') {
+      await userEvent.click(screen.getByRole('button', { name: 'Compare periods' }))
+      expect(within(screen.getByRole('region', { name: 'Previous period' })).getByText('6 Dec 2025 – 4 Jan 2026')).toBeVisible()
+    } else {
+      expect(screen.getByText('Previous period · 6 Dec 2025 – 4 Jan 2026')).toBeVisible()
+    }
   })
 
   it('shows unavailable cost metrics while retaining valid energy', () => {

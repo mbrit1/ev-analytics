@@ -1,4 +1,4 @@
-import { useId, useState } from 'react'
+import { useId, useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { Slab } from '../../../shared/ui'
 import { formatCurrency, formatKwh, formatMonthLabel, formatCtPerKwhAsEuroAmount } from '../../../shared/lib'
@@ -60,7 +60,6 @@ function energyCoverage(result: MonthlySessionSpendResult) {
 /** Presents recorded spending, billed energy and their complete-coverage weighted price. */
 export function MonthlySessionSpendSlab({ period, previousPeriod, result, previousResult, comparison, layoutMode, isLoading, error = null, onAddSession }: MonthlySessionSpendSlabProps) {
   const isMobile = layoutMode === 'bottom-dock'
-  const showResults = error === null && !isLoading
   const selection = period.selection
   const monthLabel = selection.kind === 'month'
     ? formatMonthLabel(selection.month.year, selection.month.month)
@@ -76,6 +75,13 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
   const comparisonId = `${id}-comparison`
   const [comparisonOpen, setComparisonOpen] = useState(false)
   const [comparisonMetric, setComparisonMetric] = useState<PeriodComparisonMetric>('price')
+  const comparisonTriggerRef = useRef<HTMLButtonElement>(null)
+  const summaryHeadingRef = useRef<HTMLHeadingElement>(null)
+  const methodologyFocusFallback = useMemo(() => ({
+    get current() {
+      return comparisonTriggerRef.current ?? summaryHeadingRef.current
+    },
+  }), [])
   const currentCoverage = energyCoverage(result)
   const previousCoverage = energyCoverage(previousResult)
   const previousEnergy = previousResult.billedEnergyKwh === null
@@ -90,6 +96,7 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
       value: result.totalSessionSpendCents === null ? null : formatCurrency(result.totalSessionSpendCents),
       change: additiveChange(comparison.spending, result.totalSessionSpendCents, previousResult.totalSessionSpendCents, formatCurrency),
       previous: previousResult.totalSessionSpendCents === null ? 'Unavailable (invalid recorded cost)' : formatCurrency(previousResult.totalSessionSpendCents),
+      previousWarning: previousResult.totalSessionSpendCents === null ? 'Previous period has an invalid recorded cost.' : null,
       warning: result.totalSessionSpendCents === null ? 'One or more sessions has an invalid recorded cost.' : null,
     },
     {
@@ -100,6 +107,7 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
       </>,
       change: additiveChange(comparison.energy, result.billedEnergyKwh, previousResult.billedEnergyKwh, energy, 0.005),
       previous: previousCoverage ? `${previousEnergy} (${previousCoverage} measured)` : previousEnergy,
+      previousWarning: previousCoverage ? `Previous period: billed energy available for ${previousCoverage}.` : null,
       warning: currentCoverage ? `Billed energy available for ${currentCoverage}.` : null,
     },
     {
@@ -107,6 +115,7 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
       value: result.averageSessionPriceCtPerKwh === null ? null : <>{formatCtPerKwhAsEuroAmount(result.averageSessionPriceCtPerKwh, 'de-DE')} <span className="text-base font-medium">€/kWh</span></>,
       change: comparison.priceDifferenceEurPerKwh === null ? 'Change unavailable' : signed(comparison.priceDifferenceEurPerKwh * 100, price, 0.5),
       previous: previousResult.averageSessionPriceCtPerKwh === null ? 'Unavailable' : price(previousResult.averageSessionPriceCtPerKwh),
+      previousWarning: null,
       warning: result.averageSessionPriceCtPerKwh === null || (compared && previousResult.averageSessionPriceCtPerKwh === null)
         ? 'Requires valid cost and billed energy for every session.'
         : null,
@@ -116,6 +125,23 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
   const metrics = isMobile
     ? [priceMetric, spendingMetric, energyMetric]
     : [spendingMetric, energyMetric, priceMetric]
+
+  const hasComparableChange = compared && (
+    comparison.priceDifferenceEurPerKwh !== null
+    || [comparison.spending, comparison.energy].some(({ status }) => status !== 'unavailable' && status !== 'unequal-day-count')
+  )
+  const methodology = (
+    <AnalyticsInfoDisclosure
+      layoutMode={layoutMode}
+      heading="How Charging Summary is calculated"
+      explanation="Average session price is session spending divided by valid billed energy. Session spend uses recorded session charges, excluding fixed subscription fees. Billed energy is the energy providers bill for, not the energy added to the vehicle battery."
+      closeLabel="Close Charging Summary information"
+      dismissLabel="Dismiss Charging Summary information"
+      triggerKey="charging-summary"
+      triggerText={isMobile ? 'How these metrics are calculated' : undefined}
+      unmountFocusFallback={methodologyFocusFallback}
+    />
+  )
 
   const sessionCount = (
     <p className="text-sm text-slab-secondary">
@@ -128,23 +154,15 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
       <div className={isMobile ? 'flex items-start justify-between gap-2' : 'relative pr-11'}>
         <div className="min-w-0 space-y-1">
           <h2
+            ref={summaryHeadingRef}
+            tabIndex={-1}
             aria-label={isMobile ? `Charging Summary · ${accessibleScope}` : accessibleScope}
             className="text-sm font-semibold text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent/60"
           >
             {isMobile ? 'Charging Summary' : 'Summary'}
           </h2>
-          {isMobile && showResults && <p className="text-sm text-slab-secondary">{previousLabel}</p>}
         </div>
-        <div className={isMobile ? 'contents' : 'absolute -top-3 right-0'}>
-          <AnalyticsInfoDisclosure
-            layoutMode={layoutMode}
-            heading="How Charging Summary is calculated"
-            explanation="Average session price is session spending divided by valid billed energy. Session spend uses recorded session charges, excluding fixed subscription fees. Billed energy is the energy providers bill for, not the energy added to the vehicle battery."
-            closeLabel="Close Charging Summary information"
-            dismissLabel="Dismiss Charging Summary information"
-            triggerKey="charging-summary"
-          />
-        </div>
+        {!isMobile && <div className="absolute -top-3 right-0">{methodology}</div>}
       </div>
       {error !== null ? (
         <p role="alert" className="text-sm text-primary">Unable to load the summary. Please try again.</p>
@@ -182,8 +200,11 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
                       <p className="text-sm font-medium text-slab-secondary tabular-nums">
                         <span className="sr-only">Compared with previous period: </span>{metric.change}
                       </p>
-                      <p className="text-xs leading-5 text-slab-secondary tabular-nums">Previous: {metric.previous}</p>
+                      {!isMobile && <p className="text-xs leading-5 text-slab-secondary tabular-nums">Previous: {metric.previous}</p>}
                     </>
+                  )}
+                  {isMobile && compared && metric.previousWarning && (
+                    <p className="text-xs leading-5 text-slab-secondary">{metric.previousWarning}</p>
                   )}
                   {metric.warning && <p className="text-xs leading-5 text-slab-secondary">{metric.warning}</p>}
                   {isMobile && metric === spendingMetric && zeroBaseline && (
@@ -196,21 +217,25 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
           <div>
             <div className="space-y-2 border-t border-slab-border pt-3">
               {isMobile ? (
-                <div className="-mt-2 flex flex-wrap items-center justify-between gap-x-3">
-                  {sessionCount}
-                  <button
-                    type="button"
-                    aria-expanded={comparisonOpen}
-                    aria-controls={comparisonId}
-                    onClick={(event) => {
-                      if (comparisonOpen) event.currentTarget.focus({ preventScroll: true })
-                      setComparisonOpen(!comparisonOpen)
-                    }}
-                    className="flex min-h-[44px] min-w-[44px] max-w-full items-center gap-1 rounded-lg px-1 text-left text-sm font-medium text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
-                  >
-                    <span className="min-w-0">Compare periods</span>
-                    <ChevronDown className={`size-4 shrink-0 ${comparisonOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
-                  </button>
+                <div className="-mt-2">
+                  {hasComparableChange && <p className="pt-1 text-xs text-slab-secondary">vs previous period</p>}
+                  <div className="flex flex-wrap items-center justify-between gap-x-3">
+                    {sessionCount}
+                    <button
+                      ref={comparisonTriggerRef}
+                      type="button"
+                      aria-expanded={comparisonOpen}
+                      aria-controls={comparisonId}
+                      onClick={(event) => {
+                        if (comparisonOpen) event.currentTarget.focus({ preventScroll: true })
+                        setComparisonOpen(!comparisonOpen)
+                      }}
+                      className="flex min-h-[44px] min-w-[44px] max-w-full items-center gap-1 rounded-lg px-1 text-left text-sm font-medium text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                    >
+                      <span className="min-w-0">Compare periods</span>
+                      <ChevronDown className={`size-4 shrink-0 ${comparisonOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
               ) : sessionCount}
               {!isMobile && zeroBaseline && <p className="text-xs text-slab-secondary">{ZERO_SPENDING_BASELINE_NOTE}</p>}
@@ -228,16 +253,19 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
             {isMobile && (
               <div id={comparisonId} hidden={!comparisonOpen} className="mt-3">
                 {comparisonOpen && (
-                  <PeriodComparisonContent
-                    orientation="horizontal"
-                    period={period}
-                    previousPeriod={previousPeriod}
-                    result={result}
-                    previousResult={previousResult}
-                    isLoading={false}
-                    metric={comparisonMetric}
-                    onMetricChange={setComparisonMetric}
-                  />
+                  <>
+                    <PeriodComparisonContent
+                      orientation="horizontal"
+                      period={period}
+                      previousPeriod={previousPeriod}
+                      result={result}
+                      previousResult={previousResult}
+                      isLoading={false}
+                      metric={comparisonMetric}
+                      onMetricChange={setComparisonMetric}
+                    />
+                    <div className="mt-2">{methodology}</div>
+                  </>
                 )}
               </div>
             )}

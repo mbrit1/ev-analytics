@@ -70,6 +70,7 @@ export function PeriodComparisonContent({
   const labels = ['Previous period', 'Selected period'] as const
   const periods = [previousPeriod, period] as const
 
+  const plotHorizontalBars = maximum > 0 && values?.every(({ amount }) => amount !== null)
   const horizontal = orientation === 'horizontal'
   const Heading = horizontal ? 'h3' : 'h2'
   const content = (
@@ -105,7 +106,7 @@ export function PeriodComparisonContent({
                   <p className="font-semibold text-primary tabular-nums">{text}</p>
                 </div>
                 <p className="text-xs text-slab-secondary">{formatRange(periods[index], index === 1 && period.isInProgress)}</p>
-                {amount !== null && maximum > 0 && (
+                {amount !== null && plotHorizontalBars && (
                   <div aria-hidden="true" className="h-2 w-full rounded-full bg-secondary/10">
                     <div className={`h-full rounded-full ${index === 0 ? 'bg-slab-secondary' : 'bg-accent'}`} style={{ width: `${amount / maximum * 100}%` }} />
                   </div>
