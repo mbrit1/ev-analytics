@@ -123,7 +123,7 @@ layout or membership of Others changes.
 This treatment improves scanning of period spend and energy on narrow screens;
 it is a local exception, not a shared chart or grouping rule.
 
-The Analytics period comparison is a local example. Use two compact vertical bars on
+The desktop Analytics period comparison is a local example. Use two compact vertical bars on
 a shared zero baseline. Place formatted values above and previous and selected
 period labels and inclusive dates below. Use neutral slab styling for the
 previous bar and the accent token for the selected bar. The text serves as
@@ -139,6 +139,14 @@ where applicable. Distinguish no sessions, valid zero, and unavailable values;
 disclose measured and total sessions beside a known energy subtotal. Test
 both themes and narrow widths, including clearance above the fixed dock.
 
+
+On bottom-dock layouts, the Charging Summary footer includes an initially
+collapsed Compare periods disclosure beside the session count. Leave the
+Summary values, deltas and previous-period context visible when collapsed.
+Use the same metrics and coverage language with horizontal tracks, Previous
+before Selected, on a shared zero baseline and scale. Initialize mobile to
+Price/kWh to match its price-first Summary, and keep the desktop Spending
+default. This mobile presentation is an Analytics-local exception.
 
 Issue #300 extends the Analytics-local Billing providers exception with an
 Observed session rate column. Keep desktop numeric columns aligned across

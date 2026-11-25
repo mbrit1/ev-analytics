@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { createAnalyticsPeriod, createPreviousAnalyticsPeriod } from '../model/analyticsPeriods'
 import type { MonthlySessionSpendResult } from '../model/monthlySessionSpend'
-import { PeriodComparisonSlab } from './PeriodComparisonSlab'
+import { PeriodComparisonContent, PeriodComparisonSlab } from './PeriodComparisonSlab'
 
 const selectedPeriod = createAnalyticsPeriod({ kind: 'preset', preset: '7-days' }, new Date(2024, 5, 15))
 const previousPeriod = createPreviousAnalyticsPeriod(selectedPeriod)
@@ -15,10 +15,18 @@ function result(overrides: Partial<MonthlySessionSpendResult> = {}): MonthlySess
     ...overrides,
   }
 }
-function renderSlab(overrides: Partial<React.ComponentProps<typeof PeriodComparisonSlab>> = {}) {
-  return render(<PeriodComparisonSlab period={selectedPeriod} previousPeriod={previousPeriod}
-    result={result()} previousResult={result({ totalSessionSpendCents: 1000, billedEnergyKwh: 20, averageSessionPriceCtPerKwh: 50 })}
-    isLoading={false} metric="spending" onMetricChange={vi.fn()} {...overrides} />)
+function renderSlab(
+  overrides: Partial<React.ComponentProps<typeof PeriodComparisonSlab>> = {},
+  orientation: 'horizontal' | 'vertical' = 'vertical',
+) {
+  const props = {
+    period: selectedPeriod, previousPeriod,
+    result: result(), previousResult: result({ totalSessionSpendCents: 1000, billedEnergyKwh: 20 }),
+    isLoading: false, metric: 'spending' as const, onMetricChange: vi.fn(), ...overrides,
+  }
+  return render(orientation === 'horizontal'
+    ? <PeriodComparisonContent orientation="horizontal" {...props} />
+    : <PeriodComparisonSlab {...props} />)
 }
 
 /** Tests exact period labels, metric values, availability states, and native radio behavior. */
@@ -54,6 +62,41 @@ describe('PeriodComparisonSlab', () => {
     expect(screen.getByRole('region', { name: 'Selected period' })).toHaveTextContent('No sessions')
   })
 
+  it('keeps valid zero and unavailable amounts distinct in horizontal rows', () => {
+    // Arrange
+    const free = result({ totalSessionSpendCents: 0, averageSessionPriceCtPerKwh: 0 })
+    const invalid = result({ totalSessionSpendCents: null })
+    const empty = result({ isEmpty: true, sessionCount: 0 })
+
+    // Act
+    const { unmount } = renderSlab({ result: free, previousResult: invalid }, 'horizontal')
+
+    // Assert
+    const graphic = '[aria-hidden="true"]'
+    const selected = screen.getByRole('region', { name: 'Selected period' })
+    const previous = screen.getByRole('region', { name: 'Previous period' })
+    expect(selected).toHaveTextContent('0,00 €')
+    expect(previous).toHaveTextContent('Unavailable: at least one session has an invalid recorded cost')
+    expect(selected.querySelector(graphic)).toBeNull()
+    expect(previous.querySelector(graphic)).toBeNull()
+    unmount()
+
+    const zeroWithPositive = renderSlab({ result: free, previousResult: result(), metric: 'price' }, 'horizontal')
+    expect(screen.getByRole('region', { name: 'Selected period' }).querySelector(`${graphic} > div`))
+      .toHaveStyle({ width: '0%' })
+    zeroWithPositive.unmount()
+
+    const zeroWithoutPrevious = renderSlab({ result: free, previousResult: empty, metric: 'price' }, 'horizontal')
+    expect(screen.getByRole('region', { name: 'Previous period' })).toHaveTextContent('No sessions')
+    expect(screen.getByRole('region', { name: 'Selected period' })).toHaveTextContent('0,00 €/kWh')
+    zeroWithoutPrevious.unmount()
+
+    renderSlab({ result: free, previousResult: free, metric: 'price' }, 'horizontal')
+    const chart = screen.getByRole('region', { name: 'Period comparison' })
+    expect(chart).toHaveTextContent(/0,00 €\/kWh.*0,00 €\/kWh/)
+    expect(chart.querySelector(graphic)).toBeNull()
+  })
+
   it.each([
     ['energy', { billedEnergyKwh: 5, validBilledEnergySessionCount: 1 }, 'Known: 5 kWh · Partial coverage: 1 of 2 sessions'],
     ['energy', { billedEnergyKwh: null, validBilledEnergySessionCount: 0 }, 'Unavailable: no valid billed energy'],
@@ -61,10 +104,13 @@ describe('PeriodComparisonSlab', () => {
     ['price', { averageSessionPriceCtPerKwh: null }, 'Unavailable: complete valid cost and billed energy coverage required'],
   ] as const)('explains incomplete or unavailable %s', (metric, aggregate, explanation) => {
     // Arrange and act
-    renderSlab({ result: result(aggregate), metric })
+    for (const orientation of ['vertical', 'horizontal'] as const) {
+      const { unmount } = renderSlab({ result: result(aggregate), metric }, orientation)
 
-    // Assert
-    expect(screen.getByRole('region', { name: 'Selected period' })).toHaveTextContent(explanation)
+      // Assert
+      expect(screen.getByRole('region', { name: 'Selected period' })).toHaveTextContent(explanation)
+      unmount()
+    }
   })
 
   it.each([
@@ -80,13 +126,24 @@ describe('PeriodComparisonSlab', () => {
     const selected = result({ totalSessionSpendCents: 2000, billedEnergyKwh: 40, averageSessionPriceCtPerKwh: 100 })
 
     // Act
-    renderSlab({ metric, result: selected, previousResult: previous })
+    const { unmount } = renderSlab({ metric, result: selected, previousResult: previous })
 
     // Assert: The graphic conveys the same ratio as the numerical values.
     const previousBar = screen.getByRole('region', { name: 'Previous period' }).querySelector('[aria-hidden="true"] > div')
     const selectedBar = screen.getByRole('region', { name: 'Selected period' }).querySelector('[aria-hidden="true"] > div')
     expect(previousBar).toHaveStyle({ height: '50%' })
     expect(selectedBar).toHaveStyle({ height: '100%' })
+    unmount()
+
+    renderSlab({ metric, result: selected, previousResult: previous }, 'horizontal')
+    const previousRow = screen.getByRole('region', { name: 'Previous period' })
+    const selectedRow = screen.getByRole('region', { name: 'Selected period' })
+    const track = '[aria-hidden="true"]'
+    expect(previousRow.compareDocumentPosition(selectedRow)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(previousRow.querySelector(track)?.className).toBe(selectedRow.querySelector(track)?.className)
+    expect(previousRow.querySelector(`${track} > div`)).toHaveStyle({ width: '50%' })
+    expect(selectedRow.querySelector(`${track} > div`)).toHaveStyle({ width: '100%' })
+    expect(screen.getByRole('region', { name: 'Period comparison' }).querySelectorAll(track)).toHaveLength(2)
   })
 
   it.each([

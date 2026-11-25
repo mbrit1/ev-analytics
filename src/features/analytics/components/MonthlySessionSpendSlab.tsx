@@ -1,4 +1,5 @@
-import { useId } from 'react'
+import { useId, useState } from 'react'
+import { ChevronDown } from 'lucide-react'
 import { Slab } from '../../../shared/ui'
 import { formatCurrency, formatKwh, formatMonthLabel, formatCtPerKwhAsEuroAmount } from '../../../shared/lib'
 import type { AnalyticsPeriod, AnalyticsPeriodPreset, PreviousAnalyticsPeriod } from '../model/analyticsPeriods'
@@ -6,6 +7,7 @@ import type { MonthlySessionSpendResult } from '../model/monthlySessionSpend'
 import type { MetricChange, NoComparisonData, PreviousPeriodComparison } from '../model/previousPeriodComparison'
 import type { AnalyticsLayoutMode } from '../hooks/useAnalyticsLayoutMode'
 import { AnalyticsInfoDisclosure } from './AnalyticsInfoDisclosure'
+import { PeriodComparisonContent, type PeriodComparisonMetric } from './PeriodComparisonSlab'
 import { formatAnalyticsPeriodRange } from './analyticsPeriodLabels'
 
 /** Selected-period summary state and the established session-entry action. */
@@ -71,6 +73,9 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
   const unavailableClass = 'text-base font-semibold text-primary'
   const previousLabel = `Previous period · ${formatAnalyticsPeriodRange(previousPeriod)}`
   const id = useId()
+  const comparisonId = `${id}-comparison`
+  const [comparisonOpen, setComparisonOpen] = useState(false)
+  const [comparisonMetric, setComparisonMetric] = useState<PeriodComparisonMetric>('price')
   const currentCoverage = energyCoverage(result)
   const previousCoverage = energyCoverage(previousResult)
   const previousEnergy = previousResult.billedEnergyKwh === null
@@ -111,6 +116,12 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
   const metrics = isMobile
     ? [priceMetric, spendingMetric, energyMetric]
     : [spendingMetric, energyMetric, priceMetric]
+
+  const sessionCount = (
+    <p className="text-sm text-slab-secondary">
+      {result.sessionCount} {result.sessionCount === 1 ? 'charging session' : 'charging sessions'}
+    </p>
+  )
 
   return (
     <Slab padding="none" className={isMobile ? '@container/charging-summary w-full space-y-3 p-5 wrap-anywhere motion-reduce:transition-none' : 'w-full space-y-4 p-5 md:p-8'} aria-busy={isLoading && error === null}>
@@ -182,20 +193,53 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
               )
             })}
           </div>
-          <div className="space-y-2 border-t border-slab-border pt-3">
-            <p className="text-sm text-slab-secondary">
-              {result.sessionCount} {result.sessionCount === 1 ? 'charging session' : 'charging sessions'}
-            </p>
-            {!isMobile && zeroBaseline && <p className="text-xs text-slab-secondary">{ZERO_SPENDING_BASELINE_NOTE}</p>}
-            {result.isEmpty && (
-              <>
-                <p className="text-sm text-slab-secondary">No charging sessions recorded for this {selection.kind === 'month' ? 'month' : 'period'}{period.isInProgress ? ' yet' : ''}. Billed energy and average price are unavailable.</p>
-                {period.isInProgress && (
-                  <button type="button" onClick={onAddSession} className="min-h-11 rounded-xl bg-accent px-4 py-2 font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface">
-                    Add Session
+          <div>
+            <div className="space-y-2 border-t border-slab-border pt-3">
+              {isMobile ? (
+                <div className="-mt-2 flex flex-wrap items-center justify-between gap-x-3">
+                  {sessionCount}
+                  <button
+                    type="button"
+                    aria-expanded={comparisonOpen}
+                    aria-controls={comparisonId}
+                    onClick={(event) => {
+                      if (comparisonOpen) event.currentTarget.focus({ preventScroll: true })
+                      setComparisonOpen(!comparisonOpen)
+                    }}
+                    className="flex min-h-[44px] min-w-[44px] max-w-full items-center gap-1 rounded-lg px-1 text-left text-sm font-medium text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                  >
+                    <span className="min-w-0">Compare periods</span>
+                    <ChevronDown className={`size-4 shrink-0 ${comparisonOpen ? 'rotate-180' : ''}`} aria-hidden="true" />
                   </button>
+                </div>
+              ) : sessionCount}
+              {!isMobile && zeroBaseline && <p className="text-xs text-slab-secondary">{ZERO_SPENDING_BASELINE_NOTE}</p>}
+              {result.isEmpty && (
+                <>
+                  <p className="text-sm text-slab-secondary">No charging sessions recorded for this {selection.kind === 'month' ? 'month' : 'period'}{period.isInProgress ? ' yet' : ''}. Billed energy and average price are unavailable.</p>
+                  {period.isInProgress && (
+                    <button type="button" onClick={onAddSession} className="min-h-11 rounded-xl bg-accent px-4 py-2 font-bold text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface">
+                      Add Session
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+            {isMobile && (
+              <div id={comparisonId} hidden={!comparisonOpen} className="mt-3">
+                {comparisonOpen && (
+                  <PeriodComparisonContent
+                    orientation="horizontal"
+                    period={period}
+                    previousPeriod={previousPeriod}
+                    result={result}
+                    previousResult={previousResult}
+                    isLoading={false}
+                    metric={comparisonMetric}
+                    onMetricChange={setComparisonMetric}
+                  />
                 )}
-              </>
+              </div>
             )}
           </div>
         </>

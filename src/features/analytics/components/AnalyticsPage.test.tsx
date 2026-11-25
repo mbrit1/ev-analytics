@@ -137,7 +137,9 @@ describe('AnalyticsPage', () => {
     const summary = within(screen.getByRole('region', { name: 'Selected-period analytics' }))
     expect(summary.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent))
       .toEqual(['Average session price', 'Session spend', 'Billed energy'])
-    expect(screen.getByRole('heading', { name: 'Period comparison' })).toBeVisible()
+    expect(summary.getByRole('button', { name: 'Compare periods', expanded: false })).toBeVisible()
+    expect(screen.queryByRole('region', { name: 'Period comparison' })).not.toBeInTheDocument()
+    expect(summary.getByText('0 charging sessions')).toBeVisible()
 
     // Assert
     expect(screen.queryByRole('tab')).not.toBeInTheDocument()
@@ -244,19 +246,34 @@ describe('AnalyticsPage', () => {
     }
   })
 
-  it('preserves the chosen chart metric across both short presets', async () => {
+  it('preserves the chosen chart metric across disclosure toggles and both short presets', async () => {
     // Arrange
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(new Date(2026, 6, 15, 12))
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
-    render(<AnalyticsPage onAddSession={vi.fn()} />)
-    expect(screen.getByRole('radio', { name: 'Spending' })).toBeChecked()
+    const { rerender } = render(<AnalyticsPage onAddSession={vi.fn()} />)
+    const summary = within(screen.getByRole('region', { name: 'Selected-period analytics' }))
+    const trigger = summary.getByRole('button', { name: 'Compare periods', expanded: false })
+    const panel = document.getElementById(trigger.getAttribute('aria-controls')!)
+    expect(panel).toHaveAttribute('hidden')
+    trigger.focus()
+    await user.keyboard('{Enter}')
+    expect(summary.getByRole('region', { name: 'Period comparison' })).toBeVisible()
+    expect(screen.getAllByRole('radio')).toHaveLength(3)
+    expect(screen.getByRole('radio', { name: 'Price/kWh' })).toBeChecked()
 
     // Act: Select Energy, then visit both short presets and return to Calendar Month.
     await user.click(screen.getByRole('radio', { name: 'Energy' }))
+    await user.click(trigger)
+    expect(trigger).toHaveFocus()
+    expect(panel).toHaveAttribute('hidden')
+    expect(screen.queryByRole('radio')).not.toBeInTheDocument()
+    await user.click(trigger)
+    expect(trigger).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('radio', { name: 'Energy' })).toBeChecked()
     expect(screen.getByRole('region', { name: 'Selected period' })).toBeInTheDocument()
-    for (const label of ['7 Days', '30 Days']) {
+    for (const label of ['7 Days', '30 Days', '3 Months', 'Year']) {
       await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
       await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: label }))
       expect(screen.getByRole('radio', { name: 'Energy' })).toBeChecked()
@@ -271,6 +288,14 @@ describe('AnalyticsPage', () => {
     expect(screen.getByRole('radio', { name: 'Energy' })).toBeChecked()
     expect(screen.getByRole('region', { name: 'Selected period' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Previous month' })).toBeInTheDocument()
+
+    vi.mocked(useAnalyticsLayoutMode).mockReturnValue('sidebar')
+    rerender(<AnalyticsPage onAddSession={vi.fn()} />)
+    expect(screen.getByRole('radio', { name: 'Spending' })).toBeChecked()
+    expect(screen.queryByRole('button', { name: 'Compare periods' })).not.toBeInTheDocument()
+    vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
+    rerender(<AnalyticsPage onAddSession={vi.fn()} />)
+    expect(screen.getByRole('radio', { name: 'Energy' })).toBeChecked()
   })
 
   it('keeps the selected period and summary when changing chart mode, and retains mode across chart periods', async () => {
@@ -450,6 +475,8 @@ describe('AnalyticsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Previous month' }))
     await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
     await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name: '7 Days' }))
+
+    await user.click(screen.getByRole('button', { name: 'Compare periods' }))
 
     // Assert: The short preset shows its selected summary alongside its comparison chart.
     expect(screen.getByRole('heading', { name: 'Period comparison' })).toBeInTheDocument()
@@ -737,6 +764,7 @@ describe('AnalyticsPage', () => {
         error: null,
       }
     })
+    vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<AnalyticsPage onAddSession={vi.fn()} />)
 
@@ -745,10 +773,17 @@ describe('AnalyticsPage', () => {
     expect(screen.getByText('Previous period · 1 Jun – 15 Jun 2026')).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Session spend' })).toHaveTextContent(/120,00 €.*\+30,00 €.*90,00 €/)
 
+    await user.click(screen.getByRole('button', { name: 'Compare periods' }))
+    await user.click(screen.getByRole('radio', { name: 'Spending' }))
+    expect(screen.getByRole('region', { name: 'Selected period' })).toHaveTextContent('120,00 €')
+
     // Act: Navigate to the previous calendar month.
     await user.click(screen.getByRole('button', { name: 'Previous month' }))
 
     // Assert: Both labels and values follow the newly selected month.
+    expect(screen.getByRole('button', { name: 'Compare periods', expanded: true })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Selected period' })).toHaveTextContent(/200,00 €.*1 Jun – 30 Jun 2026/)
+    expect(screen.getByRole('region', { name: 'Previous period' })).toHaveTextContent(/110,00 €.*2 May – 31 May 2026/)
     expect(screen.getAllByText('June 2026').length).toBeGreaterThan(0)
     expect(screen.getByText('1 Jun – 30 Jun 2026 · Completed month')).toBeInTheDocument()
     expect(screen.getByText('Previous period · 2 May – 31 May 2026')).toBeInTheDocument()
