@@ -49,9 +49,66 @@ describe('BillingProviderBreakdownSlab', () => {
     expect(screen.getByText('Billing providers')).toBeInTheDocument()
     expect(screen.getByText('12,5', { selector: 'p' })).toHaveTextContent('kWh')
     expect(screen.getAllByText('32,50 €')).toHaveLength(1)
-    expect(screen.getAllByText(/12,5/)).toHaveLength(3)
+    expect(screen.getAllByText(/12,5/)).toHaveLength(2)
+    expect(screen.getByRole('list', { name: 'Provider totals' })).toHaveTextContent('12,5 kWh')
     expect(screen.queryByText('Total spend')).not.toBeInTheDocument()
     expect(screen.getByText('Example Charge')).toBeInTheDocument()
+  })
+
+  it('emphasizes the mobile observed rate above spend and keeps billed energy under the name', () => {
+    // Arrange
+    const breakdown = breakdownFor(['Alpha', 'Beta'], 'Beta')
+    breakdown.groups[0] = { ...breakdown.groups[0], totalCostCents: 0 }
+
+    // Act
+    render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="bottom-dock" />)
+
+    // Assert
+    const [alpha, beta] = within(screen.getByRole('list', { name: 'Provider totals' })).getAllByRole('listitem')
+    const rate = within(alpha).getByText('0,00 €/kWh')
+    const spend = within(alpha).getByText('0,00 €')
+    expect(rate).toHaveClass('font-semibold', 'tabular-nums')
+    expect(spend.closest('.text-slab-secondary')).toBeInTheDocument()
+    expect(rate.compareDocumentPosition(spend) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(alpha).toHaveTextContent(/Alpha.*2 kWh.*0,00 €\/kWh.*0,00 €.*Free/)
+    expect(beta).toHaveTextContent(/Beta.*1 kWh.*1\/2 measured.*Rate unavailable.*2,00 €/)
+  })
+
+  it('sorts the same energy-selected mobile rows and keeps Others last with matching bar colors', async () => {
+    // Arrange
+    const user = userEvent.setup()
+    const breakdown = breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta'], 'Beta')
+    breakdown.groups[2] = { ...breakdown.groups[2], totalCostCents: 50 }
+    render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="bottom-dock" />)
+    const sort = screen.getByRole('combobox', { name: 'Sort providers' })
+    const list = screen.getByRole('list', { name: 'Provider totals' })
+    const bar = screen.getByRole('img', { name: /^Known billed energy by provider:/ })
+
+    // Act / Assert
+    expect(sort.tagName).toBe('SELECT')
+    expect(sort).toHaveValue('energy')
+    expect(within(sort).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      'Most energy', 'Most spend', 'Lowest rate',
+    ])
+    expect(within(sort).getByRole('option', { name: 'Billed energy, highest first' })).toBeInTheDocument()
+    expect(within(sort).getByRole('option', { name: 'Session spend, highest first' })).toBeInTheDocument()
+    expect(within(sort).getByRole('option', { name: 'Observed rate, lowest first' })).toBeInTheDocument()
+    const assertOrder = (order: string[]) => {
+      const rows = within(list).getAllByRole('listitem')
+      rows.forEach((row, index) => expect(row).toHaveTextContent(order[index]))
+      expect(rows).toHaveLength(5)
+      const color = (node: Element | null) => (node as HTMLElement).style.getPropertyValue('--provider-color')
+      expect(rows.map((row) => color(row.querySelector('[style*="--provider-color"]'))))
+        .toEqual([...bar.children].map(color))
+    }
+    assertOrder(['Alpha', 'Beta', 'Gamma', 'Delta', 'Others'])
+    await user.selectOptions(sort, 'spending')
+    assertOrder(['Beta', 'Alpha', 'Delta', 'Gamma', 'Others'])
+    await user.selectOptions(sort, 'price')
+    assertOrder(['Gamma', 'Alpha', 'Delta', 'Beta', 'Others'])
+    expect(within(list).getByRole('button', { name: 'Show 2 other providers' })).toHaveAccessibleDescription(
+      /Billed energy 3 kWh.*Session spend 2,00 €.*Observed session rate 0,67 €\/kWh/,
+    )
   })
 
   it('shows observed rates and lets the user choose provider ordering', async () => {
@@ -173,10 +230,11 @@ describe('BillingProviderBreakdownSlab', () => {
     expect(screen.getByText('2', { selector: 'p' })).toHaveTextContent('kWh')
     expect(screen.getByText('At least one session has an invalid recorded cost.')).toBeInTheDocument()
     expect(screen.getByText('Available for 1 of 3 sessions.')).toBeInTheDocument()
-    expect(screen.getAllByText(/1\/2 measured/)).toHaveLength(2)
+    expect(screen.getByText(/1\/2 measured/)).toBeVisible()
     expect(screen.getByText('Free Provider')).toBeInTheDocument()
     expect(screen.getByText('Free', { selector: 'span' })).toBeInTheDocument()
-    expect(screen.getAllByText('Unavailable', { selector: 'p' })).toHaveLength(2)
+    expect(screen.getByText('Spend unavailable')).toBeVisible()
+    expect(screen.getAllByText('Rate unavailable')).toHaveLength(2)
     expect(screen.getByText(/Energy unavailable/)).toBeInTheDocument()
   })
 
@@ -185,7 +243,7 @@ describe('BillingProviderBreakdownSlab', () => {
     const breakdown = breakdownFor(['Alpha', 'Beta'], undefined, 'Beta')
 
     // Act
-    render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} />)
+    render(<BillingProviderBreakdownSlab breakdown={breakdown} isLoading={false} layoutMode="sidebar" />)
 
     // Assert
     const headings = screen.getByText('Provider').parentElement!
@@ -203,7 +261,7 @@ describe('BillingProviderBreakdownSlab', () => {
   ] as const)('keeps provider methodology hidden until opened in %s layout', async (layoutMode, surfaceRole) => {
     // Arrange: Render a populated provider breakdown in the requested layout.
     const user = userEvent.setup()
-    render(<BillingProviderBreakdownSlab breakdown={breakdownFor(['Alpha', 'Beta'])} isLoading={false} layoutMode={layoutMode} />)
+    render(<BillingProviderBreakdownSlab breakdown={breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta'])} isLoading={false} layoutMode={layoutMode} />)
     const trigger = screen.getByRole('button', { name: 'How provider rates are calculated' })
 
     // Act: Open the methodology from the stable slab heading.
@@ -214,18 +272,33 @@ describe('BillingProviderBreakdownSlab', () => {
     const surface = screen.getByRole(surfaceRole, { name: 'How provider rates are calculated' })
     expect(surface).toHaveTextContent('Observed provider rate divides recorded session spend by billed energy')
     expect(surface).toHaveTextContent('It excludes subscription fees and describes recorded sessions, not a future tariff.')
+    expect(surface).toHaveTextContent('Rates are unavailable when recorded cost or billed energy is incomplete.')
+    if (layoutMode === 'sidebar') {
+      expect(surface.querySelectorAll('p')).toHaveLength(1)
+    }
     await user.keyboard('{Escape}')
     expect(trigger).toHaveFocus()
   })
 
-  it('shows the grouping note only when the collapsed Others group is present', () => {
+  it('shows mobile grouping context only with Others and explains sorting in the methodology', async () => {
     // Arrange: Compare a short provider list with one that requires Others.
+    const user = userEvent.setup()
     const { rerender } = render(<BillingProviderBreakdownSlab breakdown={breakdownFor(['Alpha', 'Beta'])} isLoading={false} />)
 
     // Assert: The note is conditional on a real collapsed group.
-    expect(screen.queryByText(/expand Others to see the remaining providers/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Top providers by billed energy/)).not.toBeInTheDocument()
     rerender(<BillingProviderBreakdownSlab breakdown={breakdownFor(['Alpha', 'Beta', 'Gamma', 'Delta', 'Epsilon', 'Zeta'])} isLoading={false} />)
-    expect(screen.getByText('Top providers by billed energy. Sorting changes their order; expand Others to see the remaining providers.')).toBeInTheDocument()
+    expect(screen.getByText('Top providers by billed energy. Others groups the rest.')).toBeVisible()
+    expect(screen.queryByText('Sorting and grouping')).not.toBeInTheDocument()
+    expect(screen.queryByText(/Changing the sort order rearranges/)).not.toBeInTheDocument()
+
+    // Act
+    await user.click(screen.getByRole('button', { name: 'How provider rates are calculated' }))
+
+    // Assert
+    const sheet = within(screen.getByRole('dialog', { name: 'How provider rates are calculated' }))
+    expect(sheet.getByRole('heading', { name: 'Sorting and grouping' })).toBeVisible()
+    expect(sheet.getByText('The top providers are selected by billed energy. Changing the sort order rearranges these providers but does not change which providers are shown. Others contains the remaining providers.')).toBeVisible()
   })
 
   it('uses the same fixed palette color for each provider bar segment and row dot', () => {
@@ -326,9 +399,11 @@ describe('BillingProviderBreakdownSlab', () => {
     expect(within(memberList).getByText('Epsilon')).toBeInTheDocument()
     expect(within(memberList).getByText('Zeta')).toBeInTheDocument()
     expect(within(memberList).getByText('Eta')).toBeInTheDocument()
-    expect(within(memberList).getAllByText('0,33 €/kWh')).toHaveLength(2)
-    expect(within(memberList).getAllByText('0,50 €/kWh')).toHaveLength(2)
-    expect(within(memberList).getAllByText('1,00 €/kWh')).toHaveLength(2)
+    const [epsilon, zeta, eta] = within(memberList).getAllByRole('listitem')
+    expect(epsilon).toHaveTextContent(/Epsilon.*3 kWh.*0,33 €\/kWh.*1,00 €/)
+    expect(zeta).toHaveTextContent(/Zeta.*2 kWh.*0,50 €\/kWh.*1,00 €/)
+    expect(eta).toHaveTextContent(/Eta.*1 kWh.*1,00 €\/kWh.*1,00 €/)
+    expect(within(epsilon).getByText('0,33 €/kWh')).toHaveClass('font-semibold', 'tabular-nums')
     expect(dotFor('Epsilon').style.getPropertyValue('--provider-color')).toBe(colorFor('Epsilon'))
     expect(dotFor('Zeta').style.getPropertyValue('--provider-color')).toBe(colorFor('Zeta'))
     expect(screen.getByRole('button', { name: 'Close other billing providers' })).toHaveFocus()
@@ -345,6 +420,10 @@ describe('BillingProviderBreakdownSlab', () => {
     expect(trigger).toHaveFocus()
     expect(document.body.style.overflow).toBe('')
     expect(container).not.toHaveAttribute('inert')
+    await user.click(trigger)
+    await user.click(screen.getByRole('button', { name: 'Close other billing providers' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
   })
 
   it('dismisses the mobile Others sheet from its backdrop and when layout or group membership changes', async () => {
