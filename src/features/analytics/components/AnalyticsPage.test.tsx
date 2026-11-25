@@ -6,13 +6,14 @@ import { useMonthlySessionSpend } from '../hooks/useMonthlySessionSpend'
 import { calculateBillingProviderBreakdown } from '../model/billingProviderBreakdown'
 import { calculateMonthlySessionSpend } from '../model/monthlySessionSpend'
 import { comparePreviousPeriod } from '../model/previousPeriodComparison'
-import { createAnalyticsPeriod } from '../model/analyticsPeriods'
+import { createAnalyticsPeriod, createPreviousAnalyticsPeriod } from '../model/analyticsPeriods'
 import type { ChargingSession } from '../../charging-sessions'
 import {
   useOverallChargingPrice,
   type OverallChargingPriceQueryState,
 } from '../hooks/useOverallChargingPrice'
 import { AnalyticsPage } from './AnalyticsPage'
+import { formatAnalyticsPeriodRange } from './analyticsPeriodLabels'
 
 vi.mock('../hooks/useMonthlySessionSpend', () => ({
   useMonthlySessionSpend: vi.fn(),
@@ -158,6 +159,8 @@ describe('AnalyticsPage', () => {
     expect(screen.getByRole('button', { name: /Choose calendar month/ })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Previous month' }))
 
+    await user.click(screen.getByRole('button', { name: 'Compare periods' }))
+
     // Act: Select every trailing preset, then return to calendar-month mode.
     for (const [name, preset] of [
       ['7 Days', '7-days'],
@@ -168,8 +171,9 @@ describe('AnalyticsPage', () => {
       await user.click(screen.getByRole('button', { name: 'Choose analysis period' }))
       await user.click(within(screen.getByRole('dialog', { name: 'Analysis period' })).getByRole('button', { name }))
       expect(screen.getAllByText(name).length).toBeGreaterThan(0)
-      expect(within(screen.getByRole('region', { name: 'Selected-period analytics' }))
-        .getByText(/^Previous period · /)).toBeInTheDocument()
+      const period = createAnalyticsPeriod({ kind: 'preset', preset }, new Date(2026, 6, 15, 12))
+      expect(screen.getByRole('region', { name: 'Previous period' }))
+        .toHaveTextContent(formatAnalyticsPeriodRange(createPreviousAnalyticsPeriod(period)))
       expect(screen.queryByRole('button', { name: 'Previous month' })).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: 'Next month' })).not.toBeInTheDocument()
       expect(vi.mocked(useMonthlySessionSpend).mock.calls.at(-1)?.[0].selection)
@@ -180,7 +184,7 @@ describe('AnalyticsPage', () => {
 
     // Assert: The prior month remains selected after changing modes.
     expect(screen.getByRole('heading', { name: /June 2026 summary/ })).toBeInTheDocument()
-    expect(screen.getByText('Previous period · 2 May – 31 May 2026')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Previous period' })).toHaveTextContent('2 May – 31 May 2026')
     expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
   })
 
@@ -636,7 +640,8 @@ describe('AnalyticsPage', () => {
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
     const user = userEvent.setup()
     const { rerender } = render(<AnalyticsPage onAddSession={vi.fn()} />)
-    await user.click(screen.getByRole('button', { name: 'How Charging Summary is calculated' }))
+    await user.click(screen.getByRole('button', { name: 'Compare periods' }))
+    await user.click(screen.getByRole('button', { name: 'How these metrics are calculated' }))
     expect(screen.getByRole('button', { name: 'Close Charging Summary information' })).toHaveFocus()
 
     // Act
@@ -770,12 +775,13 @@ describe('AnalyticsPage', () => {
 
     // Assert initial July comparison before selecting June.
     expect(screen.getAllByText('July 2026').length).toBeGreaterThan(0)
-    expect(screen.getByText('Previous period · 1 Jun – 15 Jun 2026')).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Session spend' })).toHaveTextContent(/120,00 €.*\+30,00 €.*90,00 €/)
+    expect(screen.queryByText('Previous period · 1 Jun – 15 Jun 2026')).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Session spend' })).toHaveTextContent(/120,00 €.*\+30,00 €/)
 
     await user.click(screen.getByRole('button', { name: 'Compare periods' }))
     await user.click(screen.getByRole('radio', { name: 'Spending' }))
     expect(screen.getByRole('region', { name: 'Selected period' })).toHaveTextContent('120,00 €')
+    expect(screen.getByRole('region', { name: 'Previous period' })).toHaveTextContent(/90,00 €.*1 Jun – 15 Jun 2026/)
 
     // Act: Navigate to the previous calendar month.
     await user.click(screen.getByRole('button', { name: 'Previous month' }))
@@ -786,8 +792,8 @@ describe('AnalyticsPage', () => {
     expect(screen.getByRole('region', { name: 'Previous period' })).toHaveTextContent(/110,00 €.*2 May – 31 May 2026/)
     expect(screen.getAllByText('June 2026').length).toBeGreaterThan(0)
     expect(screen.getByText('1 Jun – 30 Jun 2026 · Completed month')).toBeInTheDocument()
-    expect(screen.getByText('Previous period · 2 May – 31 May 2026')).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Session spend' })).toHaveTextContent(/200,00 €.*\+90,00 €.*110,00 €/)
+    expect(screen.queryByText('Previous period · 2 May – 31 May 2026')).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Session spend' })).toHaveTextContent(/200,00 €.*\+90,00 €/)
     expect(within(screen.getByRole('region', { name: 'Session spend' })).queryByText('120,00 €')).not.toBeInTheDocument()
   })
 
