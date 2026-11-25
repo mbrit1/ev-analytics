@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronRight, X } from 'lucide-react'
 import { Slab } from '../../../shared/ui'
@@ -26,15 +26,49 @@ function providerColorStyle(color: ProviderColor): ProviderColorStyle {
   }
 }
 
-function ObservedProviderRate({ group, className = '' }: { group: BillingProviderGroup; className?: string }) {
+function ObservedProviderRate({ group, className = '', unavailableLabel = 'Unavailable' }: { group: BillingProviderGroup; className?: string; unavailableLabel?: string }) {
   const rate = getObservedProviderRateCtPerKwh(group)
   return (
     <span className={className}>
       <span className="sr-only">Observed session rate </span>
       {rate === null ? (
-        <><span>Unavailable</span><span className="sr-only">Observed session rate unavailable: incomplete cost or energy data.</span></>
+        <><span>{unavailableLabel}</span><span className="sr-only">Observed session rate unavailable: incomplete cost or energy data.</span></>
       ) : `${formatCurrency(rate)}/kWh`}
     </span>
+  )
+}
+
+const providerRateExplanation = 'Observed provider rate divides recorded session spend by billed energy. It excludes subscription fees and describes recorded sessions, not a future tariff. Rates are unavailable when recorded cost or billed energy is incomplete.'
+
+const mobileProviderColumns = 'flex min-w-0 flex-wrap items-start gap-x-3 gap-y-1'
+
+function MobileProviderValues({ group, color, name = group.name }: {
+  group: BillingProviderGroup
+  color: ProviderColor
+  name?: ReactNode
+}) {
+  return (
+    <>
+      <span className="flex min-w-0 flex-[1_1_6.5rem] items-start gap-[12px]">
+        <span aria-hidden="true" className="mt-1.5 size-[12px] shrink-0 rounded-full bg-[var(--provider-color)]" style={providerColorStyle(color)} />
+        <span className="min-w-0 space-y-1 wrap-anywhere">
+          <span className="block text-sm font-medium text-primary">{name}</span>
+          <span className="block text-xs tabular-nums text-slab-secondary">
+            {group.billedEnergyKwh === null
+              ? 'Energy unavailable'
+              : <><span className="sr-only">Billed energy </span>{formatKwh(group.billedEnergyKwh)} kWh</>}
+            {group.validBilledEnergySessionCount < group.sessionCount && ` · ${group.validBilledEnergySessionCount}/${group.sessionCount} measured`}
+          </span>
+        </span>
+      </span>
+      <span className="ml-auto flex min-w-0 flex-[0_1_6.5rem] flex-col items-end text-right wrap-anywhere">
+        <ObservedProviderRate group={group} unavailableLabel="Rate unavailable" className="max-w-full text-sm font-semibold tabular-nums text-primary" />
+        <span className="max-w-full text-xs tabular-nums text-slab-secondary">
+          {group.totalCostCents === null ? 'Spend unavailable' : <><span className="sr-only">Session spend </span>{formatCurrency(group.totalCostCents)}</>}
+        </span>
+        {group.totalCostCents === 0 && <span className="text-xs text-slab-secondary">Free</span>}
+      </span>
+    </>
   )
 }
 
@@ -159,31 +193,39 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
   }, [isBlocked, isOthersSheetOpen, layoutMode, membersIdentity])
 
   return (
-    <Slab padding="none" className="w-full space-y-5 p-5 md:p-8" aria-busy={isLoading && error === null}>
+    <Slab padding="none" className={`w-full space-y-5 ${layoutMode === 'bottom-dock' ? 'p-[20px]' : 'p-5 md:p-8'}`} aria-busy={isLoading && error === null}>
       <div className="space-y-1">
-        <div className="flex min-w-0 flex-wrap items-center gap-1">
-          <div className="flex shrink-0 items-center gap-1">
+        <div className={`flex min-w-0 flex-wrap items-center gap-1 ${layoutMode === 'bottom-dock' ? 'gap-x-2' : ''}`}>
+          <div className={`flex items-center gap-1 ${layoutMode === 'bottom-dock' ? 'min-w-0' : 'shrink-0'}`}>
           <h2 ref={headingRef} tabIndex={-1} className="text-sm font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">Billing providers</h2>
           <AnalyticsInfoDisclosure
             layoutMode={layoutMode}
             heading="How provider rates are calculated"
-            explanation="Observed provider rate divides recorded session spend by billed energy. It excludes subscription fees and describes recorded sessions, not a future tariff. Rates are unavailable when recorded cost or billed energy is incomplete."
+            explanation={providerRateExplanation}
+            additionalContent={layoutMode === 'bottom-dock' && othersGroup && (
+              <div className="mt-2 space-y-1">
+                <h3 className="font-semibold text-primary">Sorting and grouping</h3>
+                <p className="text-slab-secondary">
+                  The top providers are selected by billed energy. Changing the sort order rearranges these providers but does not change which providers are shown. Others contains the remaining providers.
+                </p>
+              </div>
+            )}
             closeLabel="Close provider rate information"
             dismissLabel="Dismiss provider rate information"
             triggerKey="provider-rates"
           />
           </div>
-          {!isLoading && error === null && breakdown.sessionCount > 0 && <label className="ml-auto flex min-h-[44px] max-w-full flex-wrap items-center gap-2 text-sm text-primary">
-            <span>Sort providers</span>
+          {!isLoading && error === null && breakdown.sessionCount > 0 && <label className={`ml-auto flex min-h-[44px] max-w-full items-center gap-2 text-sm text-primary ${layoutMode === 'bottom-dock' ? 'min-w-0' : 'flex-wrap'}`}>
+            <span className={layoutMode === 'bottom-dock' ? 'sr-only' : ''}>Sort providers</span>
             <select
               aria-label="Sort providers"
               value={sortBy}
               onChange={(event) => setSortBy(event.target.value as BillingProviderSort)}
-              className="min-h-[44px] max-w-full scroll-mt-24 rounded-lg border border-slab-border bg-surface px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+              className={`min-h-[44px] max-w-full scroll-mt-24 rounded-lg border border-slab-border bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 ${layoutMode === 'bottom-dock' ? 'min-w-0 px-2' : 'px-3'}`}
             >
-              <option value="energy">Billed energy, highest first</option>
-              <option value="spending">Session spend, highest first</option>
-              <option value="price">Observed rate, lowest first</option>
+              <option value="energy" aria-label={layoutMode === 'bottom-dock' ? 'Billed energy, highest first' : undefined}>{layoutMode === 'bottom-dock' ? 'Most energy' : 'Billed energy, highest first'}</option>
+              <option value="spending" aria-label={layoutMode === 'bottom-dock' ? 'Session spend, highest first' : undefined}>{layoutMode === 'bottom-dock' ? 'Most spend' : 'Session spend, highest first'}</option>
+              <option value="price" aria-label={layoutMode === 'bottom-dock' ? 'Observed rate, lowest first' : undefined}>{layoutMode === 'bottom-dock' ? 'Lowest rate' : 'Observed rate, lowest first'}</option>
             </select>
           </label>}
         </div>
@@ -199,9 +241,11 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
         <p className="text-sm text-slab-secondary">No charging sessions recorded for this period.</p>
       ) : (
         <div className="space-y-5">
-          <div className="space-y-1">
-            {othersGroup && <p className="text-xs text-slab-secondary">Top providers by billed energy. Sorting changes their order; expand Others to see the remaining providers.</p>}
-          </div>
+          {(layoutMode === 'sidebar' || othersGroup) && <div className="space-y-1">
+            {othersGroup && <p className="text-xs text-slab-secondary">{layoutMode === 'bottom-dock'
+              ? 'Top providers by billed energy. Others groups the rest.'
+              : 'Top providers by billed energy. Sorting changes their order; expand Others to see the remaining providers.'}</p>}
+          </div>}
           <div className="space-y-1">
             <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
               <h3 aria-hidden={showEnergyBar || undefined} className="text-xs font-medium text-slab-secondary">{energyBarLabel}</h3>
@@ -236,12 +280,12 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
             {breakdown.totalSessionSpendCents === null && <p className="text-xs text-slab-secondary">At least one session has an invalid recorded cost.</p>}
           </div>
           <div>
-            <div aria-hidden="true" className="hidden grid-cols-[minmax(0,1fr)_minmax(4rem,6rem)_minmax(5rem,7rem)_minmax(4rem,6rem)] gap-x-3 pb-1 text-xs font-medium text-slab-secondary lg:grid">
+            {layoutMode === 'sidebar' && <div aria-hidden="true" className="hidden grid-cols-[minmax(0,1fr)_minmax(4rem,6rem)_minmax(5rem,7rem)_minmax(4rem,6rem)] gap-x-3 pb-1 text-xs font-medium text-slab-secondary lg:grid">
               <span>Provider</span>
               <span className="text-right">Billed energy</span>
               <span className="text-right">Observed session rate</span>
               <span className="text-right">Session spend</span>
-            </div>
+            </div>}
           <ul ref={providerListRef} tabIndex={-1} className="divide-y divide-slab-border border-t border-slab-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60" aria-label="Provider totals">
             {groupedProviders.groups.map((group) => {
               return (
@@ -257,29 +301,12 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
                       onFocus={() => { othersWasFocused.current = true }}
                       onBlur={() => { othersWasFocused.current = false }}
                       onClick={() => setIsOthersSheetOpen(true)}
-                      className="grid min-h-[44px] w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 rounded-lg text-left active:bg-secondary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface lg:grid-cols-[minmax(0,1fr)_minmax(4rem,6rem)_minmax(5rem,7rem)_minmax(4rem,6rem)_auto]"
+                      className="grid min-h-[44px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 rounded-lg text-left active:bg-secondary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
                     >
-                      <span className="flex min-w-0 items-start gap-3">
-                        <span aria-hidden="true" className="mt-1.5 size-3 shrink-0 rounded-full bg-[var(--provider-color)]" style={providerColorStyle(group.color)} />
-                        <span className="min-w-0 space-y-1">
-                          <span className="block text-sm font-medium text-primary">
-                            Others <span className="text-slab-secondary">({group.members?.length ?? 0} {group.members?.length === 1 ? 'provider' : 'providers'})</span>
-                          </span>
-                          <span className="block text-xs text-slab-secondary lg:hidden">
-                            {group.billedEnergyKwh === null ? 'Energy unavailable' : `${formatKwh(group.billedEnergyKwh)} kWh`}
-                            {group.validBilledEnergySessionCount < group.sessionCount && ` · ${group.validBilledEnergySessionCount}/${group.sessionCount} measured`}
-                          </span>
-                        </span>
-                      </span>
-                      <span className="hidden text-right text-sm tabular-nums text-slab-secondary lg:block">
-                        {group.billedEnergyKwh === null ? 'Unavailable' : `${formatKwh(group.billedEnergyKwh)} kWh`}
-                        {group.validBilledEnergySessionCount < group.sessionCount && <span className="block text-[10px]">{group.validBilledEnergySessionCount}/{group.sessionCount} measured</span>}
-                      </span>
-                      <ObservedProviderRate group={group} className="hidden text-right text-sm font-medium tabular-nums text-primary lg:block" />
-                      <span className="shrink-0 text-right text-sm font-semibold tabular-nums text-primary">
-                        {group.totalCostCents === null ? 'Unavailable' : formatCurrency(group.totalCostCents)}
-                        {group.totalCostCents === 0 && <span className="block text-xs font-normal text-slab-secondary">Free</span>}
-                        <ObservedProviderRate group={group} className="block text-xs font-medium text-slab-secondary lg:hidden" />
+                      <span className={mobileProviderColumns}>
+                        <MobileProviderValues group={group} color={group.color} name={(
+                          <>Others <span className="text-slab-secondary">({group.members?.length ?? 0} {group.members?.length === 1 ? 'provider' : 'providers'})</span></>
+                        )} />
                       </span>
                       <ChevronRight aria-hidden="true" className="size-4 text-slab-secondary" />
                       <span id={`${detailsId}-aggregate-description`} className="sr-only">
@@ -293,6 +320,10 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
                         ; Observed session rate {rateText(group)}
                       </span>
                     </button>
+                  ) : layoutMode === 'bottom-dock' ? (
+                    <div className={mobileProviderColumns}>
+                      <MobileProviderValues group={group} color={group.color} />
+                    </div>
                   ) : (
                     <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 lg:grid-cols-[minmax(0,1fr)_minmax(4rem,6rem)_minmax(5rem,7rem)_minmax(4rem,6rem)] lg:gap-x-3">
                       <div className="flex min-w-0 items-start gap-3">
@@ -408,24 +439,8 @@ export function BillingProviderBreakdownSlab({ breakdown, isLoading, error = nul
               {othersGroup.members.map((member) => {
                 const color = groupedProviders.providerColors.get(member.normalizedName)
                 return (
-                  <li key={member.normalizedName} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 py-3 lg:grid-cols-[minmax(0,1fr)_minmax(4rem,6rem)_minmax(5rem,7rem)_minmax(4rem,6rem)]">
-                    <span className="flex min-w-0 items-start gap-3">
-                      <span aria-hidden="true" className="mt-1.5 size-3 shrink-0 rounded-full bg-[var(--provider-color)]" style={providerColorStyle(color ?? '#8E8E93')} />
-                      <span className="min-w-0 space-y-1">
-                        <span className="block break-words text-sm font-medium text-primary">{member.name}</span>
-                        <span className="block text-xs text-slab-secondary">
-                          {member.billedEnergyKwh === null ? 'Energy unavailable' : `${formatKwh(member.billedEnergyKwh)} kWh`}
-                          {member.validBilledEnergySessionCount < member.sessionCount && ` · ${member.validBilledEnergySessionCount}/${member.sessionCount} measured`}
-                        </span>
-                      </span>
-                    </span>
-                    <ObservedProviderRate group={member} className="hidden text-right text-sm font-medium tabular-nums text-primary lg:block" />
-                    <span className="text-right text-sm font-semibold tabular-nums text-primary">
-                      {member.totalCostCents === null
-                        ? <><span className="sr-only">Session spend </span>Unavailable</>
-                        : formatCurrency(member.totalCostCents)}
-                      <ObservedProviderRate group={member} className="block text-xs font-medium text-slab-secondary lg:hidden" />
-                    </span>
+                  <li key={member.normalizedName} className={`${mobileProviderColumns} py-3`}>
+                    <MobileProviderValues group={member} color={color ?? '#8E8E93'} />
                   </li>
                 )
               })}

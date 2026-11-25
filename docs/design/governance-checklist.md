@@ -90,7 +90,7 @@ slab secondary text role for its small labels and notes.
 
 The Billing providers slab is an Analytics-local exception. Show the
 selected-period billed kWh beside the distribution label above the proportional
-bar. Emphasize session spend in each provider row. It remains visible for short periods and sits
+bar. The slab remains visible for short periods and sits
 before lifetime Overall Price. Use recorded billing snapshots, not current
 provider names; preserve known energy subtotals with measured/total coverage,
 label partial totals as known billed energy, explain when no positive known energy
@@ -113,15 +113,14 @@ energy. Stack energy beneath the name on mobile; align energy and spend in
 separate columns on desktop. Use the shared slab text role for secondary labels.
 
 At bottom-dock widths, the full Others row opens the **Other billing providers**
-bottom sheet with each member’s billed kWh and spend. Keep long lists scrollable
+bottom sheet with each member’s observed rate, billed kWh and spend. Keep long lists scrollable
 within the sheet, account for safe areas, lock the background, and contain focus
 in the sheet. Support dismissal with Close, Escape, or the backdrop. Return
 focus to Others on dismissal or to the provider list if the trigger disappears.
 At sidebar widths, Others expands its member rows inline. Both controls use
 visible keyboard focus and a 44px minimum target. Close the disclosure if the
 layout or membership of Others changes.
-This treatment improves scanning of period spend and energy on narrow screens;
-it is a local exception, not a shared chart or grouping rule.
+This Analytics-local treatment supports scanning provider values on narrow screens.
 
 The desktop Analytics period comparison is a local example. Use two compact vertical bars on
 a shared zero baseline. Place formatted values above and previous and selected
@@ -153,14 +152,34 @@ default. This mobile presentation is an Analytics-local exception.
 
 Issue #300 extends the Analytics-local Billing providers exception with an
 Observed session rate column. Keep desktop numeric columns aligned across
-named, Others and expanded member rows; indent member names only. On mobile,
-show rate below spend and energy below the name, including in the Others sheet.
-Keep recorded spending prominent and make the rate readable with tabular
-numerals. Use heading information with the established desktop popover/mobile sheet to explain the recorded-spend/billed-energy formula, subscription exclusion, retrospective scope and incomplete-coverage unavailability. Keep active data-quality warnings and measured/total coverage directly visible. Distinguish a valid free rate from an
-unavailable rate and expose the coverage reason accessibly.
+named, Others and expanded member rows. Indent member names only, keep recorded
+spending prominent, and make rates readable with tabular numerals. Use the
+heading information action and its desktop popover or mobile sheet to explain
+the recorded-spend/billed-energy formula, subscription exclusion, retrospective
+scope, and incomplete-coverage unavailability. Keep active data-quality warnings
+and measured/total coverage directly visible. Distinguish a valid free rate
+from an unavailable rate and expose the coverage reason accessibly.
 
-Use a labelled native Sort providers selector in the header with responsive wrapping, a 44px target and visible focus. Default to energy descending; offer spend descending and observed rate
-ascending, unavailable last and normalized-name ties. Preserve energy-based
-named/hidden membership, sort within each set and pin Others last. When Others exists, disclose
-this restriction beside the selector and explain that expanding Others reveals
-the remaining providers. Match the collapsed bar order to the list. Changing sort alone must not dismiss Others or alter stable colors.
+Use a labelled native Sort providers selector in the header with responsive
+wrapping, a 44px target, and visible focus. Default to energy descending and
+offer spend descending and observed rate ascending, with unavailable values
+last and normalized-name ties. Preserve energy-based named and hidden membership,
+sort within each set, and pin Others last. When Others exists, explain the
+grouping beside the selector on desktop. Match the collapsed bar order to the
+list. Changing sort alone must not dismiss Others or alter stable colors.
+
+Issue #309 refines the bottom-dock hierarchy as an Analytics-local exception.
+Lead with the observed session rate above secondary session spend. Keep billed
+energy beneath the provider name, and use the same hierarchy for named rows,
+collapsed Others, and sheet members. This lets mobile readers trace the Charging
+Summary’s average session price to recorded provider rates. The sidebar retains
+its spending emphasis and numeric columns. Both layouts use the same observed
+rate formula, validity rules, recorded provider identities, colors, grouping,
+and sort directions.
+
+On mobile the native sort fits beside the heading and information action when
+space permits, with a 44px minimum target and natural wrapping. This keeps the
+distribution and first rows closer to the heading in the bottom-dock layout.
+When Others exists, show a short cue about energy-selected providers and the
+remaining group. The mobile information sheet explains that sorting reorders the
+same groups. Keep active validity warnings and measurement coverage in the slab.
