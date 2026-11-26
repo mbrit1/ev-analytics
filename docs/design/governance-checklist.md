@@ -25,6 +25,13 @@ Use this checklist for every UI-facing change. The default baseline is
 - Form sections keep consistent vertical rhythm (section spacing + control spacing).
 - Dense forms use structured section headings (small uppercase meta hierarchy).
 - Action rows align with established slab/form patterns used in the app.
+- Across Sessions, Tariffs and Analytics, let the sticky mobile header grow and
+  wrap the status and Sign Out group below the brand when it cannot fit beside
+  it. Keep the ordinary single-row header and 76px Floating Slab at the reference
+  mobile size. Stack dock icons above their labels when available width is tight
+  relative to text size. Use the shared adaptive dock-height token for both the
+  slab and the main-content reserve, including the bottom inset, lift and
+  clearance. Verify the last content can scroll above the dock.
 
 ## 5) Interaction and motion
 - Hover-only feedback is gated by both `(hover: hover)` and `(pointer: fine)`; touch feedback uses active state rather than sticky hover.
