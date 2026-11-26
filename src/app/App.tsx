@@ -482,20 +482,20 @@ function App() {
         {/* Main Content Wrapper */}
         <div className="flex-1 flex flex-col min-w-0 bg-environment">
           {/* Mobile Header (Hidden on Desktop since Sidebar has the brand) */}
-          <header className="md:hidden bg-surface/80 backdrop-blur-md border-b border-secondary/10 sticky top-0 z-10">
-            <div className="px-4 h-16 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <BatteryCharging className="w-6 h-6 text-accent" />
-                <span className="font-bold tracking-tight text-primary">EV Analytics</span>
+          <header className="md:hidden bg-surface/80 backdrop-blur-md border-b border-secondary/10 sticky top-0 z-10 pt-[env(safe-area-inset-top,0px)]">
+            <div className="flex min-h-[64px] flex-wrap items-center justify-between gap-y-[8px] px-[16px] py-[8px]">
+              <div className="flex min-w-0 items-center gap-[8px]">
+                <BatteryCharging className="h-[24px] w-[24px] shrink-0 text-accent" />
+                <span className="min-w-0 font-bold leading-tight tracking-tight text-primary [overflow-wrap:anywhere]">EV Analytics</span>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-[12px]">
                 <SyncStatusIndicator />
                 <button
                   onClick={handleLogout}
-                  className="p-2 text-secondary hover:text-primary transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+                  className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center p-[8px] text-secondary transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface motion-reduce:transition-none"
                   aria-label="Sign Out"
                 >
-                  <LogOut className="w-5 h-5" />
+                  <LogOut className="h-[20px] w-[20px]" />
                 </button>
               </div>
             </div>

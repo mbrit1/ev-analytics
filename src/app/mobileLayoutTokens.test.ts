@@ -32,7 +32,9 @@ describe('mobile layout tokens', () => {
     // Assert: Consumers share one dock height, safe-area-aware bottom edge, and dock-only clearance formula.
     expect(indexCss).toContain('--safe-area-bottom: env(safe-area-inset-bottom, 0px);')
     expect(indexCss).toContain('--mobile-dock-height: 76px;')
-    expect(indexCss).toContain('--mobile-nav-dock-height: var(--mobile-dock-height);')
+    expect(indexCss).toMatch(
+      /--mobile-nav-dock-height:\s*max\(var\(--mobile-dock-height\),\s*calc\([^;]*\drem[^;]*\)\);/,
+    )
     expect(indexCss).toContain('--mobile-nav-dock-bottom: calc(var(--safe-area-bottom) + var(--mobile-dock-lift));')
     expect(indexCss).toMatch(
       /--mobile-content-clearance-dock-only: calc\(\s*var\(--mobile-nav-dock-bottom\)\s*\+ var\(--mobile-nav-dock-height\)\s*\+ var\(--mobile-content-bottom-clearance\)\s*\);/,

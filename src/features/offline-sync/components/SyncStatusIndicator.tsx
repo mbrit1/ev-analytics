@@ -11,10 +11,10 @@ export function SyncStatusIndicator() {
     return (
       <span
         aria-label="Sync status issue"
-        className="flex items-center gap-1.5 text-xs font-bold text-red-500"
+        className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs font-bold text-red-800 dark:text-red-300 max-md:gap-[6px]"
       >
-        <AlertCircle aria-hidden="true" className="h-3.5 w-3.5" />
-        Sync issue
+        <AlertCircle aria-hidden="true" className="h-[14px] w-[14px] shrink-0" />
+        <span className="[overflow-wrap:anywhere]">Sync issue</span>
       </span>
     );
   }
@@ -23,10 +23,10 @@ export function SyncStatusIndicator() {
     return (
       <span
         aria-label="Sync status syncing"
-        className="flex items-center gap-1.5 text-xs font-bold text-secondary"
+        className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs font-bold text-slab-secondary dark:text-zinc-300 max-md:gap-[6px]"
       >
-        <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
-        Syncing
+        <Loader2 aria-hidden="true" className="h-[14px] w-[14px] shrink-0 animate-spin motion-reduce:animate-none" />
+        <span className="[overflow-wrap:anywhere]">Syncing</span>
       </span>
     );
   }
@@ -35,10 +35,10 @@ export function SyncStatusIndicator() {
     return (
       <span
         aria-label="Sync status pending"
-        className="flex items-center gap-1.5 text-xs font-bold text-amber-600"
+        className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs font-bold text-amber-800 dark:text-amber-300 max-md:gap-[6px]"
       >
-        <Clock3 aria-hidden="true" className="h-3.5 w-3.5" />
-        Pending Sync
+        <Clock3 aria-hidden="true" className="h-[14px] w-[14px] shrink-0" />
+        <span className="[overflow-wrap:anywhere]">Pending Sync</span>
       </span>
     );
   }
@@ -46,10 +46,10 @@ export function SyncStatusIndicator() {
   return (
     <span
       aria-label="Sync status synced"
-      className="flex items-center gap-1.5 text-xs font-bold text-green-600"
+      className="flex min-w-0 flex-wrap items-center gap-1.5 text-xs font-bold text-green-800 dark:text-green-300 max-md:gap-[6px]"
     >
-      <CheckCircle2 aria-hidden="true" className="h-3.5 w-3.5" />
-      Synced
+      <CheckCircle2 aria-hidden="true" className="h-[14px] w-[14px] shrink-0" />
+      <span className="[overflow-wrap:anywhere]">Synced</span>
     </span>
   );
 }

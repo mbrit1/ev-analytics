@@ -21,7 +21,8 @@
     --mobile-dock-height: 76px;
     --mobile-dock-lift: 6px;
     --mobile-dock-side-gap: 16px;
-    --mobile-nav-dock-height: var(--mobile-dock-height);
+    /* Two compact label lines plus the icon, gap, button and slab padding, and border. */
+    --mobile-nav-dock-height: max(var(--mobile-dock-height), calc(46px + 1.75rem));
     --mobile-nav-dock-bottom: calc(var(--safe-area-bottom) + var(--mobile-dock-lift));
     --mobile-content-bottom-clearance: 20px;
     --mobile-content-clearance-dock-only: calc(
@@ -73,8 +74,31 @@
 }
 
 @layer components {
+  .mobile-navigation-dock {
+    container-name: mobile-navigation-dock;
+    container-type: inline-size;
+  }
+
   .analytics-metric-value {
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum" 1;
+  }
+}
+
+@container mobile-navigation-dock (max-width: 20em) {
+  .mobile-navigation-dock-tab {
+    line-height: 1;
+    padding: 4px;
+  }
+
+  .mobile-navigation-dock-tab-content {
+    flex-direction: column;
+    gap: 4px;
+  }
+}
+
+@media (max-width: 359px) {
+  .mobile-navigation-dock-tab-content {
+    gap: 0;
   }
 }
