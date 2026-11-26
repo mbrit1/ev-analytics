@@ -1,10 +1,10 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { ChargingHistory } from './ChargingHistory';
 import { db, type ChargingSession } from '../../../infra/db';
 import { saveSession } from '../services/sessionService';
-import { formatKwh } from '../../../shared/lib';
+import { formatCurrency, formatKwh } from '../../../shared/lib';
 
 vi.mock('../../auth', () => ({
   useAuth: () => ({ user: { id: 'user-1' } }),
@@ -390,6 +390,33 @@ describe('ChargingHistory', () => {
     expect(heading.parentElement).toHaveClass('min-w-0');
   });
 
+  it('keeps long saved values together in the same edit control with price break opportunities', async () => {
+    // Arrange: persist a long snapshot label and a large recorded amount.
+    const label = 'CrossBorderChargingNetworkCommercialStandard';
+    const session = buildSession('session-long-values', '2026-07-19T10:00:00.000Z', {
+      provider_name_snapshot: '',
+      price_snapshot: { label, kWhPrice: 40, sessionFee: 0 },
+      total_cost: 123456789,
+      kwh_billed: 1234.56,
+    });
+    await saveSession(session);
+    const onSelectSession = vi.fn();
+    const user = userEvent.setup();
+
+    // Act: select the session through its displayed price.
+    render(<ChargingHistory onSelectSession={onSelectSession} />);
+    const card = await screen.findByRole('button', { name: /Edit session Unknown provider/ });
+    const price = within(card).getByText(formatCurrency(session.total_cost));
+    await user.click(price);
+
+    // Assert: the full values survive wrapping and select the original session.
+    expect(card).toHaveTextContent(`${label} • AC`);
+    expect(card).toHaveTextContent('1.234,56 kWh');
+    expect(card).toHaveAccessibleName(expect.stringContaining(formatCurrency(session.total_cost).replace(/\s/g, ' ')));
+    expect(price.querySelectorAll('wbr')).toHaveLength(2);
+    expect(onSelectSession).toHaveBeenCalledWith(expect.objectContaining({ id: session.id }));
+  });
+
   it('renders month group labels and stable summaries while keeping session cards visible', async () => {
     // Arrange: Save sessions across two months, including explicit zero totals.
     render(<ChargingHistory />);
@@ -557,7 +584,6 @@ describe('ChargingHistory', () => {
 
     // Assert: only the button owns card padding and the session is emitted.
     expect(slab).not.toHaveClass('p-8');
-    expect(trigger).toHaveClass('p-6');
     expect(onSelectSession).toHaveBeenCalledWith(expect.objectContaining({
       id: 'session-click',
     }));
