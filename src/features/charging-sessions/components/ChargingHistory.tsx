@@ -181,11 +181,11 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
     || (sessions.length === 0 && (hydrationState.status === 'idle' || hydrationState.status === 'loading'))
   ) {
     return (
-      <div role="status" aria-live="polite" className="flex items-center justify-center p-12">
+      <div role="status" aria-live="polite" className="flex items-center justify-center px-[min(3rem,14%)] py-12">
         <span className="sr-only">Loading charging sessions</span>
-        <div className="animate-pulse motion-reduce:animate-none flex flex-col items-center gap-4">
+        <div className="animate-pulse motion-reduce:animate-none flex w-full max-w-32 flex-col items-center gap-4">
           <div aria-hidden="true" className="w-12 h-12 bg-slate-200 rounded-full"></div>
-          <div aria-hidden="true" className="h-4 w-32 bg-slate-200 rounded"></div>
+          <div aria-hidden="true" className="h-4 w-full bg-slate-200 rounded"></div>
         </div>
       </div>
     );
@@ -193,10 +193,10 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
 
   if (sessions.length === 0 && hydrationState.status === 'failed') {
     return (
-      <Slab role="alert" className="p-12 text-center">
+      <Slab role="alert" padding="none" className="break-words px-[min(3rem,14%)] py-12 text-center">
         <CircleAlert className="mx-auto mb-4 h-12 w-12 text-red-500" />
         <h2 className="mb-2 text-xl font-bold text-primary">Sessions couldn’t be loaded</h2>
-        <p className="mx-auto max-w-xl text-secondary">
+        <p className="mx-auto max-w-xl text-slab-secondary">
           Your charging history is currently unavailable. Your saved data has not been changed. Try again, or check back later if the problem continues.
         </p>
         {onRetryHydration != null && (
@@ -214,10 +214,10 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
 
   if (sessions.length === 0) {
     return (
-      <Slab className="text-center p-12">
+      <Slab padding="none" className="break-words px-[min(3rem,14%)] py-12 text-center">
         <Info className="w-12 h-12 text-secondary/30 mx-auto mb-4" />
         <h2 className="text-xl font-bold text-primary mb-2">No Sessions Yet</h2>
-        <p className="text-secondary">Your charging history will appear here once you log your first session.</p>
+        <p className="text-slab-secondary">Your charging history will appear here once you log your first session.</p>
       </Slab>
     );
   }
@@ -225,13 +225,13 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
   return (
     <div className="space-y-6">
       {hydrationState.status === 'failed' && (
-        <Slab className="p-6">
+        <Slab padding="none" className="break-words px-[min(1.5rem,8%)] py-6">
           <div className="flex items-start gap-3">
             <CircleAlert className="mt-0.5 h-5 w-5 shrink-0 text-red-500" />
             <div className="min-w-0 flex-1">
               <div role="status" aria-live="polite">
                 <h2 className="text-base font-bold text-primary">Sessions couldn’t be refreshed</h2>
-                <p className="mt-1 text-sm text-secondary">
+                <p className="mt-1 text-sm text-slab-secondary">
                   Showing sessions saved on this device. Recent changes from another device may not be available.
                 </p>
               </div>
@@ -255,7 +255,7 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
               <h2 className="text-sm font-semibold text-primary">
                 {group.label}
               </h2>
-              <p className="text-sm text-secondary tabular-nums">
+              <p className="break-words text-sm text-slab-secondary tabular-nums">
                 {formatKwh(group.totalKwh)} kWh · {formatCurrency(group.totalCostCents)}
               </p>
             </div>
@@ -280,18 +280,20 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
                   sessionTime,
                   sessionCost,
                 );
+              // Let oversized prices break at thousands separators or before the currency.
+              const priceParts = sessionCost.split(/(?<=\.|\u00a0)/u);
               const cardContent = (
-                <div className="flex items-center justify-between gap-4">
-                  <div className="min-w-0 flex-1 space-y-1.5">
-                    <div className="flex items-center text-[10px] font-bold uppercase tracking-widest text-secondary tabular-nums">
-                      <Calendar className="w-3 h-3 mr-1.5" />
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="min-w-0 flex-[1_1_7rem] space-y-1.5 break-words">
+                    <div className="flex items-center text-[10px] font-bold uppercase tracking-widest text-slab-secondary tabular-nums">
+                      <Calendar className="w-3 h-3 mr-1.5 shrink-0" />
                       {sessionDate}
                     </div>
                     <p className="break-words text-lg font-bold leading-tight text-primary">
                       {session.provider_name_snapshot || 'Unknown Provider'}
                     </p>
                     <div className="flex flex-wrap items-center gap-3">
-                      <p className="text-sm text-secondary font-medium">
+                      <p className="min-w-0 text-sm text-slab-secondary font-medium">
                         {(session.session_mode === 'ad_hoc'
                           ? 'Ad-Hoc'
                           : (session.price_snapshot?.label
@@ -307,25 +309,33 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
                         }
 
                         return (
-                          <p className="text-xs text-secondary/80 font-medium">
+                          <p className="min-w-0 text-xs text-slab-secondary font-medium">
                             Operated by {cpoName}
                           </p>
                         );
                       })()}
                       {(session.start_soc_percentage != null || session.end_soc_percentage != null) && (
-                        <p className="text-xs text-secondary/80 font-medium tabular-nums">
+                        <p className="min-w-0 text-xs text-slab-secondary font-medium tabular-nums">
                           SoC {session.start_soc_percentage != null ? `${session.start_soc_percentage}%` : '—'} → {session.end_soc_percentage != null ? `${session.end_soc_percentage}%` : '—'}
                         </p>
                       )}
                     </div>
                   </div>
-                  <div className="shrink-0 text-right">
+                  <div className="ml-auto min-w-0 max-w-full break-words text-right">
                     <p className="text-4xl font-semibold text-primary tabular-nums tracking-tight">
-                      {sessionCost}
+                      {priceParts.map((part, index) => (
+                        <React.Fragment key={index}>
+                          {index > 0 && <wbr />}
+                          {part}
+                        </React.Fragment>
+                      ))}
                     </p>
-                    <div className="flex items-center justify-end text-lg font-medium text-secondary tabular-nums mt-1">
-                      <Zap className="w-4 h-4 mr-1 text-accent" />
-                      {formatCentsToDecimal(Math.round(session.kwh_billed * 100)).replace(',00', '')} <span className="text-sm ml-1">kWh</span>
+                    <div className="flex flex-wrap items-center justify-end text-lg font-medium text-slab-secondary tabular-nums mt-1">
+                      <Zap className="w-4 h-4 mr-1 shrink-0 text-accent" />
+                      <span className="min-w-0">
+                        {formatCentsToDecimal(Math.round(session.kwh_billed * 100)).replace(',00', '')}
+                      </span>{' '}
+                      <span className="text-sm ml-1">kWh</span>
                     </div>
                   </div>
                 </div>
@@ -351,7 +361,7 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
 
                         sessionCardRefs.current.set(session.id, element);
                       }}
-                      className="group w-full min-h-[44px] cursor-pointer rounded-[inherit] p-6 text-left transition-colors motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:hover:bg-secondary/5 active:bg-secondary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+                      className="group w-full min-h-[44px] cursor-pointer rounded-[inherit] px-[min(1.5rem,8%)] py-6 text-left transition-colors motion-reduce:transition-none [@media(hover:hover)_and_(pointer:fine)]:hover:bg-secondary/5 active:bg-secondary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
                     >
                       {cardContent}
                     </button>
@@ -367,7 +377,7 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
 
                         sessionCardRefs.current.set(session.id, element);
                       }}
-                      className="p-6"
+                      className="px-[min(1.5rem,8%)] py-6"
                       tabIndex={-1}
                     >
                       {cardContent}

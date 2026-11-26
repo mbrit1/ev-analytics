@@ -32,6 +32,14 @@ Use this checklist for every UI-facing change. The default baseline is
   relative to text size. Use the shared adaptive dock-height token for both the
   slab and the main-content reserve, including the bottom inset, lift and
   clearance. Verify the last content can scroll above the dock.
+- Sessions history is a local exception for enlarged text. Keep the cost
+  and billed energy at the trailing edge of the card. Wrap them together below
+  the metadata when its text-relative minimum and the recorded values no longer
+  fit side by side. Allow long snapshot names to wrap and give oversized EUR
+  values line breaks at thousands separators or before the currency. The Sessions
+  page action can also wrap below its heading and description. Keep the whole
+  card as one edit target and verify focus return, scroll restoration, and
+  clearance above the dock.
 
 ## 5) Interaction and motion
 - Hover-only feedback is gated by both `(hover: hover)` and `(pointer: fine)`; touch feedback uses active state rather than sticky hover.

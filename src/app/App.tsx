@@ -611,6 +611,7 @@ function App() {
                       <PageActionSlab
                         heading="Charging History"
                         description="Review your charging sessions and add a new session."
+                        className="flex-wrap [&>div:first-child]:min-w-0 [&>div:first-child]:flex-[1_1_10rem] [&>div:last-child]:ml-auto"
                         actionLabel="Add Session"
                         onAction={handleOpenCreateSession}
                         actionRef={addSessionButtonRef}
