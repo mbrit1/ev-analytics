@@ -97,7 +97,7 @@ export function AnalyticsPeriodSheet({ label, controlIdentity, children, trigger
         <button
           type="button"
           onClick={onDismiss}
-          className="mt-4 flex min-h-11 w-full items-center justify-center rounded-xl bg-secondary/10 px-3 py-2 font-semibold text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+          className="mt-4 flex min-h-11 w-full items-center justify-center rounded-xl bg-secondary/10 px-3 py-2 font-semibold text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
         >
           Cancel
         </button>
