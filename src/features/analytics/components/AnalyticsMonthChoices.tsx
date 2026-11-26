@@ -26,7 +26,7 @@ export function AnalyticsMonthChoices({ year, selectedMonth, currentMonth, onYea
           <ChevronRight className="h-5 w-5" aria-hidden="true" />
         </button>
       </div>
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,max(5.25rem,calc((100%_-_1rem)/3))),1fr))] gap-2">
         {MONTHS.map((label, month) => {
           const isSelected = selectedMonth.year === year && selectedMonth.month === month
           const isFuture = year > currentMonth.year || (year === currentMonth.year && month > currentMonth.month)
@@ -37,7 +37,7 @@ export function AnalyticsMonthChoices({ year, selectedMonth, currentMonth, onYea
               aria-pressed={isSelected}
               disabled={isFuture}
               onClick={() => onSelect({ year, month })}
-              className={`min-h-11 rounded-lg px-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:pointer-events-none disabled:opacity-35 ${isSelected ? 'bg-primary text-surface' : 'text-primary hover:bg-secondary/10'}`}
+              className={`min-h-11 rounded-lg px-2 text-sm font-medium wrap-anywhere focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:pointer-events-none disabled:opacity-35 ${isSelected ? 'bg-primary text-surface' : 'text-primary hover:bg-secondary/10'}`}
             >
               {label}
             </button>

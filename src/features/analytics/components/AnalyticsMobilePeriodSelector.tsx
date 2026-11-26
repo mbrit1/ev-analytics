@@ -13,6 +13,10 @@ const PRESETS: { value: AnalyticsPeriodPreset; label: string; icon: typeof Calen
 ]
 const CONTROL_CLASS = 'inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-surface text-secondary shadow-sm transition-colors hover:bg-secondary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-environment disabled:pointer-events-none disabled:opacity-30 motion-reduce:transition-none'
 
+// At narrow container widths, put the range action on its own row so the
+// calendar label can wrap between the stepping controls.
+const COMPACT_CONTROL_WIDTH = '@max-[17rem]/period:w-[44px]'
+
 /** Controlled mobile period state, sharing the established Analytics period definition. */
 interface AnalyticsMobilePeriodSelectorProps {
   selection: AnalyticsPeriodSelection
@@ -40,9 +44,9 @@ export function AnalyticsMobilePeriodSelector({ selection, selectedMonth, curren
 
   return (
     <>
-      <div role="group" aria-label="Analytics period" aria-describedby={rangeDescriptionId} className={`flex w-full items-center ${isMonth ? 'gap-1' : 'gap-2'}`}>
+      <div role="group" aria-label="Analytics period" aria-describedby={rangeDescriptionId} className={`flex w-full items-center ${isMonth ? 'gap-1 @max-[17rem]/period:grid @max-[17rem]/period:grid-cols-[44px_minmax(0,1fr)_44px] @max-[17rem]/period:gap-x-[4px]' : 'gap-2'}`}>
         {isMonth && (
-          <button type="button" aria-label="Previous month" data-analytics-period-control="previous-month" className={CONTROL_CLASS} onClick={() => select({ kind: 'month', month: shiftCalendarMonth(selectedMonth, -1) })}>
+          <button type="button" aria-label="Previous month" data-analytics-period-control="previous-month" className={`${CONTROL_CLASS} ${COMPACT_CONTROL_WIDTH}`} onClick={() => select({ kind: 'month', month: shiftCalendarMonth(selectedMonth, -1) })}>
             <ChevronLeft className="h-5 w-5" aria-hidden="true" />
           </button>
         )}
@@ -55,16 +59,16 @@ export function AnalyticsMobilePeriodSelector({ selection, selectedMonth, curren
             aria-haspopup="dialog"
             aria-expanded={panel === 'month'}
             onClick={() => { setPickerYear(selectedMonth.year); setPanel('month') }}
-            className="flex h-11 min-w-0 flex-1 items-center justify-center gap-1 rounded-xl bg-surface px-1 text-sm font-semibold text-primary shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-environment"
+            className="flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1 rounded-xl bg-surface px-1 text-sm font-semibold text-primary shadow-sm @max-[17rem]/period:px-0 @max-[8rem]/period:text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 focus-visible:ring-offset-2 focus-visible:ring-offset-environment"
           >
-            <CalendarDays className="h-4 w-4 shrink-0 text-secondary" aria-hidden="true" />
-            <span className="truncate">{label}</span>
+            <CalendarDays className="h-4 w-4 shrink-0 text-secondary @max-[17rem]/period:hidden" aria-hidden="true" />
+            <span className="min-w-0 wrap-anywhere">{label}</span>
           </button>
         ) : (
           <p className="flex h-11 min-w-0 flex-1 items-center justify-center rounded-xl bg-surface px-3 text-sm font-semibold text-primary shadow-sm">{label}</p>
         )}
         {isMonth && (
-          <button type="button" aria-label="Next month" data-analytics-period-control="next-month" disabled={compareCalendarMonths(selectedMonth, currentMonth) >= 0} className={CONTROL_CLASS} onClick={() => select({ kind: 'month', month: shiftCalendarMonth(selectedMonth, 1) })}>
+          <button type="button" aria-label="Next month" data-analytics-period-control="next-month" disabled={compareCalendarMonths(selectedMonth, currentMonth) >= 0} className={`${CONTROL_CLASS} ${COMPACT_CONTROL_WIDTH}`} onClick={() => select({ kind: 'month', month: shiftCalendarMonth(selectedMonth, 1) })}>
             <ChevronRight className="h-5 w-5" aria-hidden="true" />
           </button>
         )}
@@ -76,7 +80,7 @@ export function AnalyticsMobilePeriodSelector({ selection, selectedMonth, curren
           aria-haspopup="dialog"
           aria-expanded={panel === 'options'}
           onClick={() => setPanel('options')}
-          className={CONTROL_CLASS}
+          className={`${CONTROL_CLASS} ${isMonth ? `@max-[17rem]/period:col-start-3 ${COMPACT_CONTROL_WIDTH}` : ''}`}
         >
           <Ellipsis className="h-5 w-5" aria-hidden="true" />
         </button>

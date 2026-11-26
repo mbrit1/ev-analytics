@@ -68,7 +68,7 @@ export function AnalyticsMonthSelector({
   )
 
   return (
-    <div ref={rootRef} onFocusCapture={captureFocus} onBlurCapture={clearFocusWhenLeaving} className={layoutMode === 'sidebar' ? 'w-full' : 'mx-auto w-full max-w-2xl'}>
+    <div ref={rootRef} onFocusCapture={captureFocus} onBlurCapture={clearFocusWhenLeaving} className={layoutMode === 'sidebar' ? 'w-full' : '@container/period mx-auto w-full max-w-2xl'}>
       <span className="sr-only" aria-live="polite" aria-atomic="true">{selection.kind === 'month' ? `Selected month: ${formatMonthLabel(selectedMonth.year, selectedMonth.month)}` : ''}</span>
       {layoutMode === 'sidebar' ? (
         <AnalyticsDesktopPeriodSelector
