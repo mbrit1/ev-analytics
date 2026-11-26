@@ -41,9 +41,9 @@ function renderSlab(
  * diagnostics, and accessible primary/supporting values.
  */
 describe('OverallPriceSlab', () => {
-  it('renders the ready KPI hierarchy with accessible tabular metrics', () => {
+  it.each(['sidebar', 'bottom-dock'] as const)('renders formatted and accessible KPIs in %s mode', (layoutMode) => {
     // Arrange / Act: Render a complete lifetime calculation.
-    renderSlab(readyResult)
+    renderSlab(readyResult, layoutMode)
 
     // Assert: Primary and supporting metrics remain distinct and fully labelled.
     expect(screen.getByRole('heading', { name: 'Overall price', level: 2 })).toBeInTheDocument()
@@ -62,7 +62,13 @@ describe('OverallPriceSlab', () => {
     expect(screen.getByText('Included spend')).toBeInTheDocument()
     expect(screen.getByText('66,15 €')).toHaveClass('tabular-nums')
     const heading = screen.getByRole('heading', { name: 'Overall price' })
-    expect(heading).toHaveClass('whitespace-nowrap')
+    if (layoutMode === 'sidebar') {
+      expect(heading).toHaveClass('whitespace-nowrap')
+    }
+    expect(screen.getByLabelText('Billed energy: 129,2 kilowatt-hours')).toHaveTextContent('129,2 kWh')
+    expect(screen.getByLabelText('Included spend: 66,15 €')).toBeVisible()
+    expect(screen.getAllByRole('heading').map((metric) => metric.textContent))
+      .toEqual(['Overall price', 'Billed energy', 'Included spend'])
     expect(heading.parentElement)
       .toHaveClass('flex', 'items-center', 'gap-1')
   })
@@ -146,7 +152,7 @@ describe('OverallPriceSlab', () => {
 
   it('renders the empty state and invokes the supplied add-session action', async () => {
     // Arrange: Render an empty lifetime result.
-    const { onAddSession, user } = renderSlab({ status: 'empty' })
+    const { onAddSession, user } = renderSlab({ status: 'empty' }, 'bottom-dock')
 
     // Act: Select the existing entry action.
     await user.click(screen.getByRole('button', { name: 'Add Session' }))
@@ -170,7 +176,7 @@ describe('OverallPriceSlab', () => {
     ],
   ])('renders the %s unavailable detail without a false zero', (result, detail) => {
     // Arrange / Act: Render one trusted-unavailable result variant.
-    renderSlab(result)
+    renderSlab(result, 'bottom-dock')
 
     // Assert: The failure is explicit rather than represented as a zero rate.
     expect(screen.getByText('Overall price unavailable')).toBeInTheDocument()
@@ -202,7 +208,7 @@ describe('OverallPriceSlab', () => {
         },
       ],
     }
-    const { onReviewTariffs, user } = renderSlab(result)
+    const { onReviewTariffs, user } = renderSlab(result, 'bottom-dock')
 
     // Act: Use the remediation action.
     await user.click(screen.getByRole('button', { name: 'Review tariffs' }))

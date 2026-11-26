@@ -22,7 +22,7 @@ export interface OverallPriceSlabProps {
   onAddSession: () => void
   /** Opens the established tariff-management flow for an overlap conflict. */
   onReviewTariffs: () => void
-  /** Existing Analytics composition mode for the calculation disclosure surface. */
+  /** Existing Analytics composition mode for the slab and disclosure. */
   layoutMode: AnalyticsLayoutMode
 }
 
@@ -48,15 +48,19 @@ export function OverallPriceSlab({
   onReviewTariffs,
   layoutMode,
 }: OverallPriceSlabProps) {
+  const isReady = !isLoading && result.status === 'ready'
+  const compact = isReady && layoutMode === 'bottom-dock'
   const slabClasses = 'mx-auto w-full @container space-y-4 p-5 md:space-y-5 md:p-8 @min-[48rem]:p-6 motion-reduce:transition-none'
   const heading = (
-    <div className="flex items-center gap-1">
-      <h2 className="whitespace-nowrap text-xs font-bold uppercase tracking-wider text-slab-secondary md:text-sm md:normal-case md:tracking-normal">
+    <div className={compact ? 'flex items-center justify-between gap-1' : 'flex items-center gap-1'}>
+      <h2 className={compact
+        ? 'text-xs font-bold uppercase tracking-wider text-slab-secondary wrap-anywhere'
+        : 'whitespace-nowrap text-xs font-bold uppercase tracking-wider text-slab-secondary md:text-sm md:normal-case md:tracking-normal'}>
         Overall price
       </h2>
       <OverallPriceInfoDisclosure
         layoutMode={layoutMode}
-        overallPriceCtPerKwh={!isLoading && result.status === 'ready'
+        overallPriceCtPerKwh={isReady
           ? result.overallPriceCtPerKwh
           : undefined}
       />
@@ -65,21 +69,24 @@ export function OverallPriceSlab({
 
   return (
     <Slab padding="none" className={slabClasses} aria-busy={isLoading}>
-      <div className={!isLoading && result.status === 'ready'
+      <div className={isReady && !compact
         ? 'space-y-4 md:space-y-5 @min-[48rem]:grid @min-[48rem]:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)] @min-[48rem]:grid-rows-[44px_auto] @min-[48rem]:items-stretch @min-[48rem]:gap-x-4 @min-[48rem]:gap-y-2 @min-[48rem]:space-y-0'
-        : 'space-y-4 md:space-y-5'}>
+        : compact ? 'space-y-2' : 'space-y-4 md:space-y-5'}>
         {heading}
         {isLoading ? (
           <div role="status" className="h-12 w-40 animate-pulse rounded-xl bg-secondary/10 motion-reduce:animate-none">
             <span className="sr-only">Loading Overall Price</span>
           </div>
         ) : result.status === 'ready' ? (
-          <div className="space-y-6 @min-[48rem]:contents @min-[48rem]:space-y-0">
-            <div className="space-y-3 @min-[48rem]:col-start-1 @min-[48rem]:row-start-2">
+          <div className={compact ? 'space-y-3' : 'space-y-6 @min-[48rem]:contents @min-[48rem]:space-y-0'}>
+            <div className={compact ? 'space-y-2' : 'space-y-3 @min-[48rem]:col-start-1 @min-[48rem]:row-start-2'}>
               <p
-                className="analytics-metric-value inline-flex items-baseline gap-1 whitespace-nowrap text-[2.75rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[3.5rem] @min-[48rem]:!text-[2.5rem] @min-[48rem]:gap-2"
+                className={compact
+                  ? 'analytics-metric-value text-[2.75rem] font-bold leading-none tracking-tight text-primary tabular-nums wrap-anywhere'
+                  : 'analytics-metric-value inline-flex items-baseline gap-1 whitespace-nowrap text-[2.75rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[3.5rem] @min-[48rem]:!text-[2.5rem] @min-[48rem]:gap-2'}
               >
                 <span aria-hidden="true" className="tabular-nums">{formatCtPerKwhAsEuroAmount(result.overallPriceCtPerKwh, 'de-DE')}</span>
+                {compact && ' '}
                 <span aria-hidden="true" className="text-[0.625em] font-bold leading-none">€/kWh</span>
                 <span className="sr-only">
                   Overall price: {formatCtPerKwhAsEuroAmount(result.overallPriceCtPerKwh, 'de-DE')} euros per kilowatt-hour
@@ -89,24 +96,30 @@ export function OverallPriceSlab({
                 Effective price including applicable fixed costs
               </p>
             </div>
-            <div className="grid gap-5 border-t border-slab-border/70 pt-5 @min-[48rem]:col-start-2 @min-[48rem]:col-span-2 @min-[48rem]:row-span-2 @min-[48rem]:grid-cols-2 @min-[48rem]:grid-rows-subgrid @min-[48rem]:border-l @min-[48rem]:border-t-0 @min-[48rem]:gap-y-2 @min-[48rem]:py-0 @min-[48rem]:pl-5">
-              <div className="space-y-2 @min-[48rem]:space-y-0 @min-[48rem]:row-span-2 @min-[48rem]:grid @min-[48rem]:grid-rows-subgrid">
+            <div className={compact
+              ? 'grid grid-cols-[repeat(auto-fit,minmax(min(100%,8rem),1fr))] gap-3 border-t border-slab-border/70 pt-3'
+              : 'grid gap-5 border-t border-slab-border/70 pt-5 @min-[48rem]:col-start-2 @min-[48rem]:col-span-2 @min-[48rem]:row-span-2 @min-[48rem]:grid-cols-2 @min-[48rem]:grid-rows-subgrid @min-[48rem]:border-l @min-[48rem]:border-t-0 @min-[48rem]:gap-y-2 @min-[48rem]:py-0 @min-[48rem]:pl-5'}>
+              <div className={compact ? 'space-y-1' : 'space-y-2 @min-[48rem]:space-y-0 @min-[48rem]:row-span-2 @min-[48rem]:grid @min-[48rem]:grid-rows-subgrid'}>
                 <h3 className="text-sm font-semibold text-slab-secondary md:text-[0.9375rem] @min-[48rem]:row-start-1 @min-[48rem]:flex @min-[48rem]:items-center">
                   Billed energy
                 </h3>
                 <p
-                  className="analytics-metric-value inline-flex items-baseline gap-1 whitespace-nowrap text-[2rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[2.5rem] @min-[48rem]:row-start-2 @min-[48rem]:self-start @min-[48rem]:!text-[1.875rem]"
+                  className={compact
+                    ? 'analytics-metric-value text-[1.375rem] font-bold leading-tight tracking-tight text-primary tabular-nums wrap-anywhere'
+                    : 'analytics-metric-value inline-flex items-baseline gap-1 whitespace-nowrap text-[2rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[2.5rem] @min-[48rem]:row-start-2 @min-[48rem]:self-start @min-[48rem]:!text-[1.875rem]'}
                   aria-label={`Billed energy: ${formatKwh(result.billedEnergyKwh)} kilowatt-hours`}
                 >
-                  {formatKwh(result.billedEnergyKwh)} <span className="text-lg leading-none md:text-xl">kWh</span>
+                  {formatKwh(result.billedEnergyKwh)} <span className={compact ? 'text-base' : 'text-lg leading-none md:text-xl'}>kWh</span>
                 </p>
               </div>
-              <div className="space-y-2 @min-[48rem]:space-y-0 @min-[48rem]:row-span-2 @min-[48rem]:grid @min-[48rem]:grid-rows-subgrid">
+              <div className={compact ? 'space-y-1' : 'space-y-2 @min-[48rem]:space-y-0 @min-[48rem]:row-span-2 @min-[48rem]:grid @min-[48rem]:grid-rows-subgrid'}>
                 <h3 className="text-sm font-semibold text-slab-secondary md:text-[0.9375rem] @min-[48rem]:row-start-1 @min-[48rem]:flex @min-[48rem]:items-center">
                   Included spend
                 </h3>
                 <p
-                  className="analytics-metric-value whitespace-nowrap text-[2rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[2.5rem] @min-[48rem]:row-start-2 @min-[48rem]:self-start @min-[48rem]:!text-[1.875rem]"
+                  className={compact
+                    ? 'analytics-metric-value text-[1.375rem] font-bold leading-tight tracking-tight text-primary tabular-nums wrap-anywhere'
+                    : 'analytics-metric-value whitespace-nowrap text-[2rem] font-bold leading-none tracking-tight text-primary tabular-nums md:text-[2.5rem] @min-[48rem]:row-start-2 @min-[48rem]:self-start @min-[48rem]:!text-[1.875rem]'}
                   aria-label={`Included spend: ${formatCurrency(result.includedSpendCents)}`}
                 >
                   {formatCurrency(result.includedSpendCents)}
