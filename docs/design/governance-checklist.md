@@ -183,3 +183,13 @@ distribution and first rows closer to the heading in the bottom-dock layout.
 When Others exists, show a short cue about energy-selected providers and the
 remaining group. The mobile information sheet explains that sorting reorders the
 same groups. Keep active validity warnings and measurement coverage in the slab.
+
+### Lifetime Overall Price on mobile
+
+Issue #310 is an Analytics-local exception. In bottom-dock mode, a ready
+Lifetime result leads with Overall price and places Billed energy and Included
+spend in a two-column row that can reflow as space or text size requires.
+Sidebar mode keeps the existing container-based three-metric arrangement.
+The external Lifetime scope label and the visible fixed-cost explanation
+distinguish the effective rate from selected-period session pricing. The
+presentation uses the existing calculation, data and tariff rules.

@@ -133,6 +133,13 @@ describe('AnalyticsPage', () => {
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<AnalyticsPage onAddSession={vi.fn()} />)
+    const lifetime = within(screen.getByRole('region', { name: 'Lifetime Overall Price' }))
+    const lifetimeValues = () => [
+      lifetime.getByText(/euros per kilowatt-hour/).textContent,
+      lifetime.getByLabelText(/^Billed energy:/).textContent,
+      lifetime.getByLabelText(/^Included spend:/).textContent,
+    ]
+    const valuesBeforePeriodChange = lifetimeValues()
     // Act
     await user.click(screen.getByRole('button', { name: 'Previous month' }))
     const summary = within(screen.getByRole('region', { name: 'Selected-period analytics' }))
@@ -145,7 +152,9 @@ describe('AnalyticsPage', () => {
     // Assert
     expect(screen.queryByRole('tab')).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /June 2026 summary/ })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Overall price' })).toBeInTheDocument()
+    expect(lifetime.getByRole('heading', { name: 'Overall price' })).toBeInTheDocument()
+    expect(lifetime.getByText('Lifetime · All recorded sessions')).toBeVisible()
+    expect(lifetimeValues()).toEqual(valuesBeforePeriodChange)
     expect(vi.mocked(useOverallChargingPrice).mock.calls.every(([date]) => date === '2026-07-15')).toBe(true)
   })
 
