@@ -52,7 +52,7 @@ type TariffFormState =
   | { mode: 'edit'; logicalTariffKey: string }
 
 type TariffRestoreRequest =
-  | { type: 'position'; scrollY: number; focusTariffKey?: string | null }
+  | { type: 'position'; scrollY: number; focusTariffKey?: string | null; focusAction?: 'add-tariff' }
   | { type: 'tariff'; tariffKey: string }
 
 type TariffModalState = {
@@ -421,7 +421,7 @@ function App() {
     setTariffFormState({ mode: 'edit', logicalTariffKey })
   }
 
-  const handleCloseTariffForm = () => {
+  const handleCloseTariffForm = (intent?: 'create-cancel') => {
     const focusTariffKey = tariffFormState.mode === 'edit'
       ? tariffFormState.logicalTariffKey
       : null
@@ -440,6 +440,7 @@ function App() {
       type: 'position',
       scrollY: tariffScrollSnapshotRef.current,
       focusTariffKey,
+      ...(intent === 'create-cancel' ? { focusAction: 'add-tariff' as const } : {}),
     })
   }
 

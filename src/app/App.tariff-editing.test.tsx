@@ -22,10 +22,10 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
     onFormOpenChange,
   }: {
     tariffFormState: { mode: 'closed' } | { mode: 'create' } | { mode: 'edit'; logicalTariffKey: string };
-    restorationRequest?: { type: 'position'; scrollY: number; focusTariffKey?: string | null } | { type: 'tariff'; tariffKey: string };
+    restorationRequest?: { type: 'position'; scrollY: number; focusTariffKey?: string | null; focusAction?: 'add-tariff' } | { type: 'tariff'; tariffKey: string };
     onCreateTariff: () => void;
     onEditTariff: (logicalTariffKey: string, event: React.MouseEvent<HTMLAnchorElement>) => void;
-    onCloseForm: () => void;
+    onCloseForm: (intent?: 'create-cancel') => void;
     onSaveComplete: (logicalTariffKey: string) => void;
     onRestorationComplete: () => void;
     onFormOpenChange?: (isOpen: boolean) => void;
@@ -42,7 +42,11 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
       if (restorationRequest.type === 'position') {
         window.scrollTo({ top: restorationRequest.scrollY, behavior: 'auto' });
         setFocusTariffKey(restorationRequest.focusTariffKey ?? null);
-        mainAnchorRef.current?.focus();
+        if (restorationRequest.focusAction === 'add-tariff') {
+          document.querySelector<HTMLButtonElement>('button[aria-label="Add Tariff"]')?.focus({ preventScroll: true });
+        } else {
+          mainAnchorRef.current?.focus();
+        }
       } else {
         setCurrentTariffKey(restorationRequest.tariffKey);
         setFocusTariffKey(restorationRequest.tariffKey);
@@ -67,7 +71,7 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
       <div>
         {tariffFormState.mode === 'closed' ? <h1>Tariffs</h1> : null}
         {tariffFormState.mode === 'closed' ? (
-          <button type="button" onClick={() => onCreateTariff()}>
+          <button type="button" aria-label="Add Tariff" onClick={() => onCreateTariff()}>
             Add Tariff
           </button>
         ) : null}
@@ -80,9 +84,9 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
             {currentLabel}
           </a>
         ) : null}
-        {tariffFormState.mode === 'edit' ? (
+        {tariffFormState.mode !== 'closed' ? (
           <section aria-label="Tariff Form Surface">
-            <h1>Edit Tariff</h1>
+            <h1>{tariffFormState.mode === 'edit' ? 'Edit Tariff' : 'Create Tariff'}</h1>
             <button
               type="button"
               onClick={() => {
@@ -92,7 +96,7 @@ vi.mock('../features/charging-plans/components/TariffList', () => ({
             >
               Save Tariff
             </button>
-            <button type="button" onClick={onCloseForm}>
+            <button type="button" onClick={() => onCloseForm(tariffFormState.mode === 'create' ? 'create-cancel' : undefined)}>
               Cancel
             </button>
           </section>
@@ -272,6 +276,20 @@ describe('App tariff editing', () => {
       expect(mockScrollTo).toHaveBeenCalledWith({ top: 640, behavior: 'auto' });
       expect(screen.getByRole('link', { name: 'Open tariff Ionity Lidl' })).toHaveFocus();
     });
+  });
+
+  it('returns ordinary create cancellation focus to the live Add Tariff action', async () => {
+    // Arrange: Open ordinary creation from the list action.
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole('button', { name: 'Tariffs' }));
+    await user.click(await screen.findByRole('button', { name: 'Add Tariff' }));
+
+    // Act: Cancel after the original Add action has unmounted.
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    // Assert: Focus returns to the re-rendered action instead of the tariff card.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Add Tariff' })).toHaveFocus());
   });
 
   it('restores focus to the renamed tariff after save completes', async () => {
