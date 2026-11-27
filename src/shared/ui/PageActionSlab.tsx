@@ -63,7 +63,7 @@ export function PageActionSlab({
         <h1 id={headingId} aria-describedby={descriptionId} className="text-2xl font-bold tracking-tight text-primary">
           {heading}
         </h1>
-        <p id={descriptionId} className="text-sm text-secondary">
+        <p id={descriptionId} className="text-sm text-slab-secondary">
           {description}
         </p>
       </div>

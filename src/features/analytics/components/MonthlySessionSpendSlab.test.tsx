@@ -1,5 +1,6 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useState, type Dispatch, type SetStateAction } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import type { MonthlySessionSpendResult } from '../model/monthlySessionSpend'
 import { createAnalyticsPeriod, createPreviousAnalyticsPeriod } from '../model/analyticsPeriods'
@@ -21,6 +22,8 @@ const baseResult: MonthlySessionSpendResult = {
 
 /** Verifies summary metrics and distinct empty, loading, error and incomplete states. */
 describe.each(['sidebar', 'bottom-dock'] as const)('MonthlySessionSpendSlab (%s)', (layoutMode) => {
+  type RetryState = { isLoading: boolean; error: unknown | null }
+
   function renderSummary(overrides: Partial<MonthlySessionSpendResult> = {}, extra: Partial<MonthlySessionSpendSlabProps> = {}) {
     const month = overrides.isCurrentMonth === false ? 5 : 6
     const period = extra.period ?? createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month } }, new Date(2026, 6, 31, 12))
@@ -28,7 +31,35 @@ describe.each(['sidebar', 'bottom-dock'] as const)('MonthlySessionSpendSlab (%s)
     const result = { ...baseResult, ...overrides }
     const previousResult = extra.previousResult ?? { ...baseResult, isEmpty: true, sessionCount: 0, totalSessionSpendCents: 0, billedEnergyKwh: null, averageSessionPriceCtPerKwh: null, validBilledEnergySessionCount: 0 }
     const comparison = comparePreviousPeriod(result, previousResult, period, previousPeriod)
-    return render(<MonthlySessionSpendSlab period={period} previousPeriod={previousPeriod} result={result} previousResult={previousResult} comparison={comparison} layoutMode={layoutMode} isLoading={false} onAddSession={vi.fn()} {...extra} />)
+    return render(<MonthlySessionSpendSlab period={period} previousPeriod={previousPeriod} result={result} previousResult={previousResult} comparison={comparison} layoutMode={layoutMode} isLoading={false} onRetry={vi.fn()} onAddSession={vi.fn()} {...extra} />)
+  }
+
+  function renderRetryHarness(
+    props: Omit<MonthlySessionSpendSlabProps, 'isLoading' | 'error'>,
+    retrySettlement: RetryState = { isLoading: true, error: null },
+  ) {
+    let setQueryState: Dispatch<SetStateAction<RetryState>> | null = null
+    function RetryHarness() {
+      const [queryState, updateQueryState] = useState<RetryState>({ isLoading: false, error: new Error('read failed') })
+      setQueryState = updateQueryState
+      return <MonthlySessionSpendSlab
+        {...props}
+        {...queryState}
+        onRetry={() => {
+          props.onRetry()
+          updateQueryState(retrySettlement)
+        }}
+      />
+    }
+
+    const view = render(<RetryHarness />)
+    return {
+      ...view,
+      setQueryState: (state: RetryState) => {
+        if (setQueryState === null) throw new Error('Retry harness is not mounted')
+        act(() => setQueryState?.(state))
+      },
+    }
   }
 
   it('shows three localized metrics and explicit scope', () => {
@@ -311,12 +342,139 @@ describe.each(['sidebar', 'bottom-dock'] as const)('MonthlySessionSpendSlab (%s)
     expect(screen.queryByText('123,45 €')).not.toBeInTheDocument()
   })
 
-  it('shows a query error instead of stale or empty metrics', () => {
+  it('shows one accessible retry action instead of stale or empty metrics', () => {
     // Arrange / Act
     renderSummary({}, { error: new Error('read failed') })
     // Assert
     expect(screen.getByRole('alert')).toHaveTextContent('Unable to load the summary')
+    const retry = screen.getByRole('button', { name: 'Try again' })
+    expect(retry).toHaveClass('min-h-[44px]')
     expect(screen.queryByText('123,45 €')).not.toBeInTheDocument()
     expect(screen.queryByText('Unavailable')).not.toBeInTheDocument()
+    expect(screen.queryByText(/No charging sessions recorded/)).not.toBeInTheDocument()
+  })
+
+  it('keeps the same retry control focused across a retry that fails again', async () => {
+    // Arrange: Render a failed selected-period query with a retry callback.
+    const user = userEvent.setup()
+    const onRetry = vi.fn()
+    const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 6 } }, new Date(2026, 6, 31, 12))
+    const previousPeriod = createPreviousAnalyticsPeriod(period)
+    const previousResult = { ...baseResult, isEmpty: true, sessionCount: 0, totalSessionSpendCents: 0, billedEnergyKwh: null, averageSessionPriceCtPerKwh: null, validBilledEnergySessionCount: 0 }
+    const comparison = comparePreviousPeriod(baseResult, previousResult, period, previousPeriod)
+    const props = { period, previousPeriod, result: baseResult, previousResult, comparison, layoutMode, onAddSession: vi.fn(), onRetry }
+    const view = renderRetryHarness(props)
+    const retry = screen.getByRole('button', { name: 'Try again' })
+    retry.focus()
+
+    // Act: Retry, then render the loading and repeated-failure states.
+    await user.click(retry)
+    const progressButton = screen.getByRole('button', { name: 'Retrying selected summary' })
+    expect(progressButton).toBe(retry)
+    expect(progressButton).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByRole('status')).toHaveTextContent('Retrying selected summary')
+    expect(screen.getByRole('status').closest('[aria-busy="true"]')).toBeNull()
+    view.setQueryState({ isLoading: false, error: new Error('retry failed') })
+
+    // Assert: The retry action remains mounted and focused for another attempt.
+    await waitFor(() => expect(retry).toHaveAccessibleName('Try again'))
+    expect(retry).toHaveFocus()
+    expect(onRetry).toHaveBeenCalledOnce()
+    expect(screen.queryByText('123,45 €')).not.toBeInTheDocument()
+  })
+
+  it('moves focus to Summary after retry success only when retry still has focus', async () => {
+    // Arrange: Render a failed query and focus its retry action.
+    const user = userEvent.setup()
+    const onRetry = vi.fn()
+    const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 6 } }, new Date(2026, 6, 31, 12))
+    const previousPeriod = createPreviousAnalyticsPeriod(period)
+    const previousResult = { ...baseResult, isEmpty: true, sessionCount: 0, totalSessionSpendCents: 0, billedEnergyKwh: null, averageSessionPriceCtPerKwh: null, validBilledEnergySessionCount: 0 }
+    const comparison = comparePreviousPeriod(baseResult, previousResult, period, previousPeriod)
+    const props = { period, previousPeriod, result: baseResult, previousResult, comparison, layoutMode, onAddSession: vi.fn(), onRetry }
+    const view = renderRetryHarness(props)
+    const retry = screen.getByRole('button', { name: 'Try again' })
+
+    // Act: Retry and resolve the loading query successfully while retry remains focused.
+    await user.click(retry)
+    view.setQueryState({ isLoading: false, error: null })
+
+    // Assert: Success returns focus to the Summary heading and shows the recovered value.
+    const summary = screen.getByRole('heading', { name: /July 2026 summary/ })
+    await waitFor(() => expect(summary).toHaveFocus())
+    expect(screen.getByText('123,45 €')).toBeInTheDocument()
+    expect(onRetry).toHaveBeenCalledOnce()
+  })
+
+  it('clears retry state and transfers focused retry after a synchronous success', async () => {
+    // Arrange: Configure the retry callback to settle successfully in the same update.
+    const user = userEvent.setup()
+    const onRetry = vi.fn()
+    const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 6 } }, new Date(2026, 6, 31, 12))
+    const previousPeriod = createPreviousAnalyticsPeriod(period)
+    const previousResult = { ...baseResult, isEmpty: true, sessionCount: 0, totalSessionSpendCents: 0, billedEnergyKwh: null, averageSessionPriceCtPerKwh: null, validBilledEnergySessionCount: 0 }
+    const comparison = comparePreviousPeriod(baseResult, previousResult, period, previousPeriod)
+    const props = { period, previousPeriod, result: baseResult, previousResult, comparison, layoutMode, onAddSession: vi.fn(), onRetry }
+    const view = renderRetryHarness(props, { isLoading: false, error: null })
+    const retry = screen.getByRole('button', { name: 'Try again' })
+
+    // Act: Settle the retry without an intermediate loading render.
+    await user.click(retry)
+
+    // Assert: The action is removed, values recover, and its focus transfers to Summary.
+    expect(screen.queryByRole('button', { name: /Retrying selected summary|Try again/ })).not.toBeInTheDocument()
+    const summary = screen.getByRole('heading', { name: /July 2026 summary/ })
+    await waitFor(() => expect(summary).toHaveFocus())
+    expect(screen.getByText('123,45 €')).toBeInTheDocument()
+    expect(onRetry).toHaveBeenCalledOnce()
+    view.unmount()
+  })
+
+  it('does not move focus after success when the user moved focus during retry', async () => {
+    // Arrange: Start a retry and retain access to the methodology control as another focus target.
+    const user = userEvent.setup()
+    const onRetry = vi.fn()
+    const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 6 } }, new Date(2026, 6, 31, 12))
+    const previousPeriod = createPreviousAnalyticsPeriod(period)
+    const previousResult = { ...baseResult, isEmpty: true, sessionCount: 0, totalSessionSpendCents: 0, billedEnergyKwh: null, averageSessionPriceCtPerKwh: null, validBilledEnergySessionCount: 0 }
+    const comparison = comparePreviousPeriod(baseResult, previousResult, period, previousPeriod)
+    const props = { period, previousPeriod, result: baseResult, previousResult, comparison, layoutMode, onAddSession: vi.fn(), onRetry }
+    const view = renderRetryHarness(props)
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    const otherFocusTarget = document.createElement('button')
+    otherFocusTarget.textContent = 'Other action'
+    document.body.append(otherFocusTarget)
+    otherFocusTarget.focus()
+
+    // Act: Resolve the selected-period retry while focus is elsewhere.
+    view.setQueryState({ isLoading: false, error: null })
+
+    // Assert: Success leaves the user's chosen focus target in place.
+    await waitFor(() => expect(otherFocusTarget).toHaveFocus())
+    expect(screen.getByText('123,45 €')).toBeInTheDocument()
+    expect(onRetry).toHaveBeenCalledOnce()
+    otherFocusTarget.remove()
+  })
+
+  it('does not carry retry focus across a reload started elsewhere', () => {
+    // Arrange: Focus the retry action without activating it.
+    const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 6 } }, new Date(2026, 6, 31, 12))
+    const previousPeriod = createPreviousAnalyticsPeriod(period)
+    const comparison = comparePreviousPeriod(baseResult, baseResult, period, previousPeriod)
+    const onRetry = vi.fn()
+    const view = renderRetryHarness({ period, previousPeriod, result: baseResult, previousResult: baseResult, comparison, layoutMode, onAddSession: vi.fn(), onRetry })
+    screen.getByRole('button', { name: 'Try again' }).focus()
+    render(<button>Other action</button>)
+
+    // Act: A separate reload removes Retry, and the user moves focus while it loads.
+    view.setQueryState({ isLoading: true, error: null })
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument()
+    const otherAction = screen.getByRole('button', { name: 'Other action' })
+    otherAction.focus()
+    view.setQueryState({ isLoading: false, error: null })
+
+    // Assert: The unrelated result does not take that focus.
+    expect(otherAction).toHaveFocus()
+    expect(onRetry).not.toHaveBeenCalled()
   })
 })

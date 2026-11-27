@@ -101,6 +101,7 @@ function sessionsState(
     isLoading: false,
     error: null,
     pendingSyncError: null,
+    retry: vi.fn(),
     ...overrides,
   }
 }

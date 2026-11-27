@@ -7,7 +7,7 @@ import { comparePreviousPeriod } from '../model/previousPeriodComparison'
 
 /** Reactively aggregates spend and billed energy for the selected Analytics period. */
 export function useMonthlySessionSpend(period: AnalyticsPeriod, previousPeriod: PreviousAnalyticsPeriod) {
-  const { sessions, isLoading, error } = useSessions()
+  const { sessions, isLoading, error, retry } = useSessions()
   const result = useMemo(
     () => calculateMonthlySessionSpend(sessions, period),
     [sessions, period],
@@ -29,5 +29,5 @@ export function useMonthlySessionSpend(period: AnalyticsPeriod, previousPeriod: 
     () => calculateBillingProviderBreakdown(sessions, period),
     [sessions, period],
   )
-  return { result, previousResult, comparison, providerBreakdown, isLoading, error }
+  return { result, previousResult, comparison, providerBreakdown, isLoading, error, retry }
 }

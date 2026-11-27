@@ -239,7 +239,7 @@ export const ChargingHistory: React.FC<ChargingHistoryProps> = ({
                 <button
                   type="button"
                   onClick={onRetryHydration}
-                  className="mt-3 min-h-[44px] rounded-xl border border-slab-border px-4 py-2 text-sm font-semibold text-primary transition-colors hover:bg-secondary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+                  className="mt-3 min-h-[44px] rounded-xl border border-slab-border px-4 py-2 text-sm font-semibold text-primary transition-colors hover:bg-secondary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                   Try again
                 </button>

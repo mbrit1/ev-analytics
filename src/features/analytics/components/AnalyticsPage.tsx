@@ -44,6 +44,7 @@ export function AnalyticsPage({
     providerBreakdown,
     isLoading: isMonthlyLoading,
     error: monthlyError,
+    retry: retryMonthlySessions,
   } = useMonthlySessionSpend(period, previousPeriod)
   const overallPriceQuery = useOverallChargingPrice(formatLocalDateKey(now))
 
@@ -102,6 +103,7 @@ export function AnalyticsPage({
           layoutMode={layoutMode}
           isLoading={isMonthlyLoading}
           error={monthlyError}
+          onRetry={retryMonthlySessions}
           onAddSession={onAddSession}
         />
       </section>
