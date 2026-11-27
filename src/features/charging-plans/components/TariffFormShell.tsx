@@ -34,7 +34,7 @@ export function TariffFormShell({
           <h2 className="text-2xl font-bold text-primary">{title}</h2>
           <p className="text-sm text-secondary mt-1">{description}</p>
         </div>
-        <button type="button" onClick={onCancel} aria-label="Cancel" className="p-2 text-secondary/40 hover:text-secondary rounded-full hover:bg-secondary/10 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center">
+        <button type="button" onClick={onCancel} aria-label="Cancel" className="p-2 text-slab-secondary hover:text-primary rounded-full hover:bg-secondary/10 transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center">
           <X className="w-6 h-6" />
         </button>
       </div>

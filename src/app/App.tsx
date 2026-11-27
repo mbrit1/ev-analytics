@@ -463,7 +463,7 @@ function App() {
   if (loading) {
     return (
       <div className="min-h-[100dvh] flex items-center justify-center bg-environment">
-        <Loader2 className="w-8 h-8 text-accent animate-spin" />
+        <Loader2 className="w-8 h-8 text-accent animate-spin motion-reduce:animate-none" />
       </div>
     )
   }
@@ -572,7 +572,7 @@ function App() {
                 <Suspense
                   fallback={(
                     <div className="min-h-[200px] flex items-center justify-center">
-                      <Loader2 className="w-6 h-6 text-accent animate-spin" />
+                      <Loader2 className="w-6 h-6 text-accent animate-spin motion-reduce:animate-none" />
                     </div>
                   )}
                 >

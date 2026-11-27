@@ -55,6 +55,7 @@ const emptyMonthlyQuery = {
   providerBreakdown: emptyProviderBreakdown,
   isLoading: false,
   error: null,
+  retry: vi.fn(),
 }
 
 const readyOverallPrice: OverallChargingPriceQueryState = {
@@ -223,6 +224,7 @@ describe('AnalyticsPage', () => {
         comparison: emptyComparison,
         isLoading: false,
         error: null,
+        retry: vi.fn(),
       }
     })
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
@@ -345,6 +347,7 @@ describe('AnalyticsPage', () => {
         comparison: comparePreviousPeriod(result, previousResult, period, previousPeriod),
         isLoading: false,
         error: null,
+        retry: vi.fn(),
       }
     })
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
@@ -479,6 +482,7 @@ describe('AnalyticsPage', () => {
         providerBreakdown: calculateBillingProviderBreakdown([], period),
         isLoading: false,
         error: null,
+        retry: vi.fn(),
         previousResult: monthlyResult,
         comparison: emptyComparison,
       }
@@ -531,6 +535,7 @@ describe('AnalyticsPage', () => {
       providerBreakdown: calculateBillingProviderBreakdown([], period),
       isLoading: false,
       error: null,
+      retry: vi.fn(),
       previousResult: monthlyResult,
       comparison: emptyComparison,
     }))
@@ -584,6 +589,7 @@ describe('AnalyticsPage', () => {
       providerBreakdown: calculateBillingProviderBreakdown([], period),
       isLoading: false,
       error: null,
+      retry: vi.fn(),
       previousResult: monthlyResult,
       comparison: emptyComparison,
     }))
@@ -776,6 +782,7 @@ describe('AnalyticsPage', () => {
         comparison: { status: 'compared', spending: { status: 'percentage', percentage: 25 }, energy: { status: 'percentage', percentage: 10 }, priceDifferenceEurPerKwh: 0.03 },
         isLoading: false,
         error: null,
+        retry: vi.fn(),
       }
     })
     vi.mocked(useAnalyticsLayoutMode).mockReturnValue('bottom-dock')
@@ -814,7 +821,8 @@ describe('AnalyticsPage', () => {
     })
     const { rerender } = render(<AnalyticsPage onAddSession={vi.fn()} />)
     // Act / Assert
-    expect(screen.getByText('Unable to load the summary. Please try again.')).toHaveAttribute('role', 'alert')
+    expect(screen.getByText('Unable to load the summary.')).toHaveAttribute('role', 'alert')
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Lifetime Overall Price' })).toHaveTextContent('0,60')
     vi.mocked(useMonthlySessionSpend).mockReturnValue(emptyMonthlyQuery)
     rerender(<AnalyticsPage onAddSession={vi.fn()} />)

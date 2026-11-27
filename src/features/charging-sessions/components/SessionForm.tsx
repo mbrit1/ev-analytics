@@ -1338,7 +1338,7 @@ export const SessionForm: React.FC<SessionFormProps> = ({ onSubmit, onCancel, in
             className="flex-1 flex items-center justify-center py-4 px-6 bg-accent text-white font-bold rounded-xl hover:opacity-90 transition-all disabled:opacity-50 min-h-[56px] shadow-lg shadow-accent/20"
           >
             {isSubmitting ? (
-              <div className="w-5 h-5 border-2 border-surface/30 border-t-surface rounded-full animate-spin mr-2" />
+              <div className="w-5 h-5 border-2 border-surface/30 border-t-surface rounded-full animate-spin motion-reduce:animate-none mr-2" />
             ) : (
               <Save className="w-5 h-5 mr-2" />
             )}

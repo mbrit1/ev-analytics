@@ -1,4 +1,4 @@
-import { useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 import { Slab } from '../../../shared/ui'
 import { formatCurrency, formatKwh, formatMonthLabel, formatCtPerKwhAsEuroAmount } from '../../../shared/lib'
@@ -21,6 +21,7 @@ export interface MonthlySessionSpendSlabProps {
   layoutMode: AnalyticsLayoutMode
   isLoading: boolean
   error?: unknown | null
+  onRetry: () => void
   onAddSession: () => void
 }
 
@@ -58,7 +59,7 @@ function energyCoverage(result: MonthlySessionSpendResult) {
 }
 
 /** Presents recorded spending, billed energy and their complete-coverage weighted price. */
-export function MonthlySessionSpendSlab({ period, previousPeriod, result, previousResult, comparison, layoutMode, isLoading, error = null, onAddSession }: MonthlySessionSpendSlabProps) {
+export function MonthlySessionSpendSlab({ period, previousPeriod, result, previousResult, comparison, layoutMode, isLoading, error = null, onRetry, onAddSession }: MonthlySessionSpendSlabProps) {
   const isMobile = layoutMode === 'bottom-dock'
   const selection = period.selection
   const monthLabel = selection.kind === 'month'
@@ -77,6 +78,16 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
   const [comparisonMetric, setComparisonMetric] = useState<PeriodComparisonMetric>('price')
   const comparisonTriggerRef = useRef<HTMLButtonElement>(null)
   const summaryHeadingRef = useRef<HTMLHeadingElement>(null)
+  const retryFocusOnRemovalRef = useRef(false)
+  const [retryRequested, setRetryRequested] = useState(false)
+  const retryPending = retryRequested && isLoading
+  if (retryRequested && !isLoading) setRetryRequested(false)
+  const retryButtonRef = useCallback((button: HTMLButtonElement | null) => {
+    if (button === null) return
+    return () => {
+      retryFocusOnRemovalRef.current = document.activeElement === button
+    }
+  }, [])
   const methodologyFocusFallback = useMemo(() => ({
     get current() {
       return comparisonTriggerRef.current ?? summaryHeadingRef.current
@@ -88,6 +99,13 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
     ? 'Unavailable'
     : `${previousCoverage ? 'Known ' : ''}${energy(previousResult.billedEnergyKwh)}`
   const compared = comparison.status === 'compared'
+
+  useLayoutEffect(() => {
+    const retryHadFocus = retryFocusOnRemovalRef.current
+    retryFocusOnRemovalRef.current = false
+    if (error === null && !isLoading && retryHadFocus) summaryHeadingRef.current?.focus()
+  }, [error, isLoading, retryPending])
+
   const zeroBaseline = compared && (comparison.spending.status === 'up-from-zero'
     || (comparison.spending.status === 'no-change' && previousResult.totalSessionSpendCents === 0))
   const [spendingMetric, energyMetric, priceMetric] = [
@@ -150,22 +168,39 @@ export function MonthlySessionSpendSlab({ period, previousPeriod, result, previo
   )
 
   return (
-    <Slab padding="none" className={isMobile ? '@container/charging-summary w-full space-y-3 p-5 wrap-anywhere motion-reduce:transition-none' : 'w-full space-y-4 p-5 md:p-8'} aria-busy={isLoading && error === null}>
+    <Slab padding="none" className={isMobile ? '@container/charging-summary w-full space-y-3 p-5 wrap-anywhere motion-reduce:transition-none' : 'w-full space-y-4 p-5 md:p-8'} aria-busy={isLoading && error === null && !retryPending}>
       <div className={isMobile ? 'flex items-start justify-between gap-2' : 'relative pr-11'}>
         <div className="min-w-0 space-y-1">
           <h2
             ref={summaryHeadingRef}
             tabIndex={-1}
             aria-label={isMobile ? `Charging Summary · ${accessibleScope}` : accessibleScope}
-            className="text-sm font-semibold text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent/60"
+            className="text-sm font-semibold text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             {isMobile ? 'Charging Summary' : 'Summary'}
           </h2>
         </div>
         {!isMobile && <div className="absolute -top-3 right-0">{methodology}</div>}
       </div>
-      {error !== null ? (
-        <p role="alert" className="text-sm text-primary">Unable to load the summary. Please try again.</p>
+      {error !== null || retryPending ? (
+        <div className="space-y-2">
+          <p role="status" aria-live="polite" className="sr-only">{retryPending ? 'Retrying selected summary…' : ''}</p>
+          {error !== null && <p role="alert" className="text-sm text-primary">Unable to load the summary.</p>}
+          <button
+            ref={retryButtonRef}
+            type="button"
+            aria-disabled={retryPending}
+            aria-label={retryPending ? 'Retrying selected summary' : 'Try again'}
+            onClick={() => {
+              if (retryPending) return
+              setRetryRequested(true)
+              onRetry()
+            }}
+            className="min-h-[44px] min-w-[44px] rounded-xl border border-slab-border px-4 py-2 text-sm font-semibold text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            {retryPending ? 'Retrying…' : 'Try again'}
+          </button>
+        </div>
       ) : isLoading ? (
         <div role="status">
           <span className="sr-only">Loading summary</span>

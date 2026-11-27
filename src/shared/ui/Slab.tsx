@@ -27,7 +27,7 @@ export const Slab: React.FC<SlabProps> = ({
   padding = 'default',
   ...containerProps
 }) => {
-  const baseClasses = 'bg-surface border border-slab-border rounded-slab shadow-slab transition-all duration-300';
+  const baseClasses = 'bg-surface border border-slab-border rounded-slab shadow-slab transition-all duration-300 motion-reduce:transition-none';
   const paddingClass = padding === 'default' ? 'p-8' : '';
   const combinedClasses = `${baseClasses} ${paddingClass} ${className}`.trim();
 

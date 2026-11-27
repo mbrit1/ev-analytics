@@ -51,6 +51,7 @@ describe('useMonthlySessionSpend', () => {
       isLoading: true,
       error: null,
       pendingSyncError: null,
+      retry: vi.fn(),
     })
 
     // Act: Render the hook for June.
@@ -78,6 +79,7 @@ describe('useMonthlySessionSpend', () => {
       isLoading: false,
       error: null,
       pendingSyncError: null,
+      retry: vi.fn(),
     })
     const now = new Date(2026, 6, 15)
 
@@ -99,7 +101,7 @@ describe('useMonthlySessionSpend', () => {
     // Act: A local session edit arrives while the selected period stays July.
     vi.mocked(useSessions).mockReturnValue({
       sessions: [buildSession(new Date(2026, 6, 10, 12), 5000)],
-      pendingSyncIds: new Set(), isLoading: false, error: null, pendingSyncError: null,
+      pendingSyncIds: new Set(), isLoading: false, error: null, pendingSyncError: null, retry: vi.fn(),
     })
     rerender({ period: createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 6 } }, now), previousPeriod: previousFor({ kind: 'month', month: { year: 2026, month: 6 } }, now) })
 
@@ -118,6 +120,7 @@ describe('useMonthlySessionSpend', () => {
       isLoading: false,
       error: null,
       pendingSyncError: null,
+      retry: vi.fn(),
     })
     const now = new Date(2026, 5, 10, 8)
     const { result, rerender } = renderHook(
@@ -136,7 +139,7 @@ describe('useMonthlySessionSpend', () => {
   it('exposes session query errors without treating them as an empty result', () => {
     // Arrange
     const error = new Error('read failed')
-    vi.mocked(useSessions).mockReturnValue({ sessions: [], pendingSyncIds: new Set(), isLoading: false, error, pendingSyncError: null })
+    vi.mocked(useSessions).mockReturnValue({ sessions: [], pendingSyncIds: new Set(), isLoading: false, error, pendingSyncError: null, retry: vi.fn() })
     // Act
     const period = createAnalyticsPeriod({ kind: 'month', month: { year: 2026, month: 5 } }, new Date(2026, 6, 1))
     const { result } = renderHook(() => useMonthlySessionSpend(period, createPreviousAnalyticsPeriod(period)))

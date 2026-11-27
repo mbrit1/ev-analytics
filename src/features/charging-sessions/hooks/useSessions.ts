@@ -1,10 +1,15 @@
+import { useCallback, useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type ChargingSession, type SyncPayload } from '../../../infra/db';
 import { getSessions } from '../services/sessionService';
 import { useAuth } from '../../auth';
 
-type SettledQuery<T> =
-  | { userId: string | null; status: 'success'; data: T }
+type SessionQuery =
+  | { userId: string | null; revision: number; status: 'success'; data: ChargingSession[] }
+  | { userId: string | null; revision: number; status: 'error'; error: unknown };
+
+type PendingSyncQuery =
+  | { userId: string | null; status: 'success'; data: Set<string> }
   | { userId: string | null; status: 'error'; error: unknown };
 
 /** Current local charging-session data and its independent query diagnostics. */
@@ -19,6 +24,8 @@ export interface UseSessionsResult {
   error: unknown | null;
   /** Independent failure from the pending-sync outbox decoration read. */
   pendingSyncError: unknown | null;
+  /** Reexecutes the owner-scoped local session read. */
+  retry: () => void;
 }
 
 /**
@@ -33,15 +40,17 @@ export interface UseSessionsResult {
 export function useSessions(): UseSessionsResult {
   const { user } = useAuth();
   const userId = user?.id ?? null;
-  const sessionQuery = useLiveQuery<SettledQuery<ChargingSession[]>>(async () => {
-    if (!user) return { userId, status: 'success', data: [] };
+  const [sessionRevision, setSessionRevision] = useState(0);
+  const retry = useCallback(() => setSessionRevision((revision) => revision + 1), []);
+  const sessionQuery = useLiveQuery<SessionQuery>(async () => {
+    if (!user) return { userId, revision: sessionRevision, status: 'success', data: [] };
     try {
-      return { userId, status: 'success', data: await getSessions(user.id) };
+      return { userId, revision: sessionRevision, status: 'success', data: await getSessions(user.id) };
     } catch (error) {
-      return { userId, status: 'error', error: error ?? new Error('Session read failed') };
+      return { userId, revision: sessionRevision, status: 'error', error: error ?? new Error('Session read failed') };
     }
-  }, [userId]);
-  const pendingSyncQuery = useLiveQuery<SettledQuery<Set<string>>>(
+  }, [userId, sessionRevision]);
+  const pendingSyncQuery = useLiveQuery<PendingSyncQuery>(
     async () => {
       if (!user) {
         return { userId, status: 'success', data: new Set<string>() };
@@ -68,7 +77,9 @@ export function useSessions(): UseSessionsResult {
 
   // A live query can retain its previous value while dependencies switch. Only
   // expose a settled value once it belongs to the currently authenticated user.
-  const currentSessionQuery = sessionQuery?.userId === userId ? sessionQuery : undefined;
+  const currentSessionQuery = sessionQuery?.userId === userId && sessionQuery.revision === sessionRevision
+    ? sessionQuery
+    : undefined;
   const currentPendingSyncQuery = pendingSyncQuery?.userId === userId ? pendingSyncQuery : undefined;
   const error = currentSessionQuery?.status === 'error' ? currentSessionQuery.error : null;
   const pendingSyncError = currentPendingSyncQuery?.status === 'error'
@@ -84,5 +95,6 @@ export function useSessions(): UseSessionsResult {
       || (error === null && pendingSyncError === null && currentPendingSyncQuery === undefined),
     error,
     pendingSyncError,
+    retry,
   };
 }
