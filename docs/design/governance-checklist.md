@@ -40,6 +40,12 @@ Use this checklist for every UI-facing change. The default baseline is
   page action can also wrap below its heading and description. Keep the whole
   card as one edit target and verify focus return, scroll restoration, and
   clearance above the dock.
+- Tariffs cards use a text-relative list width to move the separate Actions
+  button below the edit link when the two compete for space. Keep provider
+  and tariff identity at the full content width in this layout. Let each price
+  label and tabular EUR value wrap together within its own row, including in
+  upcoming and retired tariffs. Ordinary Add tariff cancellation returns
+  focus to the live Add tariff action, with the Tariffs list region as fallback.
 
 ## 5) Interaction and motion
 - Hover-only feedback is gated by both `(hover: hover)` and `(pointer: fine)`; touch feedback uses active state rather than sticky hover.

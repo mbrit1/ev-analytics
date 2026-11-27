@@ -8,19 +8,25 @@ export interface EntitySlabProps {
   trailing?: ReactNode;
   /** Whether the primary content drives the article's interaction state. */
   mainInteraction?: boolean;
+  /** Optional classes for the article surface. */
+  className?: string;
+  /** Optional layout classes for the consumer's content and actions. */
+  contentClassName?: string;
 }
 
 /** Generic, non-interactive article surface for an entity and its actions. */
-export function EntitySlab({ main, trailing, mainInteraction = false }: EntitySlabProps) {
+export function EntitySlab({
+  main, trailing, mainInteraction = false, className = '', contentClassName = '',
+}: EntitySlabProps) {
   return (
     <article
       className={`relative isolate space-y-4 rounded-2xl bg-surface p-6 shadow-slab ${
         mainInteraction
           ? "before:pointer-events-none before:absolute before:inset-0 before:z-0 before:rounded-[inherit] before:content-[''] before:transition-colors before:duration-150 motion-reduce:before:transition-none [&:has([data-entity-slab-main]:active)]:before:bg-secondary/10 [&:has([data-entity-slab-main]_:focus-visible)]:ring-2 [&:has([data-entity-slab-main]_:focus-visible)]:ring-accent/70 [&:has([data-entity-slab-main]_:focus-visible)]:ring-offset-2 [&:has([data-entity-slab-main]_:focus-visible)]:ring-offset-surface [@media(hover:hover)_and_(pointer:fine)]:[&:has([data-entity-slab-main]:hover)]:before:bg-secondary/5"
           : ''
-      }`}
+      } ${className}`.trim()}
     >
-      <div className="relative z-10 flex items-start justify-between gap-4">
+      <div className={`relative z-10 flex items-start justify-between gap-4 ${contentClassName}`}>
         <div className="min-w-0 flex-1" data-entity-slab-main={mainInteraction ? '' : undefined}>{main}</div>
         {trailing ? <div className="shrink-0">{trailing}</div> : null}
       </div>

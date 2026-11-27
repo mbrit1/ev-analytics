@@ -414,6 +414,40 @@ describe('TariffList', () => {
     expect(screen.queryByText('Session Fee')).not.toBeInTheDocument();
   });
 
+  it('keeps tariff identity and all six price labels with their corresponding amounts', () => {
+    // Arrange
+    vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
+      logicalTariffs: [buildLogicalTariff({
+        currentVersion: buildPlan({
+          ac_price_per_kwh: 41,
+          dc_price_per_kwh: 58,
+          roaming_ac_price_per_kwh: 64,
+          roaming_dc_price_per_kwh: 79,
+          monthly_base_fee: 123456789,
+          session_fee: 349,
+        }),
+      })],
+    }));
+
+    // Act
+    renderTariffList();
+
+    // Assert
+    const tariff = within(screen.getByRole('link', { name: 'Open tariff Ionity Lidl' }));
+    expect(tariff.getByRole('heading', { name: 'Ionity' })).toBeInTheDocument();
+    expect(tariff.getByText('Lidl')).toBeInTheDocument();
+    for (const [label, value] of [
+      ['Domestic AC', '0,41 €'],
+      ['Domestic DC', '0,58 €'],
+      ['Roaming AC', '0,64 €'],
+      ['Roaming DC', '0,79 €'],
+      ['Monthly Base Fee', '1.234.567,89 €'],
+      ['Session Fee', '3,49 €'],
+    ]) {
+      expect(tariff.getByText(label).parentElement).toHaveTextContent(value);
+    }
+  });
+
   it('shows the preview date and future prices as an ordered secondary data block', () => {
     // Arrange: Render a logical tariff with an imminent preview.
     vi.mocked(useChargingPlans).mockReturnValue(buildHookValue({
@@ -1053,6 +1087,38 @@ describe('TariffList', () => {
       expect(window.scrollTo).toHaveBeenCalledWith({ top: 640, behavior: 'auto' });
       expect(screen.getByRole('link', { name: /open tariff ionity lidl/i })).toHaveFocus();
       expect(onRestorationComplete).toHaveBeenCalled();
+    });
+  });
+
+  it('returns ordinary create cancellation intent to the shell', async () => {
+    // Arrange: Render a shell-owned ordinary create form.
+    const onCloseForm = vi.fn();
+    const user = userEvent.setup();
+    renderTariffList({ tariffFormState: { mode: 'create' }, onCloseForm });
+
+    // Act: Cancel the ordinary create form.
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    // Assert: The shell receives an explicit create-cancel intent.
+    expect(onCloseForm).toHaveBeenCalledWith('create-cancel');
+  });
+
+  it('focuses the named Tariffs list fallback when the Add action is no longer connected', async () => {
+    // Arrange: Remove the rendered action node to simulate a trigger that disappeared before restoration.
+    const onRestorationComplete = vi.fn();
+    const { rerender } = renderTariffList();
+    screen.getByRole('button', { name: /add tariff/i }).remove();
+
+    // Act: Request restoration to the now disconnected Add action.
+    rerender(tariffListElement({
+      restorationRequest: { type: 'position', scrollY: 0, focusAction: 'add-tariff' },
+      onRestorationComplete,
+    }));
+
+    // Assert: Focus lands on the stable named list region and restoration completes.
+    await waitFor(() => {
+      expect(screen.getByRole('region', { name: 'Tariffs list' })).toHaveFocus();
+      expect(onRestorationComplete).toHaveBeenCalledTimes(1);
     });
   });
 

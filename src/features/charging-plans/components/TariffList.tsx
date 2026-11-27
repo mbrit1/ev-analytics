@@ -27,7 +27,7 @@ type TariffFormState =
   | { mode: 'edit'; logicalTariffKey: string };
 
 type TariffRestoreRequest =
-  | { type: 'position'; scrollY: number; focusTariffKey?: string | null }
+  | { type: 'position'; scrollY: number; focusTariffKey?: string | null; focusAction?: 'add-tariff' }
   | { type: 'tariff'; tariffKey: string };
 
 type TariffSurface =
@@ -72,7 +72,7 @@ interface TariffListProps {
     chargingPlans: HydrationTableState;
     onRetry: () => void;
   };
-  onCloseForm: () => void;
+  onCloseForm: (intent?: 'create-cancel') => void;
   onSaveComplete: (logicalTariffKey: string) => void;
   onRestorationComplete: () => void;
   onFormOpenChange?: (isOpen: boolean) => void;
@@ -92,56 +92,37 @@ function shouldRenderFeeAmount(amount: number | undefined): amount is number {
   return amount != null && amount > 0;
 }
 
+function TariffPriceRow({ label, cents }: { label: string; cents: number }) {
+  return (
+    <div className="flex w-full flex-wrap items-baseline gap-x-3 gap-y-1">
+      <span className="max-w-full [overflow-wrap:anywhere]">{label}</span>
+      <span className="ml-auto min-w-[min(6ch,100%)] max-w-full text-right tabular-nums font-medium [overflow-wrap:anywhere]">
+        {formatCurrency(cents)}
+      </span>
+    </div>
+  );
+}
+
 function CurrentPricingRows({ plan }: CurrentPricingRowsProps) {
   return (
     <div className="grid w-full grid-cols-1 gap-y-2 text-sm">
       {shouldRenderAmount(plan?.ac_price_per_kwh) && (
-        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
-          <span>Domestic AC</span>
-          <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
-            {formatCurrency(plan.ac_price_per_kwh)}
-          </span>
-        </div>
+        <TariffPriceRow label="Domestic AC" cents={plan.ac_price_per_kwh} />
       )}
       {shouldRenderAmount(plan?.dc_price_per_kwh) && (
-        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
-          <span>Domestic DC</span>
-          <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
-            {formatCurrency(plan.dc_price_per_kwh)}
-          </span>
-        </div>
+        <TariffPriceRow label="Domestic DC" cents={plan.dc_price_per_kwh} />
       )}
       {shouldRenderAmount(plan?.roaming_ac_price_per_kwh) && (
-        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
-          <span>Roaming AC</span>
-          <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
-            {formatCurrency(plan.roaming_ac_price_per_kwh)}
-          </span>
-        </div>
+        <TariffPriceRow label="Roaming AC" cents={plan.roaming_ac_price_per_kwh} />
       )}
       {shouldRenderAmount(plan?.roaming_dc_price_per_kwh) && (
-        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
-          <span>Roaming DC</span>
-          <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
-            {formatCurrency(plan.roaming_dc_price_per_kwh)}
-          </span>
-        </div>
+        <TariffPriceRow label="Roaming DC" cents={plan.roaming_dc_price_per_kwh} />
       )}
       {shouldRenderFeeAmount(plan?.monthly_base_fee) && (
-        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
-          <span>Monthly Base Fee</span>
-          <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
-            {formatCurrency(plan.monthly_base_fee)}
-          </span>
-        </div>
+        <TariffPriceRow label="Monthly Base Fee" cents={plan.monthly_base_fee} />
       )}
       {shouldRenderFeeAmount(plan?.session_fee) && (
-        <div className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3">
-          <span>Session Fee</span>
-          <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
-            {formatCurrency(plan.session_fee)}
-          </span>
-        </div>
+        <TariffPriceRow label="Session Fee" cents={plan.session_fee} />
       )}
     </div>
   );
@@ -238,6 +219,8 @@ export function TariffList({
   const tariffActionTriggerElementsRef = useRef<Record<string, HTMLButtonElement | null>>({});
   const retiredCreateButtonElementsRef = useRef<Record<string, HTMLButtonElement | null>>({});
   const createTariffFormRef = useRef<HTMLDivElement>(null);
+  const addTariffActionRef = useRef<HTMLButtonElement>(null);
+  const tariffListFallbackRef = useRef<HTMLDivElement>(null);
 
   const providerNameById = useMemo(
     () => new Map(providers.map((provider) => [provider.id, provider.name])),
@@ -403,6 +386,18 @@ export function TariffList({
     if (restorationRequest.type === 'position') {
       window.scrollTo({ top: restorationRequest.scrollY, behavior: 'auto' });
       const focusKey = restorationRequest.focusTariffKey;
+      if (restorationRequest.focusAction === 'add-tariff') {
+        const restoreTask = window.setTimeout(() => {
+          const liveAction = addTariffActionRef.current;
+          if (liveAction?.isConnected && !liveAction.disabled) {
+            liveAction.focus({ preventScroll: true });
+          } else {
+            tariffListFallbackRef.current?.focus({ preventScroll: true });
+          }
+          onRestorationComplete();
+        }, 0);
+        return () => window.clearTimeout(restoreTask);
+      }
       if (!focusKey) {
         onRestorationComplete();
         return;
@@ -556,12 +551,20 @@ export function TariffList({
   }
 
   return (
-    <div className="space-y-4">
+    <div
+      ref={tariffListFallbackRef}
+      role={isShellOwnedFormVisible ? undefined : 'region'}
+      aria-label={isShellOwnedFormVisible ? undefined : 'Tariffs list'}
+      tabIndex={isShellOwnedFormVisible ? undefined : -1}
+      className="@container/tariffs space-y-4"
+    >
       {!isShellOwnedFormVisible && (
         <PageActionSlab
           heading="Tariffs"
           description="Manage charging prices"
+          className="@max-[10rem]/tariffs:flex-wrap"
           actionLabel="Add tariff"
+          actionRef={addTariffActionRef}
           onAction={() => {
             setRetiredTariffCloneDraft(null);
             setRetiredCloneRestoreFocusKey(null);
@@ -579,8 +582,10 @@ export function TariffList({
               if (retiredTariffCloneDraft) {
                 setRetiredCloneRestoreFocusKey(retiredTariffCloneDraft.restoreFocusKey);
                 setRetiredTariffCloneDraft(null);
+                onCloseForm();
+              } else {
+                onCloseForm('create-cancel');
               }
-              onCloseForm();
             }}
             initialValues={retiredTariffCloneDraft?.initialValues}
           />
@@ -664,7 +669,7 @@ export function TariffList({
           </div>
           <button
             type="button"
-            onClick={onCloseForm}
+            onClick={() => onCloseForm()}
             className="inline-flex min-h-[44px] items-center rounded-xl bg-secondary/10 px-4 py-2 font-bold text-primary transition-all hover:bg-secondary/20"
           >
             Back to tariffs
@@ -707,6 +712,8 @@ export function TariffList({
           <EntitySlab
             key={logicalTariff.key}
             mainInteraction
+            className="@max-[14rem]/tariffs:px-[24px]"
+            contentClassName="@max-[14rem]/tariffs:flex-col @max-[14rem]/tariffs:items-stretch @max-[14rem]/tariffs:gap-2 @max-[14rem]/tariffs:[&>*:last-child]:self-end"
             main={(
               <a
                 href={getTariffEditHref(logicalTariff.key)}
@@ -751,15 +758,7 @@ export function TariffList({
                         {logicalTariff.upcomingVisibility.changes.flatMap((change) => {
                           if (change.valueCents == null) return [];
                           return [(
-                            <div
-                              key={change.label}
-                              className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3"
-                            >
-                              <span>{change.label}</span>
-                              <span className="min-w-[6ch] whitespace-nowrap text-right tabular-nums font-medium">
-                                {formatCurrency(change.valueCents)}
-                              </span>
-                            </div>
+                            <TariffPriceRow key={change.label} label={change.label} cents={change.valueCents} />
                           )];
                         })}
                       </div>
@@ -834,9 +833,9 @@ export function TariffList({
                 const finalVersion = logicalTariff.lifecycle.finalEffectiveVersion;
 
                 return (
-                  <Slab key={logicalTariff.key} className="space-y-4 p-6">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="space-y-1">
+                  <Slab key={logicalTariff.key} className="space-y-4 p-6 @max-[14rem]/tariffs:px-[24px]">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between @max-[14rem]/tariffs:flex-col @max-[14rem]/tariffs:items-stretch">
+                      <div className="min-w-0 space-y-1 [overflow-wrap:anywhere]">
                         <h2 className="text-xl font-semibold text-primary">{providerName}</h2>
                         {logicalTariff.name && (
                           <p className="text-sm text-secondary">{logicalTariff.name}</p>
